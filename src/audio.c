@@ -1,14 +1,25 @@
 // Audio: procedural sound effects and an ambient drone, mixed in an SDL3 audio stream.
-// No asset files -- everything below is synthesised sample-by-sample.
+// Everything in the SoundId layer below is synthesised sample-by-sample; on top of that this
+// file also supports loading WAV/OGG sample assets and a single (crossfading) music track.
 #include "audio.h"
 #include <SDL3/SDL.h>
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
+
+// stb_vorbis is a single-file library shipped as a .c file; include it directly so it becomes
+// part of this translation unit. We use its simplest API (stb_vorbis_decode_filename), so the
+// push-data streaming API is disabled to keep the compiled surface small.
+#define STB_VORBIS_NO_PUSHDATA_API
+#include "vendor/stb_vorbis.c"
 
 #define SAMPLE_RATE 48000
 #define NUM_VOICES 16
 #define TWO_PI 6.28318530717958647692f
 #define TINY_DC 1e-20f // keeps one-pole filters out of denormal land
+
+#define MAX_SAMPLES 128        // loaded WAV/OGG assets, cached by path
+#define NUM_SAMPLE_VOICES 24   // concurrently playing sample instances
 
 // ---------------------------------------------------------------- voices
 
@@ -22,6 +33,47 @@ typedef struct Voice {
     Uint64 age;     // monotonically increasing, used to steal the oldest voice
 } Voice;
 
+// ------------------------------------------------------------- sample assets
+
+// A fully-decoded WAV/OGG asset: interleaved stereo float at SAMPLE_RATE. Loaded (and malloc'd)
+// on the main thread; once published into g_samples[] it is immutable, so the mixer can read it
+// without a lock.
+typedef struct SampleData {
+    char path[512];
+    float *frames; // interleaved L,R,L,R...
+    int frame_count;
+} SampleData;
+
+static SampleData g_samples[MAX_SAMPLES];
+static int g_sample_count = 0;
+
+// A currently-playing instance of a loaded sample.
+typedef struct SampleVoice {
+    bool active;
+    int sample_id;
+    float pos;   // fractional frame index into the sample, advances by `pitch` per output frame
+    float pitch;
+    float gain;
+    Uint64 age;
+} SampleVoice;
+
+// ------------------------------------------------------------------- music
+
+// One music track: fully decoded like a sample, plus loop/fade state used to crossfade between
+// tracks. Fades are updated once per callback block (not per-sample).
+typedef struct MusicTrack {
+    float *frames;
+    int frame_count;
+    bool loop;
+    bool active;
+    int pos;          // integer frame index (music always plays at its native decoded rate)
+    float gain;        // per-track gain, set at audio_music_play()
+    float fade;         // current envelope value, 0..1
+    float fade_target;  // 0 (fading out, stops when reached) or 1 (fading in / steady)
+    float fade_rate;     // envelope change per second
+    char path[512];
+} MusicTrack;
+
 typedef struct AudioState {
     SDL_AudioStream *stream;
     SDL_Mutex *mutex;
@@ -29,6 +81,12 @@ typedef struct AudioState {
     Voice voices[NUM_VOICES];
     Uint64 next_age;
     Uint32 rng; // drives the per-voice seed assignment
+
+    SampleVoice sample_voices[NUM_SAMPLE_VOICES];
+
+    MusicTrack music_cur;  // the track that's current (playing in / steady / fading out on stop)
+    MusicTrack music_prev; // the previous track, fading out during a crossfade
+    float music_gain;      // bus gain for music, on top of each track's own gain
 
     float drone_target, drone_level;
     float fight_target, fight_level;
@@ -305,15 +363,31 @@ static void mix_block(float *out, int frames) {
     Voice local[NUM_VOICES];
     memcpy(local, g_audio.voices, sizeof local);
 
+    SampleVoice local_samples[NUM_SAMPLE_VOICES];
+    memcpy(local_samples, g_audio.sample_voices, sizeof local_samples);
+
+    // Music fade envelopes are linear and only stepped once per block (not per-sample) -- the
+    // block is short enough (a few ms to ~85ms) that this reads as a smooth crossfade.
+    MusicTrack *tracks[2] = { &g_audio.music_cur, &g_audio.music_prev };
+    for (int m = 0; m < 2; m++) {
+        MusicTrack *t = tracks[m];
+        if (!t->active) continue;
+        float step = t->fade_rate * block_dt;
+        if (t->fade < t->fade_target) t->fade = fminf(t->fade + step, t->fade_target);
+        else if (t->fade > t->fade_target) t->fade = fmaxf(t->fade - step, t->fade_target);
+        if (t->fade_target <= 0.0001f && t->fade <= 0.0001f) t->active = false; // fully faded out
+    }
+    float music_gain = g_audio.music_gain;
+
     for (int i = 0; i < frames; i++) {
-        float mix = 0.0f;
+        float mono = 0.0f;
 
         for (int v = 0; v < NUM_VOICES; v++) {
             if (!local[v].active) continue;
             bool done = false;
             float s = synth_sound(local[v].id, local[v].t, &local[v].seed, &done);
             if (done) { local[v].active = false; continue; }
-            mix += s * local[v].gain;
+            mono += s * local[v].gain;
             local[v].t += local[v].pitch / (float)SAMPLE_RATE;
         }
 
@@ -331,18 +405,59 @@ static void mix_block(float *out, int frames) {
         float shimmer = shimmerRaw - lowpass1(&g_audio.fight_shimmer_lp, shimmerRaw, 0.35f); // crude high-pass
         float fight = (fightTone * 0.7f + shimmer * 0.25f) * fight_level;
 
-        mix += drone + fight;
-        mix *= master;
-        mix = tanhf(mix);
-        if (!isfinite(mix)) mix = 0.0f;
+        mono += drone + fight;
+        float mixL = mono, mixR = mono;
 
-        out[i * 2 + 0] = mix;
-        out[i * 2 + 1] = mix;
+        // Sample voices: linear-interpolated so `pitch` can retune playback speed.
+        for (int sv = 0; sv < NUM_SAMPLE_VOICES; sv++) {
+            SampleVoice *voice = &local_samples[sv];
+            if (!voice->active) continue;
+            int id = voice->sample_id;
+            if (id < 0 || id >= g_sample_count) { voice->active = false; continue; }
+            SampleData *sd = &g_samples[id];
+            int i0 = (int)voice->pos;
+            if (sd->frame_count < 2 || i0 >= sd->frame_count - 1) { voice->active = false; continue; }
+            int i1 = i0 + 1;
+            float frac = voice->pos - (float)i0;
+            float l = sd->frames[i0 * 2 + 0] + (sd->frames[i1 * 2 + 0] - sd->frames[i0 * 2 + 0]) * frac;
+            float r = sd->frames[i0 * 2 + 1] + (sd->frames[i1 * 2 + 1] - sd->frames[i0 * 2 + 1]) * frac;
+            mixL += l * voice->gain;
+            mixR += r * voice->gain;
+            voice->pos += voice->pitch;
+        }
+
+        // Music: the current track (playing / fading in) plus, mid-crossfade, the previous
+        // track fading out. Both always play at their decoded (native 48kHz) rate.
+        for (int m = 0; m < 2; m++) {
+            MusicTrack *t = tracks[m];
+            if (!t->active || !t->frames || t->frame_count <= 0) continue;
+            int idx = t->pos;
+            if (idx >= t->frame_count) {
+                if (t->loop) { idx %= t->frame_count; t->pos = idx; }
+                else { t->active = false; continue; }
+            }
+            float g = t->fade * t->gain * music_gain;
+            mixL += t->frames[idx * 2 + 0] * g;
+            mixR += t->frames[idx * 2 + 1] * g;
+            t->pos = idx + 1;
+            if (t->loop && t->pos >= t->frame_count) t->pos = 0;
+        }
+
+        mixL *= master;
+        mixR *= master;
+        mixL = tanhf(mixL);
+        mixR = tanhf(mixR);
+        if (!isfinite(mixL)) mixL = 0.0f;
+        if (!isfinite(mixR)) mixR = 0.0f;
+
+        out[i * 2 + 0] = mixL;
+        out[i * 2 + 1] = mixR;
 
         g_audio.drone_phase += 1.0 / (double)SAMPLE_RATE;
     }
 
     memcpy(g_audio.voices, local, sizeof local);
+    memcpy(g_audio.sample_voices, local_samples, sizeof local_samples);
     SDL_UnlockMutex(g_audio.mutex);
 }
 
@@ -362,11 +477,138 @@ static void SDLCALL audio_callback(void *userdata, SDL_AudioStream *stream, int 
     }
 }
 
+#ifdef AUDIO_TEST
+// Test-only introspection, compiled out of normal builds.
+static int g_debug_last_source_rate = 0;
+int audio_debug_last_source_rate(void) { return g_debug_last_source_rate; }
+int audio_debug_sample_frame_count(int id) {
+    return (id >= 0 && id < g_sample_count) ? g_samples[id].frame_count : -1;
+}
+bool audio_debug_music_active(void) { return g_audio_ok && g_audio.music_cur.active; }
+int audio_debug_music_frame_count(void) { return g_audio.music_cur.frame_count; }
+int audio_debug_music_pos(void) { return g_audio.music_cur.pos; }
+float audio_debug_sample_voice_pos(int slot) {
+    return (slot >= 0 && slot < NUM_SAMPLE_VOICES) ? g_audio.sample_voices[slot].pos : -1.0f;
+}
+int audio_debug_active_sample_voice_count(void) {
+    if (!g_audio_ok || !g_audio.mutex) return 0;
+    int n = 0;
+    SDL_LockMutex(g_audio.mutex);
+    for (int i = 0; i < NUM_SAMPLE_VOICES; i++) if (g_audio.sample_voices[i].active) n++;
+    SDL_UnlockMutex(g_audio.mutex);
+    return n;
+}
+#endif
+
+// -------------------------------------------------------- asset decoding
+
+// Decodes a WAV or OGG file (by extension) to malloc'd interleaved stereo float at SAMPLE_RATE.
+// Runs on the main thread; may allocate freely. Returns false (and leaves *out_frames NULL) on
+// any failure.
+static bool decode_audio_file(const char *path, float **out_frames, int *out_frame_count) {
+    *out_frames = NULL;
+    *out_frame_count = 0;
+
+    size_t len = strlen(path);
+    bool is_ogg = (len >= 4 && SDL_strcasecmp(path + len - 4, ".ogg") == 0);
+
+    if (is_ogg) {
+        int channels = 0, rate = 0;
+        short *pcm = NULL;
+        int in_frames = stb_vorbis_decode_filename(path, &channels, &rate, &pcm);
+        if (in_frames <= 0 || !pcm || channels <= 0) {
+            if (pcm) free(pcm);
+            return false;
+        }
+#ifdef AUDIO_TEST
+        g_debug_last_source_rate = rate;
+#endif
+
+        float *stereo = (float *)malloc(sizeof(float) * 2 * (size_t)in_frames);
+        if (!stereo) { free(pcm); return false; }
+        for (int i = 0; i < in_frames; i++) {
+            float l, r;
+            if (channels >= 2) {
+                l = pcm[i * channels + 0] / 32768.0f;
+                r = pcm[i * channels + 1] / 32768.0f;
+            } else {
+                l = r = pcm[i * channels + 0] / 32768.0f;
+            }
+            stereo[i * 2 + 0] = l;
+            stereo[i * 2 + 1] = r;
+        }
+        free(pcm);
+
+        if (rate == SAMPLE_RATE) {
+            *out_frames = stereo;
+            *out_frame_count = in_frames;
+            return true;
+        }
+
+        // Linear-interpolation resample to SAMPLE_RATE.
+        double ratio = (double)rate / (double)SAMPLE_RATE;
+        int resampled_frames = (int)((double)in_frames / ratio);
+        if (resampled_frames < 1) resampled_frames = 1;
+        float *resampled = (float *)malloc(sizeof(float) * 2 * (size_t)resampled_frames);
+        if (!resampled) { free(stereo); return false; }
+        for (int i = 0; i < resampled_frames; i++) {
+            double srcpos = (double)i * ratio;
+            int i0 = (int)srcpos;
+            if (i0 >= in_frames) i0 = in_frames - 1;
+            int i1 = i0 + 1 < in_frames ? i0 + 1 : i0;
+            float frac = (float)(srcpos - (double)i0);
+            resampled[i * 2 + 0] = stereo[i0 * 2 + 0] + (stereo[i1 * 2 + 0] - stereo[i0 * 2 + 0]) * frac;
+            resampled[i * 2 + 1] = stereo[i0 * 2 + 1] + (stereo[i1 * 2 + 1] - stereo[i0 * 2 + 1]) * frac;
+        }
+        free(stereo);
+        *out_frames = resampled;
+        *out_frame_count = resampled_frames;
+        return true;
+    }
+
+    // WAV: let SDL do the format/rate/channel conversion for us.
+    SDL_AudioSpec src_spec;
+    Uint8 *buf = NULL;
+    Uint32 buf_len = 0;
+    if (!SDL_LoadWAV(path, &src_spec, &buf, &buf_len)) return false;
+#ifdef AUDIO_TEST
+    g_debug_last_source_rate = src_spec.freq;
+#endif
+
+    SDL_AudioSpec dst_spec = { .format = SDL_AUDIO_F32, .channels = 2, .freq = SAMPLE_RATE };
+    Uint8 *dst_data = NULL;
+    int dst_len = 0;
+    bool ok = SDL_ConvertAudioSamples(&src_spec, buf, (int)buf_len, &dst_spec, &dst_data, &dst_len);
+    SDL_free(buf);
+    if (!ok || !dst_data || dst_len <= 0) {
+        if (dst_data) SDL_free(dst_data);
+        return false;
+    }
+
+    int frame_count = dst_len / (int)(sizeof(float) * 2);
+    float *frames = (float *)malloc(sizeof(float) * 2 * (size_t)frame_count);
+    if (!frames) { SDL_free(dst_data); return false; }
+    memcpy(frames, dst_data, sizeof(float) * 2 * (size_t)frame_count);
+    SDL_free(dst_data);
+
+    *out_frames = frames;
+    *out_frame_count = frame_count;
+    return true;
+}
+
+// Frees a music track's decoded buffer if it's sitting there stopped (never called from the
+// audio thread -- only from the main-thread API below, under the lock).
+static void music_track_release(MusicTrack *t) {
+    if (t->frames) { free(t->frames); t->frames = NULL; }
+    memset(t, 0, sizeof *t);
+}
+
 // ---------------------------------------------------------------- public api
 
 bool audio_init(void) {
     memset(&g_audio, 0, sizeof g_audio);
     g_audio.master = 1.0f;
+    g_audio.music_gain = 1.0f;
     g_audio.rng = 0xC0FFEEu;
     g_audio.drone_noise_seed = 0x1234ABCDu;
     g_audio.fight_noise_seed = 0xFACEFEEDu;
@@ -405,6 +647,16 @@ void audio_shutdown(void) {
         g_audio.mutex = NULL;
     }
     g_audio_ok = false;
+
+    // The stream (and thus the mixer callback) is torn down above, so it's safe to free the
+    // decoded asset/music buffers here without the lock.
+    for (int i = 0; i < g_sample_count; i++) {
+        free(g_samples[i].frames);
+        g_samples[i].frames = NULL;
+    }
+    g_sample_count = 0;
+    music_track_release(&g_audio.music_cur);
+    music_track_release(&g_audio.music_prev);
 }
 
 void audio_play(SoundId id, float gain, float pitch) {
@@ -457,5 +709,134 @@ void audio_set_master(float v) {
     if (!g_audio_ok || !g_audio.mutex) return;
     SDL_LockMutex(g_audio.mutex);
     g_audio.master = clampf(v, 0.0f, 1.0f);
+    SDL_UnlockMutex(g_audio.mutex);
+}
+
+// ------------------------------------------------------- sample playback api
+
+int audio_load(const char *path) {
+    if (!g_audio_ok || !path) return -1;
+
+    for (int i = 0; i < g_sample_count; i++) {
+        if (strcmp(g_samples[i].path, path) == 0) return i;
+    }
+    if (g_sample_count >= MAX_SAMPLES) return -1;
+
+    float *frames = NULL;
+    int frame_count = 0;
+    if (!decode_audio_file(path, &frames, &frame_count)) return -1;
+
+    int id = g_sample_count;
+    SampleData *s = &g_samples[id];
+    snprintf(s->path, sizeof s->path, "%s", path);
+    s->frames = frames;
+    s->frame_count = frame_count;
+    g_sample_count = id + 1; // published last: audio_play_sample()'s lock/unlock is the barrier
+
+    return id;
+}
+
+void audio_play_sample(int id, float gain, float pitch) {
+    if (!g_audio_ok || !g_audio.mutex) return;
+    if (id < 0 || id >= g_sample_count) return;
+    if (pitch <= 0.0001f) pitch = 1.0f;
+
+    SDL_LockMutex(g_audio.mutex);
+
+    int slot = -1;
+    for (int v = 0; v < NUM_SAMPLE_VOICES; v++) {
+        if (!g_audio.sample_voices[v].active) { slot = v; break; }
+    }
+    if (slot < 0) {
+        // steal the oldest voice
+        Uint64 oldest_age = g_audio.sample_voices[0].age;
+        slot = 0;
+        for (int v = 1; v < NUM_SAMPLE_VOICES; v++) {
+            if (g_audio.sample_voices[v].age < oldest_age) { oldest_age = g_audio.sample_voices[v].age; slot = v; }
+        }
+    }
+
+    SampleVoice *voice = &g_audio.sample_voices[slot];
+    voice->active = true;
+    voice->sample_id = id;
+    voice->pos = 0.0f;
+    voice->pitch = pitch;
+    voice->gain = clampf(gain, 0.0f, 4.0f);
+    voice->age = g_audio.next_age++;
+
+    SDL_UnlockMutex(g_audio.mutex);
+}
+
+void audio_play_file(const char *path, float gain, float pitch) {
+    int id = audio_load(path);
+    if (id < 0) return;
+    audio_play_sample(id, gain, pitch);
+}
+
+// ------------------------------------------------------------------ music api
+
+void audio_music_play(const char *path, bool loop, float gain, float fade_in_s) {
+    if (!g_audio_ok || !g_audio.mutex || !path) return;
+
+    SDL_LockMutex(g_audio.mutex);
+    bool already_current = g_audio.music_cur.active && g_audio.music_cur.frames &&
+                            g_audio.music_cur.fade_target > 0.5f &&
+                            strcmp(g_audio.music_cur.path, path) == 0;
+    SDL_UnlockMutex(g_audio.mutex);
+    if (already_current) return; // same track already playing (or fading in): do nothing
+
+    float *frames = NULL;
+    int frame_count = 0;
+    if (!decode_audio_file(path, &frames, &frame_count)) return;
+
+    float rate = fade_in_s > 0.0001f ? (1.0f / fade_in_s) : 1000.0f; // effectively instant
+
+    SDL_LockMutex(g_audio.mutex);
+
+    // Make room in the "previous" slot: if it's still holding a fully-stopped track, free it;
+    // if it's mid-fade (a crossfade was already in flight), drop it in favour of this new one.
+    if (g_audio.music_prev.frames) music_track_release(&g_audio.music_prev);
+
+    if (g_audio.music_cur.active && g_audio.music_cur.frames) {
+        g_audio.music_prev = g_audio.music_cur;
+        g_audio.music_prev.fade_target = 0.0f;
+        g_audio.music_prev.fade_rate = rate;
+    } else if (g_audio.music_cur.frames) {
+        music_track_release(&g_audio.music_cur);
+    }
+
+    memset(&g_audio.music_cur, 0, sizeof g_audio.music_cur);
+    g_audio.music_cur.frames = frames;
+    g_audio.music_cur.frame_count = frame_count;
+    g_audio.music_cur.loop = loop;
+    g_audio.music_cur.active = true;
+    g_audio.music_cur.pos = 0;
+    g_audio.music_cur.gain = clampf(gain, 0.0f, 4.0f);
+    g_audio.music_cur.fade = (fade_in_s > 0.0001f) ? 0.0f : 1.0f;
+    g_audio.music_cur.fade_target = 1.0f;
+    g_audio.music_cur.fade_rate = rate;
+    snprintf(g_audio.music_cur.path, sizeof g_audio.music_cur.path, "%s", path);
+
+    SDL_UnlockMutex(g_audio.mutex);
+}
+
+void audio_music_stop(float fade_out_s) {
+    if (!g_audio_ok || !g_audio.mutex) return;
+    SDL_LockMutex(g_audio.mutex);
+    if (g_audio.music_cur.active) {
+        g_audio.music_cur.fade_target = 0.0f;
+        g_audio.music_cur.fade_rate = fade_out_s > 0.0001f ? (1.0f / fade_out_s) : 1000.0f;
+    }
+    if (g_audio.music_prev.active) {
+        g_audio.music_prev.fade_target = 0.0f;
+        g_audio.music_prev.fade_rate = fade_out_s > 0.0001f ? (1.0f / fade_out_s) : 1000.0f;
+    }
+    SDL_UnlockMutex(g_audio.mutex);
+}
+
+void audio_music_set_gain(float gain) {
+    if (!g_audio_ok || !g_audio.mutex) return;
+    SDL_LockMutex(g_audio.mutex);
+    g_audio.music_gain = clampf(gain, 0.0f, 4.0f);
     SDL_UnlockMutex(g_audio.mutex);
 }

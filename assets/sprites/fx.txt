@@ -1,0 +1,12 @@
+# Battle effects: slash and spark strips (Ninja Adventure FX, CC0). 32 px frames unless noted.
+size 1.0
+frame 32 32
+sheet slash  sprites/ninja/FX/Attack/SlashCurved/SpriteSheet.png 4 1
+sheet cutx   sprites/ninja/FX/Attack/CutX/SpriteSheet.png 4 1
+sheet claw   sprites/ninja/FX/Attack/Claw/SpriteSheet.png 4 1
+sheet circ   sprites/ninja/FX/Attack/CircularSlash/SpriteSheet.png 4 1
+anim slash slash fps 18
+anim cutx  cutx  fps 18
+anim hit   claw  fps 18
+anim parry circ  fps 20
+anim spark circ  fps 24

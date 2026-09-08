@@ -31,3 +31,15 @@ void audio_set_drone(float intensity);
 void audio_set_fight(float intensity);
 // Master volume 0..1
 void audio_set_master(float v);
+
+// Sample playback (WAV via SDL_LoadWAV, OGG via stb_vorbis). Files are decoded fully at load and
+// cached by path; ids are stable for the run. Returns -1 on failure.
+int  audio_load(const char *path);
+// Fire-and-forget playback of a loaded sample. gain 0..1, pitch is a playback-rate multiplier.
+void audio_play_sample(int id, float gain, float pitch);
+// Convenience: load (cached) and play in one call.
+void audio_play_file(const char *path, float gain, float pitch);
+// Music: one track at a time, decoded fully at load (OGG), looping, with a crossfade to the next.
+void audio_music_play(const char *path, bool loop, float gain, float fade_in_s);
+void audio_music_stop(float fade_out_s);
+void audio_music_set_gain(float gain);

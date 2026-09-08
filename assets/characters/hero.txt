@@ -1,0 +1,18 @@
+# Player: the green ninja from Ninja Adventure (CC0), a 32 px sprite in the 3D world.
+sprite sprites/hero.txt
+scale 1.0
+yaw_offset 0
+anim idle       idle
+anim walk       walk
+anim run        run
+anim attack     attack
+anim attack2    attack2
+anim attack3    attack3
+anim parry      parry
+anim parry_hit  parry_hit
+anim dodge      dodge
+anim hurt       hurt
+anim kneel      kneel
+anim dead       dead
+anim roar       idle
+anim stagger    hurt

@@ -53,7 +53,7 @@ void camera_toggle_lock(Camera *c) { if (c->has_lock) c->locked = !c->locked; }
 
 #define ISO_YAW   (-35.0f * DEG2RAD)
 #define ISO_PITCH (44.0f * DEG2RAD)
-#define ISO_DIST  19.0f
+#define ISO_DIST  13.0f
 void camera_iso(Camera *c, Vec3 pp, const Level *lv, float dt) {
     (void)lv;
     bool entering = c->mode != CAM_ISO;

@@ -16,7 +16,7 @@ layout(set = 3, binding = 0, std140) uniform Frame {
 };
 layout(set = 3, binding = 1, std140) uniform Material {
     vec4 tint;             // rgb multiply, a = alpha
-    vec4 emissive;         // rgb added, a = unused
+    vec4 emissive;         // rgb added, a = unlit amount (sprites keep their own colours)
     vec4 rim;              // rgb, a = strength
 };
 layout(location = 0) in vec3 v_wpos;
@@ -51,7 +51,9 @@ void main() {
         float nl = dot(n, d / max(ld, 1e-4)) * 0.5 + 0.5;
         light += lights_color[i].rgb * att * nl;
     }
-    vec3 c = t.rgb * light + emissive.rgb;
+    vec3 lit_c = t.rgb * light + emissive.rgb;
+    vec3 flat_c = t.rgb * (1.1 + emissive.rgb) * (0.75 + 0.25 * clamp(dot(sky_ambient.rgb + sun_color.rgb * sun_dir.w, vec3(0.33)), 0.0, 1.0));
+    vec3 c = mix(lit_c, flat_c, emissive.a);
     // Rim: brightest where the surface turns away from the camera and faces the sun a little
     float fres = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), toon.z);
     c += rim.rgb * rim.a * fres * (0.4 + 0.6 * clamp(ndl + 0.5, 0.0, 1.0));

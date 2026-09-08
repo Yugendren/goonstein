@@ -33,9 +33,14 @@ bool charmodel_load(Gfx *g, CharModel *cm, const char *config_path) {
             char path[512]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, strtok(NULL, " \t"));
             if (!model_load(g, &cm->model, path, tex_size)) { SDL_free(text); return false; }
             cm->loaded = true;
+        } else if (!strcmp(key, "sprite")) {
+            char path[512]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, strtok(NULL, " \t"));
+            if (!sprite_def_load(g, &cm->sdef, path)) { SDL_free(text); return false; }
+            sprite_actor_init(&cm->sprite, &cm->sdef);
+            cm->is_sprite = true; cm->loaded = true;
         }
     }
-    if (!cm->loaded) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: no model line", config_path); SDL_free(text); return false; }
+    if (!cm->loaded) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: no model or sprite line", config_path); SDL_free(text); return false; }
     for (int i = 0; i < nlines; i++) {
         ln = i + 1;
         char buf[512]; snprintf(buf, sizeof buf, "%s", lines[i]);
@@ -46,8 +51,8 @@ bool charmodel_load(Gfx *g, CharModel *cm, const char *config_path) {
             if (!nm || !clip) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d bad anim line", config_path, ln); continue; }
             Anim a = anim_from_name(nm);
             if (strcmp(anim_name(a), nm) != 0) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d unknown anim %s", config_path, ln, nm); continue; }
-            AnimBinding b = { .clip = model_find_clip(&cm->model, clip), .contact = -1, .rate = 1 };
-            if (b.clip < 0) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d clip %s not in model", config_path, ln, clip);
+            AnimBinding b = { .clip = cm->is_sprite ? sprite_find_anim(&cm->sdef, clip) : model_find_clip(&cm->model, clip), .contact = -1, .rate = 1 };
+            if (b.clip < 0) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d clip %s not found", config_path, ln, clip);
             char *k;
             while ((k = strtok(NULL, " \t"))) {
                 if (!strcmp(k, "loop")) b.loop = true;
@@ -57,14 +62,14 @@ bool charmodel_load(Gfx *g, CharModel *cm, const char *config_path) {
             }
             cm->bind[a] = b;
         }
-        else if (strcmp(key, "model") && strcmp(key, "scale") && strcmp(key, "texture_size") && strcmp(key, "yaw_offset"))
+        else if (strcmp(key, "model") && strcmp(key, "sprite") && strcmp(key, "scale") && strcmp(key, "texture_size") && strcmp(key, "yaw_offset"))
             SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d unknown key %s", config_path, ln, key);
     }
     SDL_free(text);
     return true;
 }
 
-void charmodel_destroy(Gfx *g, CharModel *cm) { if (cm->loaded) model_destroy(g, &cm->model); cm->loaded = false; }
+void charmodel_destroy(Gfx *g, CharModel *cm) { if (cm->loaded && cm->is_sprite) sprite_def_destroy(g, &cm->sdef); else if (cm->loaded) model_destroy(g, &cm->model); cm->loaded = false; }
 
 // Did the character start a new animation since we last looked?
 static bool anim_changed(CharModel *cm, const Character *c) {
@@ -76,6 +81,13 @@ static bool anim_changed(CharModel *cm, const Character *c) {
 static void play_binding(CharModel *cm, Anim a, float lead, float tail, float fade) {
     const AnimBinding *b = &cm->bind[a];
     if (b->clip < 0) { b = &cm->bind[ANIM_IDLE]; if (b->clip < 0) return; }
+    if (cm->is_sprite) {
+        const SpriteAnim *sa = &cm->sdef.anims[b->clip];
+        if (sa->ncontact > 0 && lead > 0) sprite_play_fitted(&cm->sprite, b->clip, lead);
+        else if (!sa->loop && tail > 0) { float nat = sprite_anim_duration(&cm->sdef, b->clip, 1); sprite_play(&cm->sprite, b->clip, nat > 0.01f ? nat / (lead + tail) : 1, true); }
+        else sprite_play(&cm->sprite, b->clip, b->rate, false);
+        return;
+    }
     const AnimClip *clip = &cm->model.clips[b->clip];
     if (b->contact >= 0 && (lead > 0 || tail > 0))
         anim_play_fitted(&cm->player, &cm->model, b->clip, b->contact * clip->duration, lead, tail, fade);
@@ -99,7 +111,7 @@ void charmodel_drive_player(CharModel *cm, const Player *p, float dt) {
         default:             play_binding(cm, p->c.anim, 0, 0, 0.12f); break;
         }
     }
-    anim_update(&cm->player, &cm->model, dt);
+    if (cm->is_sprite) sprite_update(&cm->sprite, dt); else anim_update(&cm->player, &cm->model, dt);
 }
 
 void charmodel_drive_boss(CharModel *cm, const Boss *b, float dt) {
@@ -110,6 +122,7 @@ void charmodel_drive_boss(CharModel *cm, const Boss *b, float dt) {
         switch (b->c.anim) {
         case ANIM_WINDUP: {
             const BossMove *m = &d->moves[b->move];
+            if (cm->is_sprite) { float windup = m->windup * (b->phase2 ? d->phase2_windup_mult : 1.0f); charmodel_sprite_play(cm, m->clip[0] ? m->clip : "attack", windup, true); break; }
             int clip = m->clip[0] ? model_find_clip(&cm->model, m->clip) : -1;
             float windup = m->windup * (b->phase2 ? d->phase2_windup_mult : 1.0f);
             if (clip >= 0) anim_play_fitted(&cm->player, &cm->model, clip, m->contact * cm->model.clips[clip].duration, windup, m->active + m->recovery, 0.08f);
@@ -121,11 +134,35 @@ void charmodel_drive_boss(CharModel *cm, const Boss *b, float dt) {
         default:             play_binding(cm, b->c.anim, 0, 0, 0.15f); break;
         }
     }
-    anim_update(&cm->player, &cm->model, dt);
+    if (cm->is_sprite) sprite_update(&cm->sprite, dt); else anim_update(&cm->player, &cm->model, dt);
+}
+
+void charmodel_sprite_play(CharModel *cm, const char *anim, float lead, bool restart) {
+    if (!cm->is_sprite) return;
+    int a = sprite_find_anim(&cm->sdef, anim);
+    if (a < 0) { a = cm->bind[ANIM_IDLE].clip; if (a < 0) return; }
+    if (lead > 0 && cm->sdef.anims[a].ncontact > 0) sprite_play_fitted(&cm->sprite, a, lead);
+    else sprite_play(&cm->sprite, a, 1, restart);
+}
+
+float charmodel_sprite_contact(const CharModel *cm, const char *anim, int i, float lead) {
+    if (!cm->is_sprite) return lead + i * 0.25f;
+    int a = sprite_find_anim(&cm->sdef, anim);
+    if (a < 0) return lead + i * 0.25f;
+    float nat = sprite_contact_time(&cm->sdef, a, 0, 1.0f);
+    float rate = (lead > 0.01f && nat > 0.01f) ? nat / lead : 1.0f;
+    return sprite_contact_time(&cm->sdef, a, i, rate);
 }
 
 void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint) {
     if (!cm->loaded) return;
+    if (cm->is_sprite) {
+        Vec3 fwd = v3_cross(v3(0, 1, 0), g->cam_right);   // camera forward on the ground plane
+        Vec3 face = v3(sinf(c->yaw + cm->yaw_offset), 0, cosf(c->yaw + cm->yaw_offset));
+        cm->sprite.facing = sprite_facing_from(face, fwd, g->cam_right);
+        sprite_actor_draw(g, &cm->sprite, c->pos, tint, cm->scale);
+        return;
+    }
     model_pose(&cm->model, &cm->player, &cm->pose);
     Mat4 world = m4_trs(c->pos, c->yaw + cm->yaw_offset, v3(cm->scale, cm->scale, cm->scale));
     model_draw(g, &cm->model, &cm->pose, world, tint);

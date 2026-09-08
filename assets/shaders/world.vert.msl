@@ -35,10 +35,9 @@ vertex main0_out main0(main0_in in [[stage_in]], constant _11& _13 [[buffer(0)]]
     out.m_45 = _28.xyz;
     out.m_48 = _43;
     out.m_51 = in.m_53;
-    if (_13._m2.x < 0.0)
+    if (_13._m2.w > 0.5)
     {
         float3 _69 = abs(fast::normalize(_43));
-        float _74 = -_13._m2.x;
         float _76 = _69.x;
         float _79 = _69.y;
         bool _80 = _76 > _79;
@@ -53,17 +52,17 @@ vertex main0_out main0(main0_in in [[stage_in]], constant _11& _13 [[buffer(0)]]
         }
         if (_89)
         {
-            out.m_94 = _28.zy * _74;
+            out.m_94 = _28.zy * _13._m2.x;
         }
         else
         {
             if (_79 > _69.z)
             {
-                out.m_94 = _28.xz * _74;
+                out.m_94 = _28.xz * _13._m2.x;
             }
             else
             {
-                out.m_94 = _28.xy * _74;
+                out.m_94 = _28.xy * _13._m2.x;
             }
         }
     }

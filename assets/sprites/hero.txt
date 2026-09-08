@@ -1,0 +1,22 @@
+# Green ninja, 32x32 frames. Directions run across the columns (down, up, left, right) and the
+# animation frames run down the rows.
+size 2.0
+frame 32 32
+sheet idle   sprites/ninja/Actor/CharacterAnimated/NinjaGreen/Separate/Idle.png 4 4
+sheet walk   sprites/ninja/Actor/CharacterAnimated/NinjaGreen/Separate/Walk.png 4 4
+sheet attack sprites/ninja/Actor/CharacterAnimated/NinjaGreen/Separate/Attack.png 4 4
+sheet hit    sprites/ninja/Actor/CharacterAnimated/NinjaGreen/Separate/Hit.png 4 2
+sheet roll   sprites/ninja/Actor/CharacterAnimated/NinjaGreen/Separate/Roll.png 4 3
+sheet dead   sprites/ninja/Actor/CharacterAnimated/NinjaGreen/Separate/Dead.png 1 2
+anim idle      idle   fps 5  loop dircol
+anim walk      walk   fps 9  loop dircol
+anim run       walk   fps 14 loop dircol
+anim attack    attack fps 12 dircol contact 2
+anim attack2   attack fps 15 dircol contact 2
+anim attack3   attack fps 10 dircol contact 2
+anim parry     hit    fps 12 dircol frames 0 0
+anim parry_hit hit    fps 12 dircol
+anim dodge     roll   fps 14 dircol
+anim hurt      hit    fps 10 dircol
+anim kneel     dead   fps 4  dircol
+anim dead      dead   fps 4  dircol

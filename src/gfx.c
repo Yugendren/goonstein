@@ -144,6 +144,15 @@ static Mesh make_cube(Gfx *g) {
     return gfx_mesh_create(g, v, 24, idx, 36);
 }
 
+static Mesh make_quad(Gfx *g) {
+    // unit quad in the XY plane, x in [-0.5, 0.5], y in [0, 1], facing +Z
+    Vertex v[4] = {
+        { {-0.5f, 0, 0}, {0, 0, 1}, {0, 1}, {1, 1, 1, 1} }, { {0.5f, 0, 0}, {0, 0, 1}, {1, 1}, {1, 1, 1, 1} },
+        { {0.5f, 1, 0}, {0, 0, 1}, {1, 0}, {1, 1, 1, 1} }, { {-0.5f, 1, 0}, {0, 0, 1}, {0, 0}, {1, 1, 1, 1} } };
+    Uint16 idx[6] = { 0, 1, 2, 0, 2, 3 };
+    return gfx_mesh_create(g, v, 4, idx, 6);
+}
+
 static Texture make_soft_disc(Gfx *g) {
     const int S = 64; unsigned char px[64 * 64 * 4];
     for (int y = 0; y < S; y++) for (int x = 0; x < S; x++) {
@@ -259,12 +268,13 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->white = gfx_texture_create(g, white, 1, 1);
     g->soft = make_soft_disc(g);
     g->cube = make_cube(g);
+    g->quad = make_quad(g);
     g->material = material_default();
     return true;
 }
 
 void gfx_shutdown(Gfx *g) {
-    gfx_mesh_destroy(g, &g->cube);
+    gfx_mesh_destroy(g, &g->cube); gfx_mesh_destroy(g, &g->quad);
     gfx_texture_destroy(g, &g->soft); gfx_texture_destroy(g, &g->white);
     free(g->ui_verts); free(g->p_add); free(g->p_alpha);
     SDL_ReleaseGPUTransferBuffer(g->dev, g->ui_xfer); SDL_ReleaseGPUBuffer(g->dev, g->ui_vb);
@@ -281,7 +291,7 @@ void gfx_shutdown(Gfx *g) {
 static void push_material(Gfx *g, Vec4 tint) {
     const Material *m = &g->material;
     MaterialUniforms u = { .tint = v4(tint.x * m->tint.x, tint.y * m->tint.y, tint.z * m->tint.z, tint.w * m->tint.w),
-                           .emissive = v4(m->emissive.x, m->emissive.y, m->emissive.z, 0), .rim = v4(m->rim_color.x, m->rim_color.y, m->rim_color.z, m->rim) };
+                           .emissive = v4(m->emissive.x, m->emissive.y, m->emissive.z, m->unlit), .rim = v4(m->rim_color.x, m->rim_color.y, m->rim_color.z, m->rim) };
     SDL_PushGPUFragmentUniformData(g->cmd, 1, &u, sizeof u);
 }
 
@@ -354,8 +364,49 @@ void gfx_draw_skinned(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 
     g->draw_calls++;
 }
 
+Texture gfx_texture_load_exact(Gfx *g, const char *path) {
+    int w, h, n; unsigned char *px = stbi_load(path, &w, &h, &n, 4);
+    if (!px) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "texture load failed: %s", path); return g->white; }
+    Texture t = gfx_texture_create(g, px, w, h);
+    stbi_image_free(px);
+    return t;
+}
+
+void gfx_draw_sprite(Gfx *g, const Texture *t, Vec3 foot, float w, float h, const float *uv, Vec4 tint, bool flip_x) {
+    if (!g->pass) return;
+    // Basis: right = camera right (horizontal), up = world up, normal = toward the camera, tilted up a little
+    Vec3 r = v3_norm(v3(g->cam_right.x, 0, g->cam_right.z));
+    Vec3 u = v3(0, 1, 0);
+    Vec3 n = v3_norm(v3_cross(r, u));
+    Vec3 to_cam = v3_sub(g->frame.cam_pos, foot);
+    bool mirrored = false;
+    // Keep the basis right-handed (so the face is never culled): if the front faces away, flip
+    // right and normal together and un-mirror the image through the uvs.
+    if (v3_dot(n, to_cam) < 0) { r = v3_scale(r, -1); n = v3_scale(n, -1); mirrored = true; }
+    if (flip_x) mirrored = !mirrored;
+    Mat4 m = m4_identity();
+    m.m[0] = r.x * w; m.m[1] = r.y * w; m.m[2] = r.z * w;
+    m.m[4] = u.x * h; m.m[5] = u.y * h; m.m[6] = u.z * h;
+    m.m[8] = n.x;     m.m[9] = n.y;     m.m[10] = n.z;
+    m.m[12] = foot.x; m.m[13] = foot.y; m.m[14] = foot.z;
+    // uv_xform: scale then offset: uv' = uv * (u1-u0, v1-v0) + (u0, v0)
+    Vec4 xf = mirrored ? v4(uv[0] - uv[2], uv[3] - uv[1], uv[2], uv[1]) : v4(uv[2] - uv[0], uv[3] - uv[1], uv[0], uv[1]);
+    bind_pipe(g, g->pipe_world);
+    VSUniforms vu = { g->frame.view_proj, m, xf };
+    SDL_PushGPUVertexUniformData(g->cmd, 0, &vu, sizeof vu);
+    Material saved = g->material; if (g->material.unlit <= 0) g->material.unlit = 0.8f;
+    push_material(g, tint); g->material = saved;
+    // nearest sampling for crisp pixels; force a rebind since the sampler differs
+    SDL_BindGPUFragmentSamplers(g->pass, 0, &(SDL_GPUTextureSamplerBinding){ .texture = t->tex, .sampler = g->samp_nearest }, 1);
+    g->bound_tex = NULL;
+    SDL_BindGPUVertexBuffers(g->pass, 0, &(SDL_GPUBufferBinding){ .buffer = g->quad.vb }, 1);
+    SDL_BindGPUIndexBuffer(g->pass, &(SDL_GPUBufferBinding){ .buffer = g->quad.ib }, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+    SDL_DrawGPUIndexedPrimitives(g->pass, 6, 1, 0, 0, 0);
+    g->draw_calls++;
+}
+
 void gfx_draw_box(Gfx *g, const Texture *t, Vec3 center, Vec3 size, float yaw, Vec4 tint, float uv_tile) {
-    Vec4 xf = uv_tile > 0 ? v4(-uv_tile, 0, 0, 0) : v4(1, 1, 0, 0);
+    Vec4 xf = uv_tile > 0 ? v4(uv_tile, 0, 0, 1) : v4(1, 1, 0, 0);
     gfx_draw(g, &g->cube, t, m4_trs(center, yaw, size), tint, xf);
 }
 

@@ -1,8 +1,8 @@
 # hollow
 
-Working title. A PS2-style third-person horror game: fixed authored cameras in exploration,
-in-engine cutscenes, and set-piece boss fights with parry and posture combat. C11 on SDL3,
-targeting macOS, Linux (Steam Deck) and Windows.
+Working title. An HD-2D JRPG: pixel-art sprites living in a lit low-poly 3D world, an isometric
+overworld, in-engine cutscenes, and card battles where the enemy's attack frames are rhythm beats
+you deflect osu-style. C11 on SDL3, targeting macOS, Linux (Steam Deck) and Windows.
 
 This is the skeleton build: one corridor, one cutscene going in, one boss, one cutscene coming out.
 
@@ -44,7 +44,8 @@ The game is meant to be edited without touching C:
 | Level geometry, cameras, triggers | `assets/levels/*.txt` | `assets/levels/README.md`  |
 | Cutscenes             | `assets/scenes/*.txt`        | `assets/scenes/README.md`  |
 | Boss move sets        | `assets/enemies/*.txt`       | comments in `warden.txt`   |
-| Character models and animation bindings | `assets/characters/*.txt` | comments in `src/charmodel.h` |
+| Character bindings (sprite or model) | `assets/characters/*.txt` | comments in `src/charmodel.h` |
+| Sprite sheets and frame animations | `assets/sprites/*.txt` | comments in `src/sprite.h` |
 | Player tuning         | `assets/player.txt`          | comments in the file       |
 | Look (fog, light)     | `fog` / `light` lines in the level |                      |
 | Post-processing       | `shaders/post.frag`          |                            |
@@ -81,11 +82,12 @@ the fight is checked without a controller in hand.
       render_world.* procedural textures, level drawing, box-figure characters
       model.*       glTF loader, skinning, animation clips and crossfades
       charmodel.*   maps gameplay animation states to model clips via a text config
-      audio.*       procedural sound effects and drone
+      sprite.*      sprite sheets, frame animation, contact frames, upright billboards
+      audio.*       procedural synth plus WAV/OGG samples and crossfading music
       game.*        state flow, HUD, debug overlay, scene hosting
     shaders/        Vulkan GLSL source, compiled by tools/shaders.sh
     assets/         all content (see above); assets/shaders holds compiled shaders
-    ASSETS.md       licence manifest for third-party assets (KayKit CC0 characters, stb, cgltf)
+    ASSETS.md       licence manifest (KayKit CC0 props, Ninja Adventure CC0 sprites, music and sounds, stb, cgltf)
 
 ## Platform notes
 

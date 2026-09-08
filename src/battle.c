@@ -14,6 +14,7 @@
 #define ENERGY_BASE    3
 #define ENERGY_CAP     6
 #define COUNTER_DAMAGE 4
+#define SFX(rel) (HOLLOW_ASSET_DIR "/sprites/ninja/Audio/Sounds/" rel)
 
 // ---------------------------------------------------------------- data
 
@@ -112,6 +113,7 @@ static bool load_enemy(EnemyDef *e, const char *path) {
             for (int i = 2; i < nt; i++) {
                 const char *k = tok[i];
                 if (!strcmp(k, "clip") && i + 1 < nt) snprintf(a->clip, sizeof a->clip, "%s", tok[++i]);
+                else if (!strcmp(k, "charge") && i + 1 < nt) snprintf(a->charge, sizeof a->charge, "%s", tok[++i]);
                 else if (!strcmp(k, "damage") && i + 1 < nt) a->damage = atoi(tok[++i]);
                 else if (!strcmp(k, "hits") && i + 1 < nt) a->hits = atoi(tok[++i]);
                 else if (!strcmp(k, "parry") && i + 1 < nt) a->parryable = !strcmp(tok[++i], "yes");
@@ -143,6 +145,42 @@ bool battle_load(Battle *b, const char *cards_path, const char *deck_path, const
     if (!load_deck(b, deck_path)) return false;
     if (!load_enemy(&b->enemy, enemy_path)) return false;
     return true;
+}
+
+// ---------------------------------------------------------------- sprite effects
+
+void battle_load_fx(Battle *b, Gfx *g, const char *path) {
+    b->fx_loaded = sprite_def_load(g, &b->fxdef, path);
+    for (int i = 0; i < FX_MAX; i++) b->fx[i].alive = false;
+}
+
+static void fx_spawn(Battle *b, const char *anim, Vec3 pos, float scale, Vec3 tint, bool flip) {
+    if (!b->fx_loaded) return;
+    int a = sprite_find_anim(&b->fxdef, anim);
+    if (a < 0) return;
+    for (int i = 0; i < FX_MAX; i++) {
+        SpriteFx *f = &b->fx[i];
+        if (f->alive) continue;
+        f->alive = true; sprite_actor_init(&f->actor, &b->fxdef); sprite_play(&f->actor, a, 1, true);
+        f->pos = pos; f->scale = scale; f->tint = tint; f->flip = flip;
+        return;
+    }
+}
+
+static void fx_update(Battle *b, float dt) {
+    for (int i = 0; i < FX_MAX; i++) { SpriteFx *f = &b->fx[i]; if (!f->alive) continue; sprite_update(&f->actor, dt); if (f->actor.finished) f->alive = false; }
+}
+
+void battle_draw_world(Battle *b, Gfx *g) {
+    for (int i = 0; i < FX_MAX; i++) {
+        const SpriteFx *f = &b->fx[i];
+        if (!f->alive) continue;
+        Material m = material_default(); m.emissive = v3_scale(f->tint, 1.2f);
+        gfx_set_material(g, &m);
+        SpriteActor a = f->actor; a.facing = f->flip ? FACE_RIGHT : FACE_LEFT;
+        sprite_actor_draw(g, &a, f->pos, v4(f->tint.x, f->tint.y, f->tint.z, 1), f->scale);
+    }
+    gfx_set_material(g, NULL);
 }
 
 // ---------------------------------------------------------------- piles
@@ -215,15 +253,23 @@ static Vec3 chest(Vec3 pos, float h) { return v3(pos.x, pos.y + h, pos.z); }
 static void shot_base(Battle *b) {
     Vec3 c = v3_lerp(b->player_pos, b->enemy_pos, 0.5f), r = right_of(b->stage_yaw), f = fwd_of(b->stage_yaw);
     // A stage view: from the side, a little toward the player, low enough to see the sky line.
-    b->shot_eye = v3_add(v3_add(v3_add(c, v3_scale(r, -8.5f)), v3_scale(f, -2.5f)), v3(0, 2.9f, 0));
-    b->shot_target = v3_add(c, v3(0, 1.25f, 0)); b->shot_fov = 36;
+    b->shot_eye = v3_add(v3_add(v3_add(c, v3_scale(r, -9.0f)), v3_scale(f, -1.0f)), v3(0, 2.6f, 0));
+    b->shot_target = v3_add(c, v3(0, 1.5f, 0)); b->shot_fov = 36;
+}
+static bool g_flat_shots = false;   // set when the actors are sprites
+static void shot_push(Battle *b, float toward_enemy, float dist_k, float fov) {
+    Vec3 c = v3_lerp(b->player_pos, b->enemy_pos, toward_enemy), r = right_of(b->stage_yaw), f = fwd_of(b->stage_yaw);
+    b->shot_eye = v3_add(v3_add(v3_add(c, v3_scale(r, -8.5f * dist_k)), v3_scale(f, -2.0f * dist_k)), v3(0, 2.6f * dist_k + 0.6f, 0));
+    b->shot_target = v3_add(c, v3(0, 1.3f, 0)); b->shot_fov = fov;
 }
 static void shot_player_attack(Battle *b) {
+    if (g_flat_shots) { shot_push(b, 0.6f, 0.72f, 34); return; }
     Vec3 r = right_of(b->stage_yaw), f = fwd_of(b->stage_yaw);
     b->shot_eye = v3_add(v3_add(v3_sub(b->player_pos, v3_scale(f, 6.5f)), v3_scale(r, 4.8f)), v3(0, 2.5f, 0));
     b->shot_target = chest(v3_lerp(b->player_pos, b->enemy_pos, 0.62f), 1.2f); b->shot_fov = 38;
 }
 static void shot_enemy_attack(Battle *b) {
+    if (g_flat_shots) { shot_push(b, 0.42f, 0.78f, 36); return; }
     Vec3 r = right_of(b->stage_yaw), f = fwd_of(b->stage_yaw);
     b->shot_eye = v3_add(v3_add(v3_sub(b->player_pos, v3_scale(f, 3.8f)), v3_scale(r, -3.0f)), v3(0, 2.0f, 0));
     b->shot_target = chest(v3_lerp(b->player_pos, b->enemy_pos, 0.55f), 1.4f); b->shot_fov = 44;
@@ -242,6 +288,7 @@ static void set_read(Battle *b, const char *s) { snprintf(b->last_read, sizeof b
 // Game time at which hit i of the current enemy attack lands, from the clip fitting.
 static float hit_time(const Battle *b, const CharModel *bm, int i) {
     const EnemyAttack *a = &b->enemy.attacks[b->cur_attack];
+    if (bm->is_sprite) return charmodel_sprite_contact(bm, a->clip, i, a->lead);
     int clip = bm->loaded ? model_find_clip(&bm->model, a->clip) : -1;
     if (clip < 0 || i == 0) return a->lead + i * 0.25f;
     float len = bm->model.clips[clip].duration;
@@ -254,6 +301,13 @@ static void play_bound(CharModel *cm, Anim a, float lead, float tail, float fade
     if (!cm->loaded) return;
     const AnimBinding *bd = &cm->bind[a];
     if (bd->clip < 0) { bd = &cm->bind[ANIM_IDLE]; if (bd->clip < 0) return; }
+    if (cm->is_sprite) {
+        const SpriteAnim *sa = &cm->sdef.anims[bd->clip];
+        if (sa->ncontact > 0 && lead > 0) sprite_play_fitted(&cm->sprite, bd->clip, lead);
+        else if (!sa->loop && tail > 0) { float nat = sprite_anim_duration(&cm->sdef, bd->clip, 1); sprite_play(&cm->sprite, bd->clip, nat > 0.01f ? nat / (lead + tail) : 1, true); }
+        else sprite_play(&cm->sprite, bd->clip, bd->rate > 0 ? bd->rate : 1, false);
+        return;
+    }
     const AnimClip *clip = &cm->model.clips[bd->clip];
     if (bd->contact >= 0 && (lead > 0 || tail > 0)) anim_play_fitted(&cm->player, &cm->model, bd->clip, bd->contact * clip->duration, lead, tail, fade);
     else if (!bd->loop && tail > 0) anim_play_fitted(&cm->player, &cm->model, bd->clip, 0, 0, lead + tail, fade);
@@ -287,7 +341,9 @@ static void begin_enemy_turn(Battle *b, CharModel *bm, Boss *boss, Uifx *fx) {
     uifx_spawn(fx, UIFX_BANNER, 0, 300, banner, v4(a->tell.x, a->tell.y, a->tell.z, 1), 3.0f, 1.1f);
     boss->c.tell_color = a->tell; boss->c.tell = 0;
     for (int i = 0; i < a->hits; i++) b->hit_t[i] = hit_time(b, bm, i);
-    if (bm->loaded) {
+    if (bm->is_sprite) {
+        charmodel_sprite_play(bm, a->charge[0] ? a->charge : "idle", 0, true);
+    } else if (bm->loaded) {
         int clip = model_find_clip(&bm->model, a->clip);
         if (clip >= 0) anim_play_fitted(&bm->player, &bm->model, clip, a->contact[0] * bm->model.clips[clip].duration, a->lead + 0.9f, a->tail, 0.15f);
         else play_bound(bm, ANIM_ATTACK, a->lead + 0.9f, a->tail, 0.15f);
@@ -332,6 +388,7 @@ static void enemy_hit_lands(Battle *b, int i, Player *player, CharModel *pm, Cha
         uifx_spawn(fx, UIFX_PARRY, px, py - 80, txt, col, j == J_PERFECT ? 4.2f : 3.2f, 0.8f);
         if (b->combo >= 2) { char cs[16]; snprintf(cs, sizeof cs, "x%d", b->combo); uifx_spawn(fx, UIFX_DAMAGE, px + 90, py - 60, cs, v4(1, 0.8f, 0.4f, 1), 2.2f + fminf(b->combo, 12) * 0.12f, 0.7f); }
         spawn_sparks(ps, contact, j == J_PERFECT ? v3(3.0f, 2.6f, 1.2f) : v3(1.6f, 2.4f, 2.6f), j == J_PERFECT ? 64 : 28, j == J_PERFECT ? 9.0f : 5.5f);
+        fx_spawn(b, j == J_PERFECT ? "spark" : "parry", v3(contact.x, contact.y - 0.6f, contact.z), j == J_PERFECT ? 1.6f : 1.2f, v3(1.0f, 0.95f, 0.6f), false);
         play_bound(pm, ANIM_PARRY_HIT, 0.04f, 0.5f, 0.0f);
         ev->parried = true; ev->contact = contact;
         ev->shake = fmaxf(ev->shake, j == J_PERFECT ? 0.5f : 0.25f);
@@ -339,6 +396,7 @@ static void enemy_hit_lands(Battle *b, int i, Player *player, CharModel *pm, Cha
         if (j == J_PERFECT) b->timescale = 0.3f;
         float pitch = 1.0f + 0.03f * (float)(b->combo < 12 ? b->combo : 12);
         audio_play(SND_PARRY, 1.0f, pitch * (j == J_PERFECT ? 1.12f : 1.0f));
+        audio_play_file(SFX("Hit & Impact/Hit5.wav"), 0.6f, pitch * 1.3f);
         if (j == J_GOOD) audio_play(SND_BLIP, 0.4f, 0.8f);
         b->perfects += j == J_PERFECT;
         set_read(b, txt);
@@ -363,11 +421,12 @@ static void enemy_hit_lands(Battle *b, int i, Player *player, CharModel *pm, Cha
     else if (a->parryable && !b->press_used && offset > 0) uifx_spawn(fx, UIFX_FAIL, px, py - 70, "LATE", v4(1, 0.4f, 0.3f, 1), 2.4f, 0.9f);
     else uifx_spawn(fx, UIFX_FAIL, px, py - 70, "MISS", v4(1, 0.4f, 0.3f, 1), 2.4f, 0.9f);
     spawn_sparks(ps, contact, v3(2.5f, 0.3f, 0.2f), 18, 4.0f);
+    fx_spawn(b, "hit", v3(contact.x, contact.y - 0.6f, contact.z), 1.4f, v3(1.0f, 0.5f, 0.4f), false);
     play_bound(pm, ANIM_HURT, 0, 0.45f, 0.0f);
     player->c.flash = 1.0f;
     ev->player_hit = true; ev->contact = contact; ev->shake = fmaxf(ev->shake, 0.5f);
     b->hitstop = 0.06f;
-    audio_play(SND_HURT, 0.9f, 1.0f); audio_play(SND_FAIL, 0.7f, 1.0f);
+    audio_play(SND_FAIL, 0.5f, 1.0f); audio_play_file(SFX("Hit & Impact/Hit2.wav"), 0.9f, 0.9f);
     if (b->player_hp <= 0) { b->state = BT_LOSE; b->t = 0; play_bound(pm, ANIM_DEAD, 0, 0, 0.1f); audio_play(SND_DEATH, 1, 1); }
 }
 
@@ -378,11 +437,12 @@ static void card_hit_lands(Battle *b, const CardDef *c, Boss *boss, CharModel *b
     char s[16]; snprintf(s, sizeof s, "%d", c->damage);
     uifx_spawn(fx, UIFX_DAMAGE, ex + (float)(rand() % 40 - 20), ey, s, v4(1, 0.85f, 0.5f, 1), c->damage >= 12 ? 4.2f : 3.2f, 0.9f);
     spawn_sparks(ps, contact, v3(2.2f, 1.8f, 1.0f), c->damage >= 12 ? 30 : 14, 5.0f);
+    fx_spawn(b, c->damage >= 12 ? "cutx" : "slash", v3(contact.x, contact.y - 0.7f, contact.z), c->damage >= 12 ? 2.2f : 1.6f, v3(1.0f, 0.9f, 0.8f), false);
     boss->c.flash = 1.0f;
     play_bound(bm, ANIM_HURT, 0, 0.4f, 0.0f);
     ev->boss_hit = true; ev->contact = contact; ev->shake = fmaxf(ev->shake, c->damage >= 12 ? 0.45f : 0.2f);
     b->hitstop = c->damage >= 12 ? 0.09f : 0.04f;
-    audio_play(SND_HIT, 0.9f, c->damage >= 12 ? 0.8f : 1.0f);
+    if (c->damage >= 12) audio_play_file(SFX("Hit & Impact/Hit3.wav"), 0.9f, 0.85f); else audio_play_file(SFX("Hit & Impact/Hit1.wav"), 0.9f, 1.0f);
 }
 
 static bool can_play(const Battle *b, int hand_i) {
@@ -471,9 +531,9 @@ static void play_card(Battle *b, int hand_i, Player *player, CharModel *pm, Part
     card_begin_play(b, hand_i);
     b->state = BT_CARD; b->t = 0; b->card_hit_i = 0;
     for (int i = 0; i < HITS_MAX; i++) b->card_hit_done[i] = false;
-    audio_play(SND_BLIP, 0.6f, 0.9f);
+    audio_play_file(SFX("Menu/Accept.wav"), 0.5f, 1.0f);
     switch (c->kind) {
-    case CK_ATTACK: play_bound(pm, c->anim, 0.38f, 0.45f + (c->hits - 1) * 0.22f, 0.06f); audio_play(SND_SWING, 0.6f, 1.1f); break;
+    case CK_ATTACK: play_bound(pm, c->anim, 0.38f, 0.45f + (c->hits - 1) * 0.22f, 0.06f); audio_play_file(SFX("Whoosh & Slash/Slash2.wav"), 0.7f, 1.0f + 0.1f * (c->hits - 1)); break;
     case CK_GUARD: b->guard += c->block; play_bound(pm, ANIM_PARRY, 0.08f, 0.5f, 0.05f);
         { char s[24]; snprintf(s, sizeof s, "GUARD %d", b->guard); uifx_spawn(fx, UIFX_BLOCK, 640, 420, s, v4(0.6f, 0.75f, 1, 1), 2.6f, 0.9f); }
         particles_burst(ps, PT_SPORE, chest(b->player_pos, 1.0f), v3(0, 1, 0), 30, 1.5f, v3(0.8f, 1.2f, 2.5f), 0.05f, 1.2f);
@@ -482,7 +542,7 @@ static void play_card(Battle *b, int hand_i, Player *player, CharModel *pm, Part
     case CK_HEAL: b->player_hp += c->heal; if (b->player_hp > b->player_hp_max) b->player_hp = b->player_hp_max;
         { char s[16]; snprintf(s, sizeof s, "+%d", c->heal); uifx_spawn(fx, UIFX_HEAL, 640, 400, s, v4(0.6f, 1, 0.6f, 1), 3.0f, 1.0f); }
         particles_burst(ps, PT_SPORE, chest(b->player_pos, 0.8f), v3(0, 1, 0), 50, 1.2f, v3(1.2f, 2.8f, 1.0f), 0.06f, 1.6f);
-        audio_play(SND_HEART, 0.6f, 1.4f);
+        audio_play_file(SFX("Magic & Skill/Heal.wav"), 0.7f, 1.0f);
         break;
     case CK_BUFF: if (!strcmp(c->effect, "window")) { b->wide_windows = true; uifx_spawn(fx, UIFX_LABEL, 640, 420, "WIDE WINDOWS", v4(0.7f, 1, 0.7f, 1), 2.4f, 1.0f); } break;
     }
@@ -501,6 +561,7 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
     if (b->last_read_t > 0) b->last_read_t -= dt_real;
     b->intent_pulse += dt_real;
 
+    g_flat_shots = pm->is_sprite;
     // Characters stand on their marks facing each other
     player->c.pos = b->player_pos; player->c.yaw = b->stage_yaw;
     boss->c.pos = b->enemy_pos; boss->c.yaw = b->stage_yaw + PI;
@@ -552,7 +613,9 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
     case BT_ENEMY_TELL: {
         shot_enemy_attack(b);
         boss->c.tell = clampf(b->t / 0.9f, 0, 1);
-        if (b->t >= 0.9f) { b->state = BT_ENEMY_ATTACK; b->t = 0; boss->c.tell = 1; audio_play(SND_SWING, 0.9f, 0.6f); }
+        if (in->parry || in->click || in->rclick) { b->parry_pressed_t = b->t - 0.9f; b->press_used = false; audio_play(SND_WHIFF, 0.35f, 1.3f); play_bound(pm, ANIM_PARRY, 0.05f, 0.35f, 0.02f); }
+        if (b->t >= 0.9f) { b->state = BT_ENEMY_ATTACK; b->t = 0; boss->c.tell = 1; audio_play_file(SFX("Whoosh & Slash/Slash4.wav"), 0.9f, 0.7f);
+            if (bm->is_sprite) { const EnemyAttack *a = &b->enemy.attacks[b->cur_attack]; charmodel_sprite_play(bm, a->clip, a->lead, true); } }
     } break;
 
     case BT_ENEMY_ATTACK: {
@@ -595,8 +658,9 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
     camera_set_scene(cam, b->cam_eye, b->cam_target, b->cam_fov, true);
 
     // Animation advance (fight time, so hitstop freezes the swing at the impact)
-    if (pm->loaded) anim_update(&pm->player, &pm->model, dt);
-    if (bm->loaded) anim_update(&bm->player, &bm->model, dt);
+    if (pm->loaded) { if (pm->is_sprite) sprite_update(&pm->sprite, dt); else anim_update(&pm->player, &pm->model, dt); }
+    if (bm->loaded) { if (bm->is_sprite) sprite_update(&bm->sprite, dt); else anim_update(&bm->player, &bm->model, dt); }
+    fx_update(b, dt);
 }
 
 bool battle_over(const Battle *b, bool *won) {
@@ -658,14 +722,14 @@ void battle_draw_ui(const Battle *b, Gfx *g, Mat4 vp) {
         }
     }
     // Rhythm read during the enemy attack: hit circles with approach rings, osu-style
-    if (b->state == BT_ENEMY_ATTACK || b->state == BT_ENEMY_RECOVER) {
+    if (b->state == BT_ENEMY_TELL || b->state == BT_ENEMY_ATTACK || b->state == BT_ENEMY_RECOVER) {
         const EnemyAttack *a = &b->enemy.attacks[b->cur_attack];
         for (int i = 0; i < a->hits; i++) {
             float px, py; if (!uifx_project(vp, hit_world(b, i), &px, &py)) continue;
             float th = b->hit_t[i];
-            float remain = th - b->t;
+            float remain = b->state == BT_ENEMY_TELL ? (0.9f - b->t) + th : th - b->t;
             Vec4 col = a->parryable ? v4(1, 0.9f, 0.5f, 1) : v4(0.9f, 0.4f, 1, 1);
-            if (!b->hit_done[i] && remain <= APPROACH && remain > -0.2f) {
+            if (!b->hit_done[i] && remain <= APPROACH && remain > -0.2f && !(b->state == BT_ENEMY_RECOVER)) {
                 float k = clampf(remain / APPROACH, 0, 1);           // 1 far .. 0 on the beat
                 float alpha = 1.0f - k * 0.5f;
                 gfx_ui_disc(g, px, py, RING_R, v4(col.x * 0.25f, col.y * 0.25f, col.z * 0.25f, 0.75f * alpha));

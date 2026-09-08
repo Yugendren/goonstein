@@ -16,6 +16,7 @@
 #define ATTACKS_MAX    12
 #define PATTERN_MAX    24
 #define HITS_MAX       4
+#define FX_MAX         32
 
 typedef enum CardKind { CK_ATTACK, CK_GUARD, CK_DRAW, CK_HEAL, CK_BUFF } CardKind;
 
@@ -28,7 +29,7 @@ typedef struct CardDef {
 } CardDef;
 
 typedef struct EnemyAttack {
-    char name[32]; char clip[64];
+    char name[32]; char clip[64]; char charge[64];   // clip: model clip or sprite attack anim; charge: sprite telegraph anim
     int damage, hits; float contact[HITS_MAX];
     bool parryable; Vec3 tell; float lead, tail;
 } EnemyAttack;
@@ -53,6 +54,8 @@ typedef struct HandCard {
 } HandCard;
 
 typedef enum Judge { J_NONE, J_PERFECT, J_GREAT, J_GOOD, J_MISS } Judge;
+
+typedef struct SpriteFx { bool alive; SpriteActor actor; Vec3 pos; float scale; Vec3 tint; bool flip; } SpriteFx;
 
 typedef struct Battle {
     CardDef cards[CARDS_MAX]; int ncards;
@@ -83,9 +86,13 @@ typedef struct Battle {
     float intent_pulse;
     unsigned parries, perfects, hits_taken;
     char last_read[24]; float last_read_t;
+    SpriteDef fxdef; bool fx_loaded; SpriteFx fx[FX_MAX];
 } Battle;
 
 bool battle_load(Battle *b, const char *cards_path, const char *deck_path, const char *enemy_path);
+void battle_load_fx(Battle *b, Gfx *g, const char *fx_sprite_path);
+// Draw world-space battle effects (slashes, sparks). Call inside the world pass after the characters.
+void battle_draw_world(Battle *b, Gfx *g);
 // Start a battle on the stage: characters face each other across `spacing` metres at `centre`.
 void battle_start(Battle *b, Vec3 centre, float stage_yaw, float spacing, int player_hp, int player_hp_max);
 // One fixed tick. Drives the character animations, camera, particles, and text effects.

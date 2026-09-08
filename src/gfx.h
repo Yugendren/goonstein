@@ -29,7 +29,7 @@ typedef struct FrameParams {
     PointLight lights[GFX_MAX_LIGHTS]; int nlights;
 } FrameParams;
 
-typedef struct Material { Vec4 tint; Vec3 emissive; Vec3 rim_color; float rim; } Material;
+typedef struct Material { Vec4 tint; Vec3 emissive; Vec3 rim_color; float rim; float unlit; } Material;
 
 typedef struct PostParams {
     float grain, vignette, fade;
@@ -55,7 +55,7 @@ typedef struct Gfx {
     UIVertex *ui_verts; Uint32 ui_count;
     PVertex *p_add, *p_alpha; Uint32 p_add_count, p_alpha_count;
     Texture white, soft;                          // 1x1 white, soft radial disc
-    Mesh cube;
+    Mesh cube, quad;
     // per-frame
     SDL_GPUCommandBuffer *cmd; SDL_GPURenderPass *pass;
     FrameParams frame; Material material; const Texture *bound_tex;
@@ -83,6 +83,10 @@ void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Ve
 void gfx_draw_skinned(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, const Mat4 *joints, int njoints);
 void gfx_draw_box(Gfx *g, const Texture *t, Vec3 center, Vec3 size, float yaw, Vec4 tint, float uv_tile);
 void gfx_draw_box_wire(Gfx *g, Vec3 center, Vec3 size, Vec4 color);
+// Upright sprite: a quad w x h metres standing on `foot`, turned about Y to face the camera,
+// nearest-sampled, alpha-cutout, lit like everything else. uv is the frame rect (u0 v0 u1 v1).
+void gfx_draw_sprite(Gfx *g, const Texture *t, Vec3 foot, float w, float h, const float *uv, Vec4 tint, bool flip_x);
+Texture gfx_texture_load_exact(Gfx *g, const char *path);   // no downsampling (pixel art)
 // Camera-facing quads. Additive ones glow (sparks, fireflies); alpha ones shade (blob shadows, dust).
 void gfx_billboard(Gfx *g, Vec3 pos, float size, Vec4 color, bool additive);
 // Flat quad on the ground (y up), alpha blended: blob shadows, light pools.

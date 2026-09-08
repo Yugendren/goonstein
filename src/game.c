@@ -5,6 +5,7 @@
 #include <string.h>
 
 #define ASSET(rel) (HOLLOW_ASSET_DIR "/" rel)
+#define MUSIC(rel) (HOLLOW_ASSET_DIR "/sprites/ninja/Audio/Musics/" rel)
 
 static void say(Game *g, const char *m) { snprintf(g->msg, sizeof g->msg, "%s", m); g->msg_t = 2.5f; }
 
@@ -65,6 +66,7 @@ static void reset_to_start(Game *g) {
     g->boss.state = BS_SCRIPTED;   // dormant until the fight starts
     g->state = GS_EXPLORE; g->state_t = 0;
     g->fade = 0; g->letterbox = 0; g->hitstop = 0; g->fight_intensity = 0;
+    audio_music_play(MUSIC("1 - Adventure Begin.ogg"), true, 0.55f, 2.0f);
     camera_init(&g->cam);
     camera_snap_behind(&g->cam, g->player.c.pos, g->player.c.yaw, &g->level);
     g->hint_t = 8.0f;
@@ -88,14 +90,17 @@ static void start_battle(Game *g) {
     g->boss.state = BS_SCRIPTED; g->player.state = PS_SCRIPTED;
     g->boss.c.hp = g->boss.c.hp_max;
     character_set_anim(&g->boss.c, ANIM_IDLE); character_set_anim(&g->player.c, ANIM_IDLE);
-    if (g->boss_model.loaded) anim_play(&g->boss_model.player, &g->boss_model.model, g->boss_model.bind[ANIM_IDLE].clip, 1, true, false, 0.2f);
-    if (g->player_model.loaded) anim_play(&g->player_model.player, &g->player_model.model, g->player_model.bind[ANIM_IDLE].clip, 1, true, false, 0.2f);
+    if (g->boss_model.is_sprite) charmodel_sprite_play(&g->boss_model, "idle", 0, true);
+    else if (g->boss_model.loaded) anim_play(&g->boss_model.player, &g->boss_model.model, g->boss_model.bind[ANIM_IDLE].clip, 1, true, false, 0.2f);
+    if (g->player_model.is_sprite) charmodel_sprite_play(&g->player_model, "idle", 0, true);
+    else if (g->player_model.loaded) anim_play(&g->player_model.player, &g->player_model.model, g->player_model.bind[ANIM_IDLE].clip, 1, true, false, 0.2f);
     g->state = GS_BATTLE; g->state_t = 0; g->fade = 1;
     uifx_clear(&g->fx);
+    audio_music_play(MUSIC("17 - Fight.ogg"), true, 0.6f, 0.8f);
 }
 
 void game_init(Game *g) {
-    memset(g, 0, sizeof *g);
+    // g is static-zeroed by main; do not memset here (command-line overrides are already in it)
     if (!audio_init()) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "audio unavailable, running silent");
     audio_set_master(0.8f);
 }
@@ -107,12 +112,13 @@ bool game_init_gfx(Game *g, Platform *pf) {
     world_textures_create(&g->gfx, &g->wt);
     if (!load_defs(g)) return false;
     // Skinned models are optional: without them the box figures draw.
-    charmodel_load(&g->gfx, &g->player_model, ASSET("characters/knight.txt"));
+    charmodel_load(&g->gfx, &g->player_model, ASSET("characters/hero.txt"));
     charmodel_load(&g->gfx, &g->boss_model, ASSET("characters/warden.txt"));
     particles_init(&g->particles);
     uifx_init(&g->fx);
     g->battle_loaded = battle_load(&g->battle, ASSET("cards/cards.txt"), ASSET("decks/knight.txt"), ASSET("enemies/warden_battle.txt"));
     if (!g->battle_loaded) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "battle data failed to load; boss door falls back to real-time fight");
+    battle_load_fx(&g->battle, &g->gfx, ASSET("sprites/fx.txt"));
     setup_level_content(g);
     reset_to_start(g);
     return true;
@@ -327,6 +333,7 @@ static void tick_battle(Game *g, const Input *in_real, Platform *pf, float dt) {
             g->boss.state = BS_DEAD; g->boss.c.hp = 0; character_set_anim(&g->boss.c, ANIM_DEAD);
             g->player.state = PS_SCRIPTED;
             play_scene(g, g->level.scene_victory, GS_END);
+            audio_music_play(MUSIC("11 - Clearing.ogg"), true, 0.5f, 1.5f);
         } else {
             g->deaths++;
             g->player.c.hp = g->player.c.hp_max;
@@ -538,6 +545,7 @@ void game_render(Game *g, Platform *pf, float alpha) {
         draw_blob_shadow(x, pc->pos, pc->radius * 2.2f, 0.55f);
         draw_blob_shadow(x, bc->pos, bc->radius * 2.2f, 0.6f);
     }
+    if (g->state == GS_BATTLE) battle_draw_world(&g->battle, x);
     particles_draw(&g->particles, x);
 
     if (pf->debug) {
@@ -572,8 +580,8 @@ bool game_shot_moment(Game *g, const char *when) {
     const Battle *b = &g->battle;
     if (g->state != GS_BATTLE) return false;
     if (!strcmp(when, "ring")) {
-        if (b->state != BT_ENEMY_ATTACK) return false;
-        for (int i = 0; i < HITS_MAX; i++) { float r = b->hit_t[i] - b->t; if (!b->hit_done[i] && r > 0.05f && r < 0.14f) return true; }
+        if (b->state != BT_ENEMY_ATTACK && b->state != BT_ENEMY_TELL) return false;
+        for (int i = 0; i < HITS_MAX; i++) { float r = b->state == BT_ENEMY_TELL ? (0.9f - b->t) + b->hit_t[i] : b->hit_t[i] - b->t; if (!b->hit_done[i] && r > 0.05f && r < 0.14f) return true; }
         return false;
     }
     if (!strcmp(when, "judge")) { for (int i = 0; i < HITS_MAX; i++) if (b->burst_t[i] > 0.08f && b->burst_t[i] < 0.16f) return true; return false; }

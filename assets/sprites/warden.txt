@@ -1,0 +1,18 @@
+# Giant Red Samurai. Idle/walk/hit are 48 px frames on the bottom edge; charge and attack are 96 px
+# frames with the feet about 22 px up, so those sheets carry a foot offset.
+size 2.2
+frame 48 48
+sheet idle    sprites/ninja/Actor/Boss/GiantRedSamurai/Idle.png 12 1
+sheet walk    sprites/ninja/Actor/Boss/GiantRedSamurai/Walk.png 12 1
+sheet hit     sprites/ninja/Actor/Boss/GiantRedSamurai/Hit.png 8 1
+sheet attackL sprites/ninja/Actor/Boss/GiantRedSamurai/AttackLeft.png 4 1 foot 22
+sheet attackR sprites/ninja/Actor/Boss/GiantRedSamurai/AttackRight.png 4 1 foot 22
+sheet chargeL sprites/ninja/Actor/Boss/GiantRedSamurai/ChargeLeft.png 3 1 foot 22
+sheet chargeR sprites/ninja/Actor/Boss/GiantRedSamurai/ChargeRight.png 3 1 foot 22
+anim idle   idle    fps 8  loop
+anim walk   walk    fps 10 loop
+anim hurt   hit     fps 12
+anim charge chargeL fps 5  loop right chargeR
+anim attack attackL fps 8  right attackR contact 1
+anim slam   attackL fps 5  right attackR contact 1
+anim rush   attackL fps 12 right attackR contact 0 contact 2

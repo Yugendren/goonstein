@@ -12,8 +12,8 @@ void main() {
     vec4 wp = model * vec4(a_pos, 1.0);
     vec3 n = mat3(model) * a_normal;
     v_wpos = wp.xyz; v_normal = n; v_color = a_color;
-    if (uv_xform.x < 0.0) {
-        vec3 an = abs(normalize(n)); float tile = -uv_xform.x;
+    if (uv_xform.w > 0.5) {   // planar world mapping, tile = uv_xform.x
+        vec3 an = abs(normalize(n)); float tile = uv_xform.x;
         if (an.x > an.y && an.x > an.z) v_uv = wp.zy * tile;
         else if (an.y > an.z)           v_uv = wp.xz * tile;
         else                            v_uv = wp.xy * tile;

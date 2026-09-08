@@ -25,7 +25,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(SDL3)
 
 # --- Game
-file(GLOB_RECURSE GAME_SOURCES CONFIGURE_DEPENDS src/*.c)
+file(GLOB GAME_SOURCES CONFIGURE_DEPENDS src/*.c)
 add_executable(${PROJECT_NAME} ${GAME_SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 target_link_libraries(${PROJECT_NAME} PRIVATE SDL3::SDL3)

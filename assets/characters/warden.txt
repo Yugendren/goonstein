@@ -1,13 +1,11 @@
-# Boss: KayKit Barbarian, scaled up. CC0. Same rig family as the knight.
-model models/kaykit/Barbarian.glb
-scale 1.45
-texture_size 256
+# Boss: the Giant Red Samurai from Ninja Adventure (CC0).
+sprite sprites/warden.txt
+scale 1.0
 yaw_offset 0
-hide 1H_Axe_Offhand 1H_Axe Mug Barbarian_Round_Shield
-anim idle       2H_Melee_Idle loop
-anim walk       Walking_A loop
-anim attack     2H_Melee_Attack_Chop contact 0.45
-anim hurt       Hit_A
-anim stagger    Hit_B
-anim roar       Cheer
-anim dead       Death_A hold
+anim idle       idle
+anim walk       walk
+anim attack     attack
+anim hurt       hurt
+anim stagger    hurt
+anim roar       charge
+anim dead       hurt
