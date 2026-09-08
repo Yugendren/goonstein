@@ -492,8 +492,39 @@ static void text_center(Gfx *g, float cx, float y, float scale, Vec4 c, const ch
     gfx_ui_text(g, cx - w * 0.5f, y, scale, c, s);
 }
 
+static void draw_console(Game *g, Platform *pf) {
+    if (!pf->console) return;
+    Gfx *x = &g->gfx;
+    const Battle *b = &g->battle;
+    float px = 640, pw = 640, ph = 800;
+    gfx_ui_rect(x, px, 0, pw, ph, v4(0.02f, 0.02f, 0.04f, 0.88f));
+    gfx_ui_rect(x, px, 0, 2, ph, v4(0.5f, 0.8f, 1, 0.8f));
+    Vec4 head = v4(0.6f, 0.9f, 1, 1), txt = v4(0.85f, 0.9f, 0.95f, 1), dim = v4(0.55f, 0.6f, 0.65f, 1);
+    float y = 10; char l[200];
+    gfx_ui_text(x, px + 12, y, 1.4f, head, "DEBUGGER   \\ close   F8 copy snapshot to clipboard   F1 wireframes"); y += 20;
+    snprintf(l, sizeof l, "state %s  t=%.2f  fps %.0f  tick %u  paused %d", GS_NAMES[g->state], g->state_t, g->fps, g->tick, g->paused); gfx_ui_text(x, px + 12, y, 1.0f, txt, l); y += 12;
+    snprintf(l, sizeof l, "player %.1f %.1f %.1f yaw %.0f hp %.0f anim %s | boss hp %.0f anim %s", g->player.c.pos.x, g->player.c.pos.y, g->player.c.pos.z, g->player.c.yaw / DEG2RAD, g->player.c.hp, anim_name(g->player.c.anim), g->boss.c.hp, anim_name(g->boss.c.anim)); gfx_ui_text(x, px + 12, y, 1.0f, txt, l); y += 12;
+    if (g->state == GS_BATTLE) {
+        snprintf(l, sizeof l, "battle %s t=%.2f round %d energy %d/%d banked %d guard %d combo %d hp %d enemy %d", BT_NAMES[b->state], b->t, b->round, b->energy, b->energy_max, b->banked, b->guard, b->combo, b->player_hp, b->enemy_hp); gfx_ui_text(x, px + 12, y, 1.0f, txt, l); y += 12;
+        snprintf(l, sizeof l, "hover %d drag %d target %d | press %.3f used %d judge %d offset %+.3f | beats %.2f %.2f", b->hovered, b->dragging, b->drop_target, b->parry_pressed_t, b->press_used, b->last_judge, b->last_offset, b->hit_t[0], b->hit_t[1]); gfx_ui_text(x, px + 12, y, 1.0f, txt, l); y += 12;
+        l[0] = 0; for (int i = 0; i < b->nhand; i++) { char c[40]; snprintf(c, sizeof c, "%s(p%d %.0f,%.0f) ", b->cards[b->hand[i].def].name, b->hand[i].phase, b->hand[i].x, b->hand[i].y); strncat(l, c, sizeof l - strlen(l) - 1); }
+        gfx_ui_text(x, px + 12, y, 1.0f, dim, l); y += 12;
+    }
+    float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my);
+    snprintf(l, sizeof l, "mouse %.0f %.0f  left %d right %d  ctrl %d shift %d", mx, my, pf->input.mouse_held, pf->input.rmouse_held, pf->input.ctrl, pf->input.shift_held); gfx_ui_text(x, px + 12, y, 1.0f, txt, l); y += 16;
+    gfx_ui_rect(x, px + 12, y, pw - 24, 1, v4(0.4f, 0.5f, 0.6f, 0.6f)); y += 6;
+    gfx_ui_text(x, px + 12, y, 1.0f, head, "EVENTS  [in] = raw input, everything else = actions the game took"); y += 14;
+    int total = dbg_line_count(), rows = (int)((ph - y - 8) / 11); int show = total < rows ? total : rows;
+    for (int i = 0; i < show; i++) {
+        const char *line = dbg_line(total - show + i);
+        bool input = strstr(line, "[in]") != NULL;
+        gfx_ui_text(x, px + 12, y + i * 11, 1.0f, input ? v4(1, 0.85f, 0.5f, 1) : v4(0.75f, 0.95f, 0.8f, 1), line);
+    }
+}
+
 static void draw_debug_overlay(Game *g, Platform *pf) {
     Gfx *x = &g->gfx;
+    draw_console(g, pf);
     if (!pf->debug) return;
     {
         static const char *GS[] = { "EXPLORE", "SCENE", "FIGHT", "DEAD", "END", "BATTLE" };
@@ -517,8 +548,8 @@ static void draw_debug_overlay(Game *g, Platform *pf) {
             snprintf(bl, sizeof bl, "mouse %.0f %.0f held %d  hit_t %.2f %.2f %.2f", mx, my, pf->input.mouse_held, b->hit_t[0], b->hit_t[1], b->hit_t[2]);
             gfx_ui_text(x, 8, 8 + (n + 1) * 11, 1.0f, v4(1, 0.9f, 0.6f, 1), bl);
         }
-        // event log, newest at the bottom
-        int total = dbg_line_count(), show = total < 18 ? total : 18;
+        // event log, newest at the bottom (the \ console shows more)
+        int total = pf->console ? 0 : dbg_line_count(), show = total < 18 ? total : 18;
         gfx_ui_rect(x, 860, 90, 412, 12 + show * 11 + 14, v4(0, 0, 0, 0.55f));
         gfx_ui_text(x, 866, 96, 1.0f, v4(0.8f, 0.8f, 0.8f, 1), "EVENTS   (F8 copies a snapshot to the clipboard)");
         for (int i = 0; i < show; i++) gfx_ui_text(x, 866, 110 + i * 11, 1.0f, v4(0.75f, 0.9f, 1, 1), dbg_line(total - show + i));

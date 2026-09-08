@@ -36,6 +36,7 @@ typedef struct Platform {
     Input input;
     bool want_quit;
     bool debug;
+    bool console;    // the \ debugger panel
 } Platform;
 
 bool platform_init(Platform *pf, const char *title, int w, int h);

@@ -67,7 +67,9 @@ unblockable attacks. A timing bar shows whether you were early or late.
 ## Testing and debugging
 
 `assets/settings.txt` holds personal defaults (volume, debug overlay, hero); flags override it.
-`--quiet` sets volume to 0.15 and `--volume 0` mutes. F1 toggles the debug overlay: state
+`--quiet` sets volume to 0.15 and `--volume 0` mutes. `\` (or the backtick) opens the debugger:
+a side panel with the state summary and a live stream of raw inputs (every key, mouse and pad
+press with position) interleaved with the actions the game took. F1 toggles the wireframe overlay: state
 machines, timers, mouse position, card hover/drag/target, parry press and judgement offsets,
 and a live event log. Every event also goes to `hollow.log` in the working directory. F8 writes
 `hollow_snapshot.txt` with the full state plus recent events and copies it to the clipboard,

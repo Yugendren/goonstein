@@ -25,7 +25,7 @@ int main(int argc, char **argv) {
     // --edit NAME     open the sprite editor on assets/sprites/own/NAME (created if missing); --size N frame size for new characters
     // --hero NAME     play with assets/characters/NAME.txt as the player
     int max_frames = -1; const char *shot = NULL; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
-    const char *edit = NULL; int edit_size = 32; bool debug_on = false;
+    const char *edit = NULL; int edit_size = 32; bool debug_on = false, console_on = false;
     static Game game;   // large; static keeps it off the stack (and zeroed)
     // settings.txt next to the assets folder: volume V, debug 0|1, hero NAME. Command-line flags override it.
     { char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR); size_t sn; char *st = SDL_LoadFile(sp, &sn);
@@ -42,6 +42,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--volume") && i + 1 < argc) volume = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--quiet")) volume = 0.15f;
         else if (!strcmp(argv[i], "--debug")) debug_on = true;
+        else if (!strcmp(argv[i], "--console")) console_on = true;
         else if (!strcmp(argv[i], "--shot-when") && i + 1 < argc) shot_when = argv[++i];
         else if (!strcmp(argv[i], "--edit") && i + 1 < argc) edit = argv[++i];
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) edit_size = atoi(argv[++i]);
@@ -59,7 +60,7 @@ int main(int argc, char **argv) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "gfx init failed: %s", SDL_GetError());
         return 1;
     }
-    pf.debug = debug_on;
+    pf.debug = debug_on; pf.console = console_on;
     if (start) game_start_at(&game, start);
     if (edit) game_open_editor(&game, edit, edit_size);
     game.bot = bot;

@@ -1,4 +1,5 @@
 #include "platform.h"
+#include "debug.h"
 #include <string.h>
 
 static float dead(float v) { return (v > -0.15f && v < 0.15f) ? 0.0f : v; }
@@ -59,6 +60,8 @@ bool platform_poll(Platform *pf) {
         case SDL_EVENT_KEY_DOWN:
             if (e.key.scancode < 512) in->key_down[e.key.scancode] = true;   // repeats count for nudging
             if (e.key.repeat) break;
+            dbg_log("[in] key %s", SDL_GetScancodeName(e.key.scancode));
+            if (e.key.scancode == SDL_SCANCODE_BACKSLASH || e.key.scancode == SDL_SCANCODE_GRAVE) { pf->console = !pf->console; break; }
             switch (e.key.scancode) {
             case SDL_SCANCODE_ESCAPE: pf->want_quit = true; break;
             case SDL_SCANCODE_F1: in->debug_toggle = true; pf->debug = !pf->debug; break;
@@ -76,6 +79,7 @@ bool platform_poll(Platform *pf) {
             }
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            dbg_log("[in] mouse %s down at %.0f %.0f", e.button.button == SDL_BUTTON_LEFT ? "left" : e.button.button == SDL_BUTTON_RIGHT ? "right" : "middle", e.button.x, e.button.y);
             if (e.button.button == SDL_BUTTON_LEFT) { in->attack = true; in->click = true; in->mouse_held = true; }
             else if (e.button.button == SDL_BUTTON_RIGHT) { in->parry = true; in->rclick = true; in->rmouse_held = true; }
             else if (e.button.button == SDL_BUTTON_MIDDLE) in->lockon = true;
@@ -83,6 +87,7 @@ bool platform_poll(Platform *pf) {
             break;
         case SDL_EVENT_MOUSE_WHEEL: in->wheel += e.wheel.y; break;
         case SDL_EVENT_MOUSE_BUTTON_UP:
+            dbg_log("[in] mouse %s up at %.0f %.0f", e.button.button == SDL_BUTTON_LEFT ? "left" : e.button.button == SDL_BUTTON_RIGHT ? "right" : "middle", e.button.x, e.button.y);
             if (e.button.button == SDL_BUTTON_LEFT) in->mouse_held = false;
             else if (e.button.button == SDL_BUTTON_RIGHT) in->rmouse_held = false;
             break;
@@ -101,6 +106,7 @@ bool platform_poll(Platform *pf) {
             }
             break;
         case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            dbg_log("[in] pad %s", SDL_GetGamepadStringForButton((SDL_GamepadButton)e.gbutton.button));
             switch (e.gbutton.button) {
             // Sekiro pad layout: RB attack, LB deflect, B step/sprint, A interact, R3 lock-on
             case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: in->attack = true; break;
