@@ -3,6 +3,7 @@ cbuffer _11_13 : register(b0, space1)
     row_major float4x4 _13_m0 : packoffset(c0);
     row_major float4x4 _13_m1 : packoffset(c4);
     float4 _13_m2 : packoffset(c8);
+    float4 _13_m3 : packoffset(c9);
 };
 
 
@@ -40,7 +41,7 @@ void vert_main()
     _45 = _28.xyz;
     _48 = _43;
     _51 = _53;
-    if (_13_m2.w > 0.5f)
+    if (_13_m3.x > 0.5f)
     {
         float3 _69 = abs(normalize(_43));
         float _76 = _69.x;

@@ -36,3 +36,4 @@ void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint);
 // Sprite helpers used by the battle: play a named sprite animation (fitted so the first contact lands at lead), and contact timing.
 void charmodel_sprite_play(CharModel *cm, const char *anim, float lead, bool restart);
 float charmodel_sprite_contact(const CharModel *cm, const char *anim, int i, float lead);
+void charmodel_sprite_settle(CharModel *cm);   // finished one-shots return to idle

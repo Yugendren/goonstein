@@ -8,6 +8,7 @@ struct _11
     float4x4 _m0;
     float4x4 _m1;
     float4 _m2;
+    float4 _m3;
 };
 
 struct main0_out
@@ -35,7 +36,7 @@ vertex main0_out main0(main0_in in [[stage_in]], constant _11& _13 [[buffer(0)]]
     out.m_45 = _28.xyz;
     out.m_48 = _43;
     out.m_51 = in.m_53;
-    if (_13._m2.w > 0.5)
+    if (_13._m3.x > 0.5)
     {
         float3 _69 = abs(fast::normalize(_43));
         float _76 = _69.x;

@@ -60,7 +60,7 @@ typedef struct Gfx {
     SDL_GPUCommandBuffer *cmd; SDL_GPURenderPass *pass;
     FrameParams frame; Material material; const Texture *bound_tex;
     SDL_GPUGraphicsPipeline *bound_pipe;
-    Vec3 cam_right, cam_up;
+    Vec3 cam_right, cam_up; float sprite_lean; bool planar_next;
     unsigned draw_calls;
 } Gfx;
 
@@ -86,6 +86,8 @@ void gfx_draw_box_wire(Gfx *g, Vec3 center, Vec3 size, Vec4 color);
 // Upright sprite: a quad w x h metres standing on `foot`, turned about Y to face the camera,
 // nearest-sampled, alpha-cutout, lit like everything else. uv is the frame rect (u0 v0 u1 v1).
 void gfx_draw_sprite(Gfx *g, const Texture *t, Vec3 foot, float w, float h, const float *uv, Vec4 tint, bool flip_x);
+// How far sprites lean back toward a high camera (0 = upright, 1 = fully camera-facing). HD-2D uses ~0.5.
+void gfx_set_sprite_lean(Gfx *g, float lean);
 Texture gfx_texture_load_exact(Gfx *g, const char *path);   // no downsampling (pixel art)
 // Camera-facing quads. Additive ones glow (sparks, fireflies); alpha ones shade (blob shadows, dust).
 void gfx_billboard(Gfx *g, Vec3 pos, float size, Vec4 color, bool additive);

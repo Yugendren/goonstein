@@ -658,8 +658,8 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
     camera_set_scene(cam, b->cam_eye, b->cam_target, b->cam_fov, true);
 
     // Animation advance (fight time, so hitstop freezes the swing at the impact)
-    if (pm->loaded) { if (pm->is_sprite) sprite_update(&pm->sprite, dt); else anim_update(&pm->player, &pm->model, dt); }
-    if (bm->loaded) { if (bm->is_sprite) sprite_update(&bm->sprite, dt); else anim_update(&bm->player, &bm->model, dt); }
+    if (pm->loaded) { if (pm->is_sprite) { sprite_update(&pm->sprite, dt); charmodel_sprite_settle(pm); } else anim_update(&pm->player, &pm->model, dt); }
+    if (bm->loaded) { if (bm->is_sprite) { sprite_update(&bm->sprite, dt); charmodel_sprite_settle(bm); } else anim_update(&bm->player, &bm->model, dt); }
     fx_update(b, dt);
 }
 

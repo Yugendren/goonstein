@@ -1,4 +1,5 @@
 #include "charmodel.h"
+static void sprite_settle(CharModel *cm);
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -111,7 +112,7 @@ void charmodel_drive_player(CharModel *cm, const Player *p, float dt) {
         default:             play_binding(cm, p->c.anim, 0, 0, 0.12f); break;
         }
     }
-    if (cm->is_sprite) sprite_update(&cm->sprite, dt); else anim_update(&cm->player, &cm->model, dt);
+    if (cm->is_sprite) { sprite_update(&cm->sprite, dt); sprite_settle(cm); } else anim_update(&cm->player, &cm->model, dt);
 }
 
 void charmodel_drive_boss(CharModel *cm, const Boss *b, float dt) {
@@ -137,6 +138,16 @@ void charmodel_drive_boss(CharModel *cm, const Boss *b, float dt) {
     if (cm->is_sprite) sprite_update(&cm->sprite, dt); else anim_update(&cm->player, &cm->model, dt);
 }
 
+// One-shot sprite animations return to idle when they finish, unless they are meant to hold.
+static void sprite_settle(CharModel *cm) {
+    if (!cm->is_sprite || cm->sprite.anim < 0 || !cm->sprite.finished) return;
+    const SpriteAnim *an = &cm->sdef.anims[cm->sprite.anim];
+    if (an->loop) return;
+    if (!strcmp(an->name, "dead") || !strcmp(an->name, "kneel")) return;
+    int idle = cm->bind[ANIM_IDLE].clip;
+    if (idle >= 0) sprite_play(&cm->sprite, idle, 1, true);
+}
+
 void charmodel_sprite_play(CharModel *cm, const char *anim, float lead, bool restart) {
     if (!cm->is_sprite) return;
     int a = sprite_find_anim(&cm->sdef, anim);
@@ -144,6 +155,8 @@ void charmodel_sprite_play(CharModel *cm, const char *anim, float lead, bool res
     if (lead > 0 && cm->sdef.anims[a].ncontact > 0) sprite_play_fitted(&cm->sprite, a, lead);
     else sprite_play(&cm->sprite, a, 1, restart);
 }
+
+void charmodel_sprite_settle(CharModel *cm) { sprite_settle(cm); }
 
 float charmodel_sprite_contact(const CharModel *cm, const char *anim, int i, float lead) {
     if (!cm->is_sprite) return lead + i * 0.25f;
@@ -159,7 +172,7 @@ void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint) {
     if (cm->is_sprite) {
         Vec3 fwd = v3_cross(v3(0, 1, 0), g->cam_right);   // camera forward on the ground plane
         Vec3 face = v3(sinf(c->yaw + cm->yaw_offset), 0, cosf(c->yaw + cm->yaw_offset));
-        cm->sprite.facing = sprite_facing_from(face, fwd, g->cam_right);
+        sprite_set_facing(&cm->sprite, face, fwd, g->cam_right);
         sprite_actor_draw(g, &cm->sprite, c->pos, tint, cm->scale);
         return;
     }

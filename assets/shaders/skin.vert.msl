@@ -8,6 +8,7 @@ struct _11
     float4x4 _m0;
     float4x4 _m1;
     float4 _m2;
+    float4 _m3;
 };
 
 struct _29

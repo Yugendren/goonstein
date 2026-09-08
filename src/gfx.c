@@ -18,7 +18,7 @@
 
 // ---------------------------------------------------------------- uniform layouts (std140)
 
-typedef struct VSUniforms { Mat4 view_proj, model; Vec4 uv_xform; } VSUniforms;
+typedef struct VSUniforms { Mat4 view_proj, model; Vec4 uv_xform, flags; } VSUniforms;
 typedef struct FrameUniforms {
     Vec4 cam_pos, sun_dir, sun_color, sky_ambient, ground_ambient, fog_color, fog_height, toon;
     Vec4 lights_pos[GFX_MAX_LIGHTS], lights_color[GFX_MAX_LIGHTS];
@@ -270,6 +270,7 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->cube = make_cube(g);
     g->quad = make_quad(g);
     g->material = material_default();
+    g->sprite_lean = SDL_getenv("HOLLOW_LEAN") ? (float)atof(SDL_getenv("HOLLOW_LEAN")) : 0.5f;
     return true;
 }
 
@@ -326,6 +327,7 @@ void gfx_begin(Gfx *g, Platform *pf, const FrameParams *fp) {
 }
 
 void gfx_set_material(Gfx *g, const Material *m) { g->material = m ? *m : material_default(); }
+void gfx_set_sprite_lean(Gfx *g, float lean) { g->sprite_lean = lean; }
 
 static void bind_pipe(Gfx *g, SDL_GPUGraphicsPipeline *p) {
     if (g->bound_pipe != p) { SDL_BindGPUGraphicsPipeline(g->pass, p); g->bound_pipe = p; g->bound_tex = NULL; }
@@ -337,7 +339,7 @@ static void bind_tex(Gfx *g, const Texture *t, SDL_GPUSampler *s) {
 void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Vec4 uv_xform) {
     if (!g->pass) return;
     bind_pipe(g, g->pipe_world);
-    VSUniforms u = { g->frame.view_proj, model, uv_xform };
+    VSUniforms u = { g->frame.view_proj, model, uv_xform, v4(g->planar_next ? 1.0f : 0.0f, 0, 0, 0) };
     SDL_PushGPUVertexUniformData(g->cmd, 0, &u, sizeof u);
     push_material(g, tint);
     bind_tex(g, t, g->samp_linear);
@@ -350,7 +352,7 @@ void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Ve
 void gfx_draw_skinned(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, const Mat4 *joints, int njoints) {
     if (!g->pass) return;
     bind_pipe(g, g->pipe_skin);
-    VSUniforms u = { g->frame.view_proj, model, v4(1, 1, 0, 0) };
+    VSUniforms u = { g->frame.view_proj, model, v4(1, 1, 0, 0), v4(0, 0, 0, 0) };
     SDL_PushGPUVertexUniformData(g->cmd, 0, &u, sizeof u);
     static Mat4 tmp[64];
     memset(tmp, 0, sizeof tmp);
@@ -376,9 +378,14 @@ void gfx_draw_sprite(Gfx *g, const Texture *t, Vec3 foot, float w, float h, cons
     if (!g->pass) return;
     // Basis: right = camera right (horizontal), up = world up, normal = toward the camera, tilted up a little
     Vec3 r = v3_norm(v3(g->cam_right.x, 0, g->cam_right.z));
-    Vec3 u = v3(0, 1, 0);
-    Vec3 n = v3_norm(v3_cross(r, u));
     Vec3 to_cam = v3_sub(g->frame.cam_pos, foot);
+    // Lean the quad back, away from a high camera, by a fraction of the camera's elevation (feet stay put).
+    // Leaning away is what keeps the sprite's full height visible from above, the HD-2D look.
+    Vec3 horiz = v3_norm(v3(to_cam.x, 0, to_cam.z));
+    float elev = atan2f(to_cam.y, v3_len(v3(to_cam.x, 0, to_cam.z)));
+    float lean = elev * g->sprite_lean;
+    Vec3 u = v3_norm(v3_sub(v3_scale(v3(0, 1, 0), cosf(lean)), v3_scale(horiz, sinf(lean))));
+    Vec3 n = v3_norm(v3_cross(r, u));
     bool mirrored = false;
     // Keep the basis right-handed (so the face is never culled): if the front faces away, flip
     // right and normal together and un-mirror the image through the uvs.
@@ -388,11 +395,11 @@ void gfx_draw_sprite(Gfx *g, const Texture *t, Vec3 foot, float w, float h, cons
     m.m[0] = r.x * w; m.m[1] = r.y * w; m.m[2] = r.z * w;
     m.m[4] = u.x * h; m.m[5] = u.y * h; m.m[6] = u.z * h;
     m.m[8] = n.x;     m.m[9] = n.y;     m.m[10] = n.z;
-    m.m[12] = foot.x; m.m[13] = foot.y; m.m[14] = foot.z;
+    m.m[12] = foot.x; m.m[13] = foot.y + 0.03f; m.m[14] = foot.z;   // a hair above the ground so feet never z-fight
     // uv_xform: scale then offset: uv' = uv * (u1-u0, v1-v0) + (u0, v0)
     Vec4 xf = mirrored ? v4(uv[0] - uv[2], uv[3] - uv[1], uv[2], uv[1]) : v4(uv[2] - uv[0], uv[3] - uv[1], uv[0], uv[1]);
     bind_pipe(g, g->pipe_world);
-    VSUniforms vu = { g->frame.view_proj, m, xf };
+    VSUniforms vu = { g->frame.view_proj, m, xf, v4(0, 0, 0, 0) };
     SDL_PushGPUVertexUniformData(g->cmd, 0, &vu, sizeof vu);
     Material saved = g->material; if (g->material.unlit <= 0) g->material.unlit = 0.8f;
     push_material(g, tint); g->material = saved;
@@ -406,8 +413,10 @@ void gfx_draw_sprite(Gfx *g, const Texture *t, Vec3 foot, float w, float h, cons
 }
 
 void gfx_draw_box(Gfx *g, const Texture *t, Vec3 center, Vec3 size, float yaw, Vec4 tint, float uv_tile) {
-    Vec4 xf = uv_tile > 0 ? v4(uv_tile, 0, 0, 1) : v4(1, 1, 0, 0);
+    Vec4 xf = uv_tile > 0 ? v4(uv_tile, 0, 0, 0) : v4(1, 1, 0, 0);
+    g->planar_next = uv_tile > 0;
     gfx_draw(g, &g->cube, t, m4_trs(center, yaw, size), tint, xf);
+    g->planar_next = false;
 }
 
 void gfx_draw_box_wire(Gfx *g, Vec3 c, Vec3 s, Vec4 color) {

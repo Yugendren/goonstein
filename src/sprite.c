@@ -141,9 +141,11 @@ void sprite_actor_draw(Gfx *g, const SpriteActor *a, Vec3 foot, Vec4 tint, float
         if (sh->cols == 3) { dcol = a->facing == FACE_DOWN ? 0 : a->facing == FACE_UP ? 1 : 2; flip = a->facing == FACE_RIGHT; }
         col = dcol; row = frame; if (row >= sh->rows) row = sh->rows - 1;
     }
-    float u0 = (float)col * sh->fw / (float)sh->tex.w;
-    float v0 = (float)row * sh->fh / (float)sh->tex.h;
-    float u1 = u0 + (float)sh->fw / (float)sh->tex.w, v1 = v0 + (float)sh->fh / (float)sh->tex.h;
+    // Inset by half a texel so nearest sampling never picks up a neighbouring frame's edge.
+    float ix = 0.5f / (float)sh->tex.w, iy = 0.5f / (float)sh->tex.h;
+    float u0 = (float)col * sh->fw / (float)sh->tex.w + ix;
+    float v0 = (float)row * sh->fh / (float)sh->tex.h + iy;
+    float u1 = u0 + (float)sh->fw / (float)sh->tex.w - 2 * ix, v1 = v0 + (float)sh->fh / (float)sh->tex.h - 2 * iy;
     float uv[4] = { u0, v0, u1, v1 };
     float h = a->def->size * ((float)sh->fh / (float)(a->def->frame_h > 0 ? a->def->frame_h : sh->fh)) * scale, w = h * (float)sh->fw / (float)sh->fh;
     float px_to_m = h / (float)sh->fh;
@@ -156,4 +158,16 @@ Facing sprite_facing_from(Vec3 dir, Vec3 cam_forward, Vec3 cam_right) {
     float f = v3_dot(v3_norm(dir), v3_norm(cam_forward)), r = v3_dot(v3_norm(dir), v3_norm(cam_right));
     if (fabsf(r) > fabsf(f)) return r > 0 ? FACE_RIGHT : FACE_LEFT;
     return f > 0 ? FACE_UP : FACE_DOWN;
+}
+
+void sprite_set_facing(SpriteActor *a, Vec3 dir, Vec3 cam_forward, Vec3 cam_right) {
+    dir.y = 0; cam_forward.y = 0; cam_right.y = 0;
+    if (v3_len(dir) < 1e-4f) return;
+    Vec3 d = v3_norm(dir);
+    float f = v3_dot(d, v3_norm(cam_forward)), r = v3_dot(d, v3_norm(cam_right));
+    // score each facing; keep the current one unless another beats it by a margin
+    float score[4] = { -f, f, -r, r };
+    int best = (int)a->facing; float bs = score[best];
+    for (int i = 0; i < 4; i++) if (score[i] > bs + 0.25f) { best = i; bs = score[i]; }
+    a->facing = (Facing)best;
 }

@@ -1,5 +1,5 @@
 #version 450
-layout(set = 1, binding = 0, std140) uniform VS { mat4 view_proj; mat4 model; vec4 uv_xform; };
+layout(set = 1, binding = 0, std140) uniform VS { mat4 view_proj; mat4 model; vec4 uv_xform; vec4 flags; };
 layout(set = 1, binding = 1, std140) uniform Joints { mat4 joints[64]; };
 layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec3 a_normal;

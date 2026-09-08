@@ -156,6 +156,14 @@ void game_start_at(Game *g, const char *where) {
 static void bot_input(Game *g, Input *in) {
     const Boss *b = &g->boss; const Player *p = &g->player;
     in->move_x = in->move_y = 0; in->attack = in->parry = in->dodge = false;
+    if (g->state == GS_EXPLORE) {
+        // walk the path toward +Z, expressed in camera-relative stick terms
+        Vec3 f = v3(sinf(g->cam.yaw), 0, cosf(g->cam.yaw)), r = v3(-f.z, 0, f.x), want = v3(0, 0, 1);
+        in->move_x = v3_dot(want, r); in->move_y = -v3_dot(want, f);
+        if (g->tick % 90 == 0) in->skip = false;
+        return;
+    }
+    if (g->state == GS_SCENE) { in->skip = g->tick % 30 == 0; return; }   // skip cutscenes quickly
     if (g->state != GS_FIGHT || p->state == PS_DEAD) return;
     Vec3 d = v3_sub(b->c.pos, p->c.pos); d.y = 0; float dist = v3_len(d);
     if (b->state == BS_WINDUP) {
@@ -542,11 +550,10 @@ void game_render(Game *g, Platform *pf, float alpha) {
         if (g->boss_model.loaded) charmodel_draw(x, &g->boss_model, bc, bt);
         else draw_character(x, bc, g->boss_def.color, g->boss_def.size, true, &g->wt.tex[TEX_METAL]);
         gfx_set_material(x, NULL);
-        draw_blob_shadow(x, pc->pos, pc->radius * 2.2f, 0.55f);
-        draw_blob_shadow(x, bc->pos, bc->radius * 2.2f, 0.6f);
+        if (!SDL_getenv("HOLLOW_NOBLOB")) { draw_blob_shadow(x, pc->pos, pc->radius * 2.2f, 0.55f); draw_blob_shadow(x, bc->pos, bc->radius * 2.2f, 0.6f); }
     }
     if (g->state == GS_BATTLE) battle_draw_world(&g->battle, x);
-    particles_draw(&g->particles, x);
+    if (!SDL_getenv("HOLLOW_NOPART")) particles_draw(&g->particles, x);
 
     if (pf->debug) {
         gfx_draw_box_wire(x, v3(pc->pos.x, pc->pos.y + pc->height * 0.5f, pc->pos.z), v3(pc->radius * 2, pc->height, pc->radius * 2), v4(0.3f, 1, 0.3f, 1));

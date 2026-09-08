@@ -57,6 +57,8 @@ void sprite_play(SpriteActor *a, int anim, float rate, bool restart);
 // Start an attack so that its first contact frame lands after `lead` seconds (rate is derived).
 void sprite_play_fitted(SpriteActor *a, int anim, float lead);
 void sprite_update(SpriteActor *a, float dt);
+// Change facing only when the new direction is clearly different (stops flicker on diagonals).
+void sprite_set_facing(SpriteActor *a, Vec3 dir, Vec3 cam_forward, Vec3 cam_right);
 // Seconds from the start of `anim` (at the given rate) to contact number i.
 float sprite_contact_time(const SpriteDef *d, int anim, int i, float rate);
 float sprite_anim_duration(const SpriteDef *d, int anim, float rate);
