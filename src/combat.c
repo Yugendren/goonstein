@@ -100,7 +100,7 @@ bool boss_def_load(BossDef *d, const char *path) {
         else if (!strcmp(key, "move")) {
             if (o.nmoves >= 16) continue;
             BossMove m = { .windup = 0.8f, .active = 0.15f, .recovery = 0.8f, .damage = 25, .range = 2.2f,
-                           .parryable = true, .posture_on_parry = 25, .step = 0, .tell = v3(1, 0.3f, 0.2f), .weight = 1 };
+                           .parryable = true, .posture_on_parry = 25, .step = 0, .tell = v3(1, 0.3f, 0.2f), .weight = 1, .contact = 0.4f };
             char *nm = strtok(NULL, " \t"); if (!nm) continue;
             snprintf(m.name, sizeof m.name, "%s", nm);
             char *k;
@@ -115,6 +115,8 @@ bool boss_def_load(BossDef *d, const char *path) {
                 else if (!strcmp(k, "posture")) m.posture_on_parry = (float)atof(v);
                 else if (!strcmp(k, "step")) m.step = (float)atof(v);
                 else if (!strcmp(k, "weight")) m.weight = (float)atof(v);
+                else if (!strcmp(k, "clip")) snprintf(m.clip, sizeof m.clip, "%s", v);
+                else if (!strcmp(k, "contact")) m.contact = (float)atof(v);
                 else if (!strcmp(k, "tell")) { m.tell.x = (float)atof(v); m.tell.y = (float)atof(strtok(NULL, " \t")); m.tell.z = (float)atof(strtok(NULL, " \t")); }
                 else SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d unknown move key %s", path, ln, k);
             }
@@ -250,7 +252,6 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, B
         float k = p->t / d->dodge_time;
         float sp = (1.0f - k) * 2.0f * d->dodge_dist / d->dodge_time;  // decelerating
         c->pos = level_move(lv, c->pos, c->radius, c->height, v3_scale(p->dodge_dir, sp * dt));
-        c->yaw = angle_damp(c->yaw, atan2f(p->dodge_dir.x, p->dodge_dir.z), 20, dt);
         if (p->t >= d->dodge_time) player_enter(p, PS_FREE, ANIM_IDLE);
     } break;
 

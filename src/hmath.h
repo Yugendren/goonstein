@@ -120,3 +120,31 @@ static inline Mat4 m4_perspective(float fov_y_rad, float aspect, float zn, float
     r.m[14] = (zn * zf) / (zn - zf);
     return r;
 }
+
+// ---------------------------------------------------------------- quaternions (x, y, z, w)
+typedef struct Quat { float x, y, z, w; } Quat;
+static inline Quat quat_identity(void) { return (Quat){0, 0, 0, 1}; }
+static inline Quat quat_norm(Quat q) {
+    float l = sqrtf(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+    if (l < 1e-8f) return quat_identity();
+    return (Quat){q.x / l, q.y / l, q.z / l, q.w / l};
+}
+static inline Quat quat_slerp(Quat a, Quat b, float t) {
+    float d = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+    if (d < 0) { b = (Quat){-b.x, -b.y, -b.z, -b.w}; d = -d; }
+    if (d > 0.9995f) return quat_norm((Quat){lerpf(a.x, b.x, t), lerpf(a.y, b.y, t), lerpf(a.z, b.z, t), lerpf(a.w, b.w, t)});
+    float th = acosf(d), s = sinf(th);
+    float wa = sinf((1 - t) * th) / s, wb = sinf(t * th) / s;
+    return (Quat){a.x * wa + b.x * wb, a.y * wa + b.y * wb, a.z * wa + b.z * wb, a.w * wa + b.w * wb};
+}
+static inline Mat4 m4_from_quat(Quat q) {
+    float x = q.x, y = q.y, z = q.z, w = q.w;
+    Mat4 r = m4_identity();
+    r.m[0] = 1 - 2 * (y * y + z * z); r.m[1] = 2 * (x * y + z * w);     r.m[2] = 2 * (x * z - y * w);
+    r.m[4] = 2 * (x * y - z * w);     r.m[5] = 1 - 2 * (x * x + z * z); r.m[6] = 2 * (y * z + x * w);
+    r.m[8] = 2 * (x * z + y * w);     r.m[9] = 2 * (y * z - x * w);     r.m[10] = 1 - 2 * (x * x + y * y);
+    return r;
+}
+static inline Mat4 m4_from_trs(Vec3 t, Quat r, Vec3 s) {
+    return m4_mul(m4_translate(t), m4_mul(m4_from_quat(r), m4_scale(s)));
+}

@@ -7,6 +7,7 @@
 #include "scene.h"
 #include "combat.h"
 #include "render_world.h"
+#include "charmodel.h"
 
 #define INTERNAL_W 640
 #define INTERNAL_H 400
@@ -18,6 +19,7 @@ typedef struct Game {
     Gfx      gfx; WorldTextures wt;
     Level    level; Camera cam; Scene scene;
     Player   player; Boss boss; PlayerDef player_def; BossDef boss_def;
+    CharModel player_model, boss_model;
     GState   state, after_scene; float state_t;
     float    hitstop, letterbox, fade, fight_intensity;
     bool     paused, step_once;

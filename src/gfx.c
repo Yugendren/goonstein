@@ -74,6 +74,16 @@ Mesh gfx_mesh_create(Gfx *g, const Vertex *v, Uint32 nv, const Uint16 *idx, Uint
     return m;
 }
 
+Mesh gfx_skinned_mesh_create(Gfx *g, const SkinVertex *v, Uint32 nv, const Uint16 *idx, Uint32 ni) {
+    Mesh m = {0};
+    m.vb = SDL_CreateGPUBuffer(g->dev, &(SDL_GPUBufferCreateInfo){ .usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = nv * sizeof *v });
+    m.ib = SDL_CreateGPUBuffer(g->dev, &(SDL_GPUBufferCreateInfo){ .usage = SDL_GPU_BUFFERUSAGE_INDEX, .size = ni * sizeof *idx });
+    upload(g, m.vb, v, nv * sizeof *v);
+    upload(g, m.ib, idx, ni * sizeof *idx);
+    m.index_count = ni;
+    return m;
+}
+
 void gfx_mesh_destroy(Gfx *g, Mesh *m) {
     if (m->vb) SDL_ReleaseGPUBuffer(g->dev, m->vb);
     if (m->ib) SDL_ReleaseGPUBuffer(g->dev, m->ib);
@@ -184,11 +194,12 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
 
     SDL_GPUShader *wv = load_shader(g, "world.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
     SDL_GPUShader *wf = load_shader(g, "world.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
+    SDL_GPUShader *sv = load_shader(g, "skin.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 2);
     SDL_GPUShader *uv = load_shader(g, "ui.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
     SDL_GPUShader *uf = load_shader(g, "ui.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0);
     SDL_GPUShader *pv = load_shader(g, "post.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 0);
     SDL_GPUShader *pfr = load_shader(g, "post.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
-    if (!wv || !wf || !uv || !uf || !pv || !pfr) return false;
+    if (!wv || !wf || !sv || !uv || !uf || !pv || !pfr) return false;
 
     SDL_GPUColorTargetDescription offscreen_ct = { .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM };
     SDL_GPUColorTargetDescription blend_ct = { .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
@@ -218,6 +229,26 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
         .target_info = { .color_target_descriptions = &offscreen_ct, .num_color_targets = 1,
                          .has_depth_stencil_target = true, .depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM } });
 
+    SDL_GPUVertexAttribute skin_attrs[] = {
+        { .location = 0, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, .offset = 0 },
+        { .location = 1, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, .offset = 12 },
+        { .location = 2, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, .offset = 24 },
+        { .location = 3, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4, .offset = 32 },
+        { .location = 4, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, .offset = 36 },
+    };
+    SDL_GPUVertexBufferDescription skin_vb = { .slot = 0, .pitch = sizeof(SkinVertex), .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX };
+    g->pipe_skin = SDL_CreateGPUGraphicsPipeline(g->dev, &(SDL_GPUGraphicsPipelineCreateInfo){
+        .vertex_shader = sv, .fragment_shader = wf,
+        .vertex_input_state = { .vertex_buffer_descriptions = &skin_vb, .num_vertex_buffers = 1,
+                                .vertex_attributes = skin_attrs, .num_vertex_attributes = 5 },
+        .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .rasterizer_state = { .fill_mode = SDL_GPU_FILLMODE_FILL, .cull_mode = SDL_GPU_CULLMODE_BACK,
+                              .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE },
+        .depth_stencil_state = { .enable_depth_test = true, .enable_depth_write = true,
+                                 .compare_op = SDL_GPU_COMPAREOP_LESS },
+        .target_info = { .color_target_descriptions = &offscreen_ct, .num_color_targets = 1,
+                         .has_depth_stencil_target = true, .depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM } });
+
     SDL_GPUVertexAttribute ui_attrs[] = {
         { .location = 0, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, .offset = 0 },
         { .location = 1, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, .offset = 8 },
@@ -238,10 +269,10 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
         .rasterizer_state = { .fill_mode = SDL_GPU_FILLMODE_FILL, .cull_mode = SDL_GPU_CULLMODE_NONE },
         .target_info = { .color_target_descriptions = &swap_ct, .num_color_targets = 1 } });
 
-    SDL_ReleaseGPUShader(g->dev, wv); SDL_ReleaseGPUShader(g->dev, wf);
+    SDL_ReleaseGPUShader(g->dev, wv); SDL_ReleaseGPUShader(g->dev, wf); SDL_ReleaseGPUShader(g->dev, sv);
     SDL_ReleaseGPUShader(g->dev, uv); SDL_ReleaseGPUShader(g->dev, uf);
     SDL_ReleaseGPUShader(g->dev, pv); SDL_ReleaseGPUShader(g->dev, pfr);
-    if (!g->pipe_world || !g->pipe_ui || !g->pipe_post) {
+    if (!g->pipe_world || !g->pipe_skin || !g->pipe_ui || !g->pipe_post) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pipeline: %s", SDL_GetError());
         return false;
     }
@@ -263,6 +294,7 @@ void gfx_shutdown(Gfx *g) {
     SDL_ReleaseGPUTransferBuffer(g->dev, g->ui_xfer);
     SDL_ReleaseGPUBuffer(g->dev, g->ui_vb);
     SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_world);
+    SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_skin);
     SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_ui);
     SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_post);
     SDL_ReleaseGPUSampler(g->dev, g->samp_nearest);
@@ -309,6 +341,29 @@ void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Ve
     SDL_BindGPUIndexBuffer(g->pass, &(SDL_GPUBufferBinding){ .buffer = m->ib }, SDL_GPU_INDEXELEMENTSIZE_16BIT);
     SDL_DrawGPUIndexedPrimitives(g->pass, m->index_count, 1, 0, 0, 0);
     g->draw_calls++;
+}
+
+void gfx_draw_skinned(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, const Mat4 *joints, int njoints) {
+    if (!g->pass) return;
+    WorldUniforms u = {
+        .view_proj = g->frame.view_proj, .model = model, .tint = tint,
+        .fog_params = v4(g->frame.fog_near, g->frame.fog_far, 0, 0),
+        .light_dir = v4(g->frame.light_dir.x, g->frame.light_dir.y, g->frame.light_dir.z, g->frame.ambient),
+        .light_color = v4(g->frame.light_color.x, g->frame.light_color.y, g->frame.light_color.z, 1),
+        .uv_xform = v4(1, 1, 0, 0),
+    };
+    Mat4 tmp[64] = {0};
+    memcpy(tmp, joints, (size_t)njoints * sizeof(Mat4));
+    SDL_BindGPUGraphicsPipeline(g->pass, g->pipe_skin);
+    SDL_PushGPUVertexUniformData(g->cmd, 0, &u, sizeof u);
+    SDL_PushGPUVertexUniformData(g->cmd, 1, tmp, sizeof tmp);
+    SDL_BindGPUFragmentSamplers(g->pass, 0, &(SDL_GPUTextureSamplerBinding){ .texture = t->tex, .sampler = g->samp_nearest }, 1);
+    SDL_BindGPUVertexBuffers(g->pass, 0, &(SDL_GPUBufferBinding){ .buffer = m->vb }, 1);
+    SDL_BindGPUIndexBuffer(g->pass, &(SDL_GPUBufferBinding){ .buffer = m->ib }, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+    SDL_DrawGPUIndexedPrimitives(g->pass, m->index_count, 1, 0, 0, 0);
+    g->draw_calls++;
+    SDL_BindGPUGraphicsPipeline(g->pass, g->pipe_world);
+    g->bound_tex = NULL;
 }
 
 void gfx_draw_box(Gfx *g, const Texture *t, Vec3 center, Vec3 size, float yaw, Vec4 tint, float uv_tile) {

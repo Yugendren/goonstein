@@ -42,6 +42,7 @@ The game is meant to be edited without touching C:
 | Level geometry, cameras, triggers | `assets/levels/*.txt` | `assets/levels/README.md`  |
 | Cutscenes             | `assets/scenes/*.txt`        | `assets/scenes/README.md`  |
 | Boss move sets        | `assets/enemies/*.txt`       | comments in `warden.txt`   |
+| Character models and animation bindings | `assets/characters/*.txt` | comments in `src/charmodel.h` |
 | Player tuning         | `assets/player.txt`          | comments in the file       |
 | Look (fog, light)     | `fog` / `light` lines in the level |                      |
 | Post-processing       | `shaders/post.frag`          |                            |
@@ -65,12 +66,13 @@ the fight is checked without a controller in hand.
       scene.*       cutscene timeline player
       combat.*      player and boss state machines, data file loaders
       render_world.* procedural textures, level drawing, box-figure characters
+      model.*       glTF loader, skinning, animation clips and crossfades
+      charmodel.*   maps gameplay animation states to model clips via a text config
       audio.*       procedural sound effects and drone
       game.*        state flow, HUD, debug overlay, scene hosting
     shaders/        Vulkan GLSL source, compiled by tools/shaders.sh
     assets/         all content (see above); assets/shaders holds compiled shaders
-    ASSETS.md       licence manifest for third-party assets (none yet; textures and
-                    sounds are generated in code)
+    ASSETS.md       licence manifest for third-party assets (KayKit CC0 characters, stb, cgltf)
 
 ## Platform notes
 

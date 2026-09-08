@@ -1,19 +1,19 @@
 # boss_intro.txt - the Warden's arena revealed. ~16s.
 0.0 letterbox on
-0.0 cam 0 5.0 24.5  0 1.5 32  60 cut
-0.3 actor boss teleport 0 0 34 180
+0.0 cam 0 5.0 24.5  0 1.5 35  60 cut
+0.3 actor boss teleport 0 0 37 180
 0.5 actor boss anim idle
-3.0 cam 0 0.6 26  0 2.0 34  45 cut
+3.0 cam 0 0.6 26  0 2.4 37  45 cut
 4.0 sound heart
 6.0 sound heart
 8.0 sound heart
-9.0 cam 0 0.6 30  0 2.2 34  40
+9.0 cam 0 0.7 31  0 2.6 37  40
 9.5 say "You brought the count with you." 3.0 "The Warden"
 11.0 actor boss anim roar
 11.0 sound roar
 11.0 shake 0.6 1.2
 12.0 cam 0 1.6 22.5  0 1.6 24  35 cut
-12.2 actor player face 0 0 34
-13.5 cam 5.5 3.0 24.3  0 1.5 30  55 cut
+12.2 actor player face 0 0 37
+13.5 cam 6.0 3.2 25.0  0 1.6 32  55 cut
 15.0 letterbox off
 16.0 end

@@ -7,6 +7,7 @@
 
 typedef struct Vertex { float pos[3], normal[3], uv[2], color[4]; } Vertex;
 typedef struct UIVertex { float pos[2], uv[2], color[4]; } UIVertex;
+typedef struct SkinVertex { float pos[3], normal[3], uv[2]; Uint8 joints[4]; float weights[4]; } SkinVertex; // 52 bytes
 
 typedef struct Mesh { SDL_GPUBuffer *vb, *ib; Uint32 index_count; } Mesh;
 typedef struct Texture { SDL_GPUTexture *tex; int w, h; } Texture;
@@ -26,7 +27,7 @@ typedef struct Gfx {
     SDL_GPUDevice *dev;
     int   iw, ih;                       // internal resolution
     SDL_GPUTexture *color, *depth;      // offscreen targets
-    SDL_GPUGraphicsPipeline *pipe_world, *pipe_ui, *pipe_post;
+    SDL_GPUGraphicsPipeline *pipe_world, *pipe_ui, *pipe_post, *pipe_skin;
     SDL_GPUSampler *samp_nearest, *samp_linear;
     SDL_GPUBuffer *ui_vb;
     SDL_GPUTransferBuffer *ui_xfer;
@@ -45,6 +46,7 @@ bool gfx_init(Gfx *g, Platform *pf, int internal_w, int internal_h);
 void gfx_shutdown(Gfx *g);
 
 Mesh    gfx_mesh_create(Gfx *g, const Vertex *v, Uint32 nv, const Uint16 *idx, Uint32 ni);
+Mesh    gfx_skinned_mesh_create(Gfx *g, const SkinVertex *v, Uint32 nv, const Uint16 *idx, Uint32 ni);
 void    gfx_mesh_destroy(Gfx *g, Mesh *m);
 Texture gfx_texture_create(Gfx *g, const unsigned char *rgba, int w, int h);
 Texture gfx_texture_load(Gfx *g, const char *path, int max_size);  // downsamples to PS2 sizes
@@ -55,6 +57,8 @@ void gfx_begin(Gfx *g, Platform *pf, const FrameParams *fp);
 void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Vec4 uv_xform);
 void gfx_draw_box(Gfx *g, const Texture *t, Vec3 center, Vec3 size, float yaw, Vec4 tint, float uv_tile);
 void gfx_draw_box_wire(Gfx *g, Vec3 center, Vec3 size, Vec4 color);
+// Draw a skinned mesh. joints: njoints (<= 64) matrices, already multiplied by inverse bind.
+void gfx_draw_skinned(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, const Mat4 *joints, int njoints);
 // Ambient for subsequent draws this frame (characters use a higher floor than the level).
 void gfx_set_ambient(Gfx *g, float ambient);
 

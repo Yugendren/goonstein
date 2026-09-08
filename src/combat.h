@@ -35,6 +35,7 @@ typedef struct BossMove {
     float step;                      // metres the boss lunges forward during active
     Vec3  tell;                      // telegraph colour
     float weight;                    // selection weight
+    char  clip[64]; float contact;   // animation clip and the fraction of it where the hit lands
 } BossMove;
 
 typedef struct BossDef {

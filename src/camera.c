@@ -5,7 +5,7 @@ void camera_init(Camera *c) {
     memset(c, 0, sizeof *c);
     c->fov = c->goal_fov = c->from_fov = 60;
     c->blend = 1;
-    c->follow_dist = 5.4f; c->follow_height = 2.9f; c->follow_lambda = 6.0f;
+    c->follow_dist = 7.5f; c->follow_height = 3.2f; c->follow_lambda = 6.0f;
     c->eye = c->goal_eye = v3(0, 2, -4); c->target = c->goal_target = v3(0, 1, 0);
 }
 
@@ -40,7 +40,7 @@ void camera_set_follow(Camera *c, Vec3 pp, float pyaw, Vec3 bp, float look_x, co
     eye.z = clampf(eye.z, lv->arena_min.z + 0.4f, lv->arena_max.z - 0.4f);
     eye.y = clampf(eye.y, lv->arena_min.y + 0.4f, lv->arena_max.y - 0.4f);
     Vec3 mid = v3_lerp(v3_add(pp, v3(0, 1.0f, 0)), v3_add(bp, v3(0, 1.4f, 0)), 0.45f);
-    c->goal_eye = eye; c->goal_target = mid; c->goal_fov = 58;
+    c->goal_eye = eye; c->goal_target = mid; c->goal_fov = 52;
     if (entering) { start_blend(c, false); }
 }
 

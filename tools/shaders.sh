@@ -8,7 +8,7 @@ mkdir -p assets/shaders
 for src in shaders/*.vert shaders/*.frag; do
     name=$(basename "$src")
     glslc -O "$src" -o "assets/shaders/$name.spv"
-    spirv-cross --msl --msl-version 20100 "assets/shaders/$name.spv" --output "assets/shaders/$name.msl"
+    spirv-cross --msl --msl-version 20100 --msl-decoration-binding "assets/shaders/$name.spv" --output "assets/shaders/$name.msl"
     spirv-cross --hlsl --shader-model 60 "assets/shaders/$name.spv" --output "assets/shaders/$name.hlsl"
     echo "  $name"
 done

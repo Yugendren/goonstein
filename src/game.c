@@ -57,7 +57,7 @@ static void reset_to_start(Game *g) {
 }
 
 static void restart_fight(Game *g) {
-    Vec3 p = v3(0, 0, g->level.arena_min.z + 2.0f);
+    Vec3 p = v3(0, 0, g->level.arena_min.z + 7.0f);
     player_reset(&g->player, p, 0);
     boss_reset(&g->boss, g->level.boss_spawn, g->level.boss_yaw);
     g->state = GS_FIGHT; g->state_t = 0; g->hitstop = 0;
@@ -76,11 +76,16 @@ bool game_init_gfx(Game *g, Platform *pf) {
     if (!gfx_init(&g->gfx, pf, INTERNAL_W, INTERNAL_H)) return false;
     world_textures_create(&g->gfx, &g->wt);
     if (!load_defs(g)) return false;
+    // Skinned models are optional: without them the box figures draw.
+    charmodel_load(&g->gfx, &g->player_model, ASSET("characters/knight.txt"));
+    charmodel_load(&g->gfx, &g->boss_model, ASSET("characters/warden.txt"));
     reset_to_start(g);
     return true;
 }
 
 void game_shutdown(Game *g) {
+    charmodel_destroy(&g->gfx, &g->player_model);
+    charmodel_destroy(&g->gfx, &g->boss_model);
     world_textures_destroy(&g->gfx, &g->wt);
     gfx_shutdown(&g->gfx);
     audio_shutdown();
@@ -96,7 +101,7 @@ void game_start_at(Game *g, const char *where) {
         play_scene(g, ASSET("scenes/boss_intro.txt"), GS_FIGHT);
     } else if (!strcmp(where, "victory")) {
         restart_fight(g);
-        g->player.c.pos = v3(0.8f, 0, 32.0f);
+        g->player.c.pos = v3(0.8f, 0, 35.0f);
         g->boss.c.hp = 0; g->boss.state = BS_DEAD; character_set_anim(&g->boss.c, ANIM_DEAD);
         play_scene(g, ASSET("scenes/victory.txt"), GS_END);
     }
@@ -282,6 +287,8 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
         g->letterbox = damp(g->letterbox, 0, 6, dt);
         if (g->state != GS_DEAD) g->fade = damp(g->fade, 1, 3, dt);
     }
+    charmodel_drive_player(&g->player_model, &g->player, dt);
+    charmodel_drive_boss(&g->boss_model, &g->boss, dt);
     camera_update(&g->cam, dt);
 }
 
@@ -368,8 +375,17 @@ void game_render(Game *g, Platform *pf, float alpha) {
     gfx_begin(x, pf, &fp);
     draw_level(x, lv, &g->wt);
     gfx_set_ambient(x, fmaxf(lv->ambient, 0.5f));   // characters must read against the dark
-    draw_character(x, &g->player.c, g->player_def.color, g->player_def.size, false, &g->wt.tex[TEX_PLASTER]);
-    draw_character(x, &g->boss.c, g->boss_def.color, g->boss_def.size, true, &g->wt.tex[TEX_METAL]);
+    {
+        const Character *pc = &g->player.c, *bc = &g->boss.c;
+        Vec4 pt = v4(lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), 1);
+        Vec4 bt = v4(1, 1, 1, 1);
+        if (bc->tell > 0) { float k = bc->tell * bc->tell * (0.6f + 0.4f * sinf(bc->anim_t * 30.0f)); bt = v4(lerpf(1, bc->tell_color.x * 1.6f, k), lerpf(1, bc->tell_color.y * 1.6f, k), lerpf(1, bc->tell_color.z * 1.6f, k), 1); }
+        if (bc->flash > 0) bt = v4(lerpf(bt.x, 1.8f, bc->flash), lerpf(bt.y, 1.8f, bc->flash), lerpf(bt.z, 1.8f, bc->flash), 1);
+        if (g->player_model.loaded) charmodel_draw(x, &g->player_model, pc, pt);
+        else draw_character(x, pc, g->player_def.color, g->player_def.size, false, &g->wt.tex[TEX_PLASTER]);
+        if (g->boss_model.loaded) charmodel_draw(x, &g->boss_model, bc, bt);
+        else draw_character(x, bc, g->boss_def.color, g->boss_def.size, true, &g->wt.tex[TEX_METAL]);
+    }
     gfx_set_ambient(x, lv->ambient);
 
     if (pf->debug) {
