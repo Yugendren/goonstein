@@ -59,6 +59,7 @@ typedef struct Look {
     float toon_softness, shadow_floor, rim_power;
     float exposure, saturation, contrast, bloom, bloom_threshold;
     Vec3 lift, gain;
+    float pixel_scale, pixel_levels, pixel_outline, pixel_palette, pixel_inner;   // pixel-art character layer (scale 0 = off)
 } Look;
 
 typedef struct Level {

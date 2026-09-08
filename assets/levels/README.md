@@ -40,6 +40,9 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
     grade    exposure  saturation  contrast  bloom  bloom_threshold
     lift     r g b                             # added to shadows (cool blue lifts read as night)
     gain     r g b                             # multiplied into highlights
+    pixel    scale levels outline palette inner # 3D characters as pixel art: scale = screen pixels per art pixel (0 off),
+                                               # levels = colours per channel when palette is 0, palette 1 = snap to Endesga 32,
+                                               # outline 0..1 = dark silhouette line, inner 0..1 = crease lines
 
 Legacy `fog r g b near far` and `light dx dy dz ambient r g b` lines still parse but are ignored
 by the renderer once `fogv` / `sun` are present. `cam` lines are ignored (camera is free).

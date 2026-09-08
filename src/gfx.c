@@ -27,6 +27,7 @@ typedef struct FrameUniforms {
 typedef struct MaterialUniforms { Vec4 tint, emissive, rim; } MaterialUniforms;
 typedef struct SkyUniforms { Mat4 inv_view_proj; Vec4 cam_pos, sun_dir, sun_color, zenith, horizon, ground, params, fog_color; } SkyUniforms;
 typedef struct PostUniforms { Vec4 params, res, flash, grade, lift, gain; } PostUniforms;
+typedef struct PixUniforms { Vec4 res, offset, params; } PixUniforms;
 
 // ---------------------------------------------------------------- shaders and helpers
 
@@ -224,9 +225,10 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     SDL_GPUShader *blur_fs = load_shader(g, "blur.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
     SDL_GPUShader *post_fs = load_shader(g, "post.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
     SDL_GPUShader *blit_fs = load_shader(g, "blit.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0);
+    SDL_GPUShader *pixcomp_fs = load_shader(g, "pixcomp.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
     SDL_GPUShader *ui_vs = load_shader(g, "ui.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
     SDL_GPUShader *ui_fs = load_shader(g, "ui.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0);
-    SDL_GPUShader *all[] = { world_vs, skin_vs, lit_fs, sky_vs, sky_fs, part_vs, part_fs, fs_vs, bright_fs, blur_fs, post_fs, blit_fs, ui_vs, ui_fs };
+    SDL_GPUShader *all[] = { world_vs, skin_vs, lit_fs, sky_vs, sky_fs, part_vs, part_fs, fs_vs, bright_fs, blur_fs, post_fs, blit_fs, ui_vs, ui_fs, pixcomp_fs };
     for (size_t i = 0; i < sizeof all / sizeof *all; i++) if (!all[i]) return false;
 
     SDL_GPUVertexAttribute world_attrs[] = {
@@ -255,8 +257,9 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->pipe_ui = make_pipe(g, &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1 });
     g->pipe_ui_swap = make_pipe(g, &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1 });
     g->pipe_blit = make_pipe(g, &(PipeDesc){ fs_vs, blit_fs, NULL, NULL, 0, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
+    g->pipe_pixcomp = make_pipe(g, &(PipeDesc){ fs_vs, pixcomp_fs, NULL, NULL, 0, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 0 });
     for (size_t i = 0; i < sizeof all / sizeof *all; i++) SDL_ReleaseGPUShader(g->dev, all[i]);
-    if (!g->pipe_world || !g->pipe_skin || !g->pipe_sky || !g->pipe_particle_add || !g->pipe_particle_alpha || !g->pipe_bright || !g->pipe_blur || !g->pipe_post || !g->pipe_ui || !g->pipe_ui_swap || !g->pipe_blit) return false;
+    if (!g->pipe_world || !g->pipe_skin || !g->pipe_sky || !g->pipe_particle_add || !g->pipe_particle_alpha || !g->pipe_bright || !g->pipe_blur || !g->pipe_post || !g->pipe_ui || !g->pipe_ui_swap || !g->pipe_blit || !g->pipe_pixcomp) return false;
 
     g->ui_vb = SDL_CreateGPUBuffer(g->dev, &(SDL_GPUBufferCreateInfo){ .usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = UI_MAX_VERTS * sizeof(UIVertex) });
     g->ui_xfer = SDL_CreateGPUTransferBuffer(g->dev, &(SDL_GPUTransferBufferCreateInfo){ .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = UI_MAX_VERTS * sizeof(UIVertex) });
@@ -275,6 +278,7 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->quad = make_quad(g);
     g->material = material_default();
     g->sprite_lean = SDL_getenv("HOLLOW_LEAN") ? (float)atof(SDL_getenv("HOLLOW_LEAN")) : 0.5f;
+    g->pix_levels = 8; g->pix_outline = 1; g->pix_inner = 0.6f;
     return true;
 }
 
@@ -290,6 +294,8 @@ void gfx_shutdown(Gfx *g) {
     SDL_ReleaseGPUSampler(g->dev, g->samp_nearest); SDL_ReleaseGPUSampler(g->dev, g->samp_linear); SDL_ReleaseGPUSampler(g->dev, g->samp_clamp);
     SDL_ReleaseGPUTexture(g->dev, g->hdr); SDL_ReleaseGPUTexture(g->dev, g->depth); SDL_ReleaseGPUTexture(g->dev, g->ldr);
     SDL_ReleaseGPUTexture(g->dev, g->bloom_a); SDL_ReleaseGPUTexture(g->dev, g->bloom_b);
+    if (g->pix) SDL_ReleaseGPUTexture(g->dev, g->pix); if (g->pix_depth) SDL_ReleaseGPUTexture(g->dev, g->pix_depth);
+    SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_pixcomp);
 }
 
 // ---------------------------------------------------------------- world pass
@@ -308,9 +314,10 @@ void gfx_begin(Gfx *g, Platform *pf, const FrameParams *fp) {
     g->cam_right = fp->cam_right; g->cam_up = fp->cam_up;
     if (!pf->cmd) return;
     SDL_GPUColorTargetInfo ct = { .texture = g->hdr, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE, .clear_color = { fp->fog_color.x, fp->fog_color.y, fp->fog_color.z, 1 } };
-    SDL_GPUDepthStencilTargetInfo dt = { .texture = g->depth, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_DONT_CARE,
+    SDL_GPUDepthStencilTargetInfo dt = { .texture = g->depth, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE,
         .stencil_load_op = SDL_GPU_LOADOP_DONT_CARE, .stencil_store_op = SDL_GPU_STOREOP_DONT_CARE, .clear_depth = 1.0f, .cycle = true };
     g->pass = SDL_BeginGPURenderPass(pf->cmd, &ct, 1, &dt);
+    g->in_pix = false; g->main_vp = fp->view_proj;
 
     FrameUniforms u = {
         .cam_pos = v4(fp->cam_pos.x, fp->cam_pos.y, fp->cam_pos.z, 0),
@@ -328,7 +335,67 @@ void gfx_begin(Gfx *g, Platform *pf, const FrameParams *fp) {
         u.lights_color[i] = v4(l->color.x * l->intensity, l->color.y * l->intensity, l->color.z * l->intensity, 0);
     }
     SDL_PushGPUFragmentUniformData(pf->cmd, 0, &u, sizeof u);
+    memcpy(g->frame_uniforms, &u, sizeof u); g->frame_uniforms_size = sizeof u;
     push_material(g, v4(1, 1, 1, 1));
+}
+
+// ---------------------------------------------------------------- pixel-art layer
+
+void gfx_set_pixel_look(Gfx *g, int scale, float levels, float outline, float palette, float inner) {
+    if (scale < 0) scale = 0; if (scale > 8) scale = 8;
+    if (scale != g->pixel_scale) {
+        if (g->pix) { SDL_ReleaseGPUTexture(g->dev, g->pix); g->pix = NULL; }
+        if (g->pix_depth) { SDL_ReleaseGPUTexture(g->dev, g->pix_depth); g->pix_depth = NULL; }
+        g->pixel_scale = scale;
+        if (scale > 0) {
+            g->pw = g->iw / scale; g->ph = g->ih / scale;
+            g->pix = make_target(g, HDR_FMT, g->pw, g->ph, false);
+            g->pix_depth = SDL_CreateGPUTexture(g->dev, &(SDL_GPUTextureCreateInfo){
+                .type = SDL_GPU_TEXTURETYPE_2D, .format = DEPTH_FMT, .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+                .width = (Uint32)g->pw, .height = (Uint32)g->ph, .layer_count_or_depth = 1, .num_levels = 1 });
+            if (!g->pix || !g->pix_depth) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pixel layer targets: %s", SDL_GetError()); g->pixel_scale = 0; }
+        }
+    }
+    g->pix_levels = levels; g->pix_outline = outline; g->pix_palette = palette; g->pix_inner = inner;
+}
+
+static void repush_frame(Gfx *g) {
+    SDL_PushGPUFragmentUniformData(g->cmd, 0, g->frame_uniforms, g->frame_uniforms_size);
+    push_material(g, v4(1, 1, 1, 1));
+    g->bound_pipe = NULL; g->bound_tex = NULL;
+}
+
+void gfx_pixel_begin(Gfx *g, Mat4 view_proj, float off_x, float off_y) {
+    if (!g->pass || g->in_pix || g->pixel_scale <= 0 || !g->pix) return;
+    SDL_EndGPURenderPass(g->pass);
+    SDL_GPUColorTargetInfo ct = { .texture = g->pix, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE, .clear_color = { 0, 0, 0, 0 }, .cycle = true };
+    SDL_GPUDepthStencilTargetInfo dt = { .texture = g->pix_depth, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE,
+        .stencil_load_op = SDL_GPU_LOADOP_DONT_CARE, .stencil_store_op = SDL_GPU_STOREOP_DONT_CARE, .clear_depth = 1.0f, .cycle = true };
+    g->pass = SDL_BeginGPURenderPass(g->cmd, &ct, 1, &dt);
+    g->in_pix = true; g->frame.view_proj = view_proj; g->pix_off_x = off_x; g->pix_off_y = off_y;
+    repush_frame(g);
+}
+
+void gfx_pixel_end(Gfx *g) {
+    if (!g->pass || !g->in_pix) return;
+    SDL_EndGPURenderPass(g->pass);
+    g->in_pix = false; g->frame.view_proj = g->main_vp;
+    SDL_GPUColorTargetInfo ct = { .texture = g->hdr, .load_op = SDL_GPU_LOADOP_LOAD, .store_op = SDL_GPU_STOREOP_STORE };
+    SDL_GPUDepthStencilTargetInfo dt = { .texture = g->depth, .load_op = SDL_GPU_LOADOP_LOAD, .store_op = SDL_GPU_STOREOP_STORE,
+        .stencil_load_op = SDL_GPU_LOADOP_DONT_CARE, .stencil_store_op = SDL_GPU_STOREOP_DONT_CARE };
+    g->pass = SDL_BeginGPURenderPass(g->cmd, &ct, 1, &dt);
+    g->bound_pipe = NULL; g->bound_tex = NULL;
+    // composite the layer, writing its depth into the world's depth buffer
+    PixUniforms u = { .res = v4((float)g->pw, (float)g->ph, 1.0f / g->pw, 1.0f / g->ph),
+                      .offset = v4(g->pix_off_x / g->pw, g->pix_off_y / g->ph, 0, 0),
+                      .params = v4(g->pix_levels, g->pix_outline, g->pix_palette, g->pix_inner) };
+    SDL_BindGPUGraphicsPipeline(g->pass, g->pipe_pixcomp);
+    SDL_PushGPUFragmentUniformData(g->cmd, 0, &u, sizeof u);
+    SDL_GPUTextureSamplerBinding sb[2] = { { .texture = g->pix, .sampler = g->samp_nearest }, { .texture = g->pix_depth, .sampler = g->samp_nearest } };
+    SDL_BindGPUFragmentSamplers(g->pass, 0, sb, 2);
+    SDL_DrawGPUPrimitives(g->pass, 3, 1, 0, 0);
+    g->draw_calls++;
+    repush_frame(g);   // the composite's uniforms sat in the frame slot
 }
 
 void gfx_set_material(Gfx *g, const Material *m) { g->material = m ? *m : material_default(); }

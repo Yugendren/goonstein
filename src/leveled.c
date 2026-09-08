@@ -479,6 +479,12 @@ void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h)
         if (ui_slider(ui, x, y, cw, "toon softness", &k->toon_softness, 0.01f, 0.4f)) e->dirty = true;
         if (ui_slider(ui, x + cw + 12, y, cw, "shadow floor", &k->shadow_floor, 0, 0.6f)) e->dirty = true; y += 22;
         if (ui_slider(ui, x, y, cw, "rim power", &k->rim_power, 1, 8)) e->dirty = true; y += 26;
+        ui_label(ui, x, y, "PIXEL CHARACTERS   3D characters drawn as pixel art (scale 0 turns it off)", v4(1, 0.85f, 0.4f, 1)); y += 16;
+        { float sc = k->pixel_scale; if (ui_slider(ui, x, y, cw, "pixel size", &sc, 0, 6)) { k->pixel_scale = roundf(sc); e->dirty = true; } }
+        { float lv2 = k->pixel_levels; if (ui_slider(ui, x + cw + 12, y, cw, "colour levels", &lv2, 0, 16)) { k->pixel_levels = roundf(lv2); e->dirty = true; } } y += 22;
+        if (ui_slider(ui, x, y, cw, "outline", &k->pixel_outline, 0, 1)) e->dirty = true;
+        if (ui_slider(ui, x + cw + 12, y, cw, "inner lines", &k->pixel_inner, 0, 1)) e->dirty = true; y += 22;
+        { bool pal = k->pixel_palette > 0.5f; if (ui_toggle(ui, x, y, cw, 24, "snap to the 32-colour palette", &pal)) { k->pixel_palette = pal ? 1 : 0; e->dirty = true; } } y += 30;
     }
     if (e->msg_t > 0) ui_label(ui, x, h - 40, e->msg, v4(1, 0.85f, 0.4f, 1));
     ui_label(ui, x, h - 22, "game window: WASD+QE fly, right-drag look, wheel speed, click place/select, drag move, R rotate, [ ] scale, X delete, G dup, F fly to", v4(0.55f, 0.55f, 0.5f, 1));

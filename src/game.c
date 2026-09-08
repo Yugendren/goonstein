@@ -854,12 +854,38 @@ void game_render(Game *g, Platform *pf, float alpha) {
         Material pm = material_default(); pm.rim = 0.35f; pm.rim_color = v3(0.6f, 0.8f, 1.0f);
         Material bm = material_default(); bm.rim = 0.5f; bm.rim_color = v3(0.5f, 0.9f, 0.7f);
         if (bc->tell > 0) { float k = bc->tell * bc->tell * (0.6f + 0.4f * sinf(bc->anim_t * 30.0f)); bm.emissive = v3_scale(bc->tell_color, 0.8f * k); bm.rim_color = bc->tell_color; bm.rim = 0.5f + k; }
-        gfx_set_material(x, &pm);
-        if (g->player_model.loaded) charmodel_draw(x, &g->player_model, pc, pt);
-        else draw_character(x, pc, g->player_def.color, g->player_def.size, false, &g->wt.tex[TEX_PLASTER]);
-        gfx_set_material(x, &bm);
-        if (g->boss_model.loaded) charmodel_draw(x, &g->boss_model, bc, bt);
-        else draw_character(x, bc, g->boss_def.color, g->boss_def.size, true, &g->wt.tex[TEX_METAL]);
+        // 3D characters go through the pixel-art layer: rendered small with the camera snapped to
+        // that layer's texel grid, then composited with an outline. Sprite characters are pixels already.
+        float pxs = lk->pixel_scale, pxl = lk->pixel_levels, pxo = lk->pixel_outline, pxp = lk->pixel_palette, pxi = lk->pixel_inner;
+        if (SDL_getenv("HOLLOW_PIX")) sscanf(SDL_getenv("HOLLOW_PIX"), "%f %f %f %f %f", &pxs, &pxl, &pxo, &pxp, &pxi);   // tuning override: "scale levels outline palette inner"
+        bool pix_on = pxs >= 1 && !SDL_getenv("HOLLOW_NOPIX");
+        gfx_set_pixel_look(x, pix_on ? (int)pxs : 0, pxl, pxo, pxp, pxi);
+        bool player_pix = pix_on && g->player_model.loaded && !g->player_model.is_sprite;
+        bool boss_pix = pix_on && g->boss_model.loaded && !g->boss_model.is_sprite;
+        if (player_pix || boss_pix) {
+            float dist = fmaxf(v3_len(v3_sub(g->cam.target, g->cam.eye)), 0.5f);
+            float texel = 2.0f * dist * tanf(g->cam.fov * DEG2RAD * 0.5f) / (float)(x->ph > 0 ? x->ph : 1);
+            float er = v3_dot(g->cam.eye, right), eu = v3_dot(g->cam.eye, up);
+            float dr = roundf(er / texel) * texel - er, du = roundf(eu / texel) * texel - eu;
+            Vec3 off = v3_add(v3_scale(right, dr), v3_scale(up, du));
+            float ox = -dr / texel, oy = du / texel;
+            if (SDL_getenv("HOLLOW_PIXOFF")) { float mx2 = 1, my2 = 1; sscanf(SDL_getenv("HOLLOW_PIXOFF"), "%f %f", &mx2, &my2); ox *= mx2; oy *= my2; }   // alignment test aid
+            gfx_pixel_begin(x, camera_view_proj_offset(&g->cam, (float)INTERNAL_W / INTERNAL_H, off), ox, oy);
+            if (player_pix) { gfx_set_material(x, &pm); charmodel_draw(x, &g->player_model, pc, pt); }
+            if (boss_pix) { gfx_set_material(x, &bm); charmodel_draw(x, &g->boss_model, bc, bt); }
+            gfx_set_material(x, NULL);
+            gfx_pixel_end(x);
+        }
+        if (!player_pix) {
+            gfx_set_material(x, &pm);
+            if (g->player_model.loaded) charmodel_draw(x, &g->player_model, pc, pt);
+            else draw_character(x, pc, g->player_def.color, g->player_def.size, false, &g->wt.tex[TEX_PLASTER]);
+        }
+        if (!boss_pix) {
+            gfx_set_material(x, &bm);
+            if (g->boss_model.loaded) charmodel_draw(x, &g->boss_model, bc, bt);
+            else draw_character(x, bc, g->boss_def.color, g->boss_def.size, true, &g->wt.tex[TEX_METAL]);
+        }
         gfx_set_material(x, NULL);
         if (!SDL_getenv("HOLLOW_NOBLOB")) { draw_blob_shadow(x, pc->pos, pc->radius * 2.2f, 0.55f); draw_blob_shadow(x, bc->pos, bc->radius * 2.2f, 0.6f); }
     }
@@ -889,7 +915,7 @@ void game_render(Game *g, Platform *pf, float alpha) {
         for (int i = 0; i < lv->nlights; i++) gfx_draw_box_wire(x, lv->lights[i].pos, v3(0.2f, 0.2f, 0.2f), v4(lv->lights[i].color.x, lv->lights[i].color.y, lv->lights[i].color.z, 1));
     }
     draw_hud(g, pf);
-    PostParams pp = { .grain = 0.025f, .vignette = 0.45f, .fade = g->fade, .flash_color = g->flash_color, .flash = g->flash,
+    PostParams pp = { .grain = 0.015f, .vignette = 0.45f, .fade = g->fade, .flash_color = g->flash_color, .flash = g->flash,
                       .exposure = lk->exposure, .saturation = lk->saturation, .contrast = lk->contrast, .bloom = lk->bloom,
                       .lift = lk->lift, .gain = lk->gain, .bloom_threshold = lk->bloom_threshold, .bloom_knee = 0.5f };
     gfx_end(x, pf, &pp, g->time);
@@ -931,7 +957,12 @@ static void open_sprite_editor_doc(Game *g) {
     editor_init(&g->editor, own, 32);
     char saved[640]; snprintf(saved, sizeof saved, "%s/sprites/own/%s.txt", HOLLOW_ASSET_DIR, own);
     FILE *f = fopen(saved, "rb"); if (f) { fclose(f); return; }   // an edited copy already exists
-    CharModel *cm = &g->player_model;
+    CharModel *cm = &g->player_model, tmp = {0};
+    if (cm->loaded && !cm->is_sprite) {   // 3D hero: import the sprite version of the hero instead
+        char sp[640]; snprintf(sp, sizeof sp, "%s/characters/%s_sprite.txt", HOLLOW_ASSET_DIR, hero);
+        if (!charmodel_load(&g->gfx, &tmp, sp)) { say(g, "no sprite version of this hero to import; editing a blank sheet"); return; }
+        cm = &tmp;
+    }
     if (!cm->loaded || !cm->is_sprite || cm->sdef.nsheets == 0) return;
     const SpriteDef *sd = &cm->sdef;
     if (sd->frame_w > PIX_MAX_SIZE || sd->frame_h > PIX_MAX_SIZE) { say(g, "hero frames too large for the editor (max 64px); editing a blank sheet"); return; }
@@ -950,12 +981,17 @@ static void open_sprite_editor_doc(Game *g) {
         imported++;
     }
     g->editor.anim = 0; g->editor.dir = 0; g->editor.frame = 0;
+    if (tmp.loaded) charmodel_destroy(&g->gfx, &tmp);
     char msg[96]; snprintf(msg, sizeof msg, "imported %d sheets from %s; Ctrl+S saves as %s", imported, hero, own);
     say(g, msg); snprintf(g->editor.msg, sizeof g->editor.msg, "%s", msg); g->editor.msg_t = 4;
 }
 
 void game_set_tool(Game *g, int mode) {
     if (mode == g->tool_mode) mode = 0;
+    if (g->tool_mode == 3 && mode != 3 && g->hero_was_model) {   // put the 3D hero back
+        char hp[640]; snprintf(hp, sizeof hp, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, g->hero_config[0] ? g->hero_config : "hero");
+        charmodel_destroy(&g->gfx, &g->player_model); charmodel_load(&g->gfx, &g->player_model, hp); g->hero_was_model = false;
+    }
     g->tool_mode = mode;
     g->pf->editing = mode == 2;
     g->leveled.open = false;
@@ -971,6 +1007,7 @@ void game_set_tool(Game *g, int mode) {
     if (mode == 3) {
         platform_tool_window(g->pf, true, 1280, 800, "hollow sprite editor");
         if (!g->editor_open) { open_sprite_editor_doc(g); g->editor_open = true; }
+        if (g->player_model.loaded && !g->player_model.is_sprite) { g->hero_was_model = true; say(g, "hero shows the sprite document while the editor is open; the 3D hero returns when it closes"); }
         charmodel_refresh_from_doc(&g->player_model, &g->gfx, &g->editor.doc);
     }
 }

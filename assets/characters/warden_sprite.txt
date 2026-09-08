@@ -1,0 +1,11 @@
+# Boss: the Giant Red Samurai from Ninja Adventure (CC0).
+sprite sprites/warden.txt
+scale 1.0
+yaw_offset 0
+anim idle       idle
+anim walk       walk
+anim attack     attack
+anim hurt       hurt
+anim stagger    hurt
+anim roar       charge
+anim dead       hurt

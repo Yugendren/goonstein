@@ -31,6 +31,7 @@ typedef struct Game {
     Editor editor; bool editor_open;
     LevelEd leveled; bool leveled_ready;
     Terrain terrain;
+    bool hero_was_model;   // the sprite editor swapped a 3D hero for its document; restore on close
     Ui ui; int tool_mode;            // 0 none, 1 debugger, 2 environment editor, 3 sprite editor
     float sprite_refresh_t;
     struct { char name[32]; Texture tex; } portraits[16]; int nportraits;

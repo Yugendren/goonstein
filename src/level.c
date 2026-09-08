@@ -48,7 +48,8 @@ static bool parse_level(Level *out, const char *path) {
         .sky_zenith = v3(0.02f, 0.03f, 0.08f), .sky_horizon = v3(0.15f, 0.12f, 0.2f), .sky_ground = v3(0.02f, 0.02f, 0.03f), .sun_glow = 0.6f, .stars = 1.0f, .sky_fog_blend = 0.6f,
         .toon_softness = 0.08f, .shadow_floor = 0.15f, .rim_power = 3.0f,
         .exposure = 1.0f, .saturation = 1.1f, .contrast = 1.05f, .bloom = 0.35f, .bloom_threshold = 1.0f,
-        .lift = v3(0.01f, 0.01f, 0.03f), .gain = v3(1, 1, 1) };
+        .lift = v3(0.01f, 0.01f, 0.03f), .gain = v3(1, 1, 1),
+        .pixel_scale = 3, .pixel_levels = 8, .pixel_outline = 1, .pixel_palette = 1, .pixel_inner = 0.6f };
 
     size_t size = 0;
     void *data = SDL_LoadFile(path, &size);
@@ -177,6 +178,11 @@ static bool parse_level(Level *out, const char *path) {
             float f[5];
             if (n != 6 || !parse_floats(tok, 1, 5, f)) { SDL_Log("level_load:%d: bad grade line", line_no); continue; }
             out->look.exposure = f[0]; out->look.saturation = f[1]; out->look.contrast = f[2]; out->look.bloom = f[3]; out->look.bloom_threshold = f[4];
+        } else if (strcmp(cmd, "pixel") == 0) {
+            // pixel SCALE LEVELS OUTLINE PALETTE [INNER]
+            float f[5] = { 3, 8, 1, 0, 0.6f };
+            if (n < 5 || !parse_floats(tok, 1, n - 1 > 5 ? 5 : n - 1, f)) { SDL_Log("level_load:%d: bad pixel line", line_no); continue; }
+            out->look.pixel_scale = f[0]; out->look.pixel_levels = f[1]; out->look.pixel_outline = f[2]; out->look.pixel_palette = f[3]; out->look.pixel_inner = f[4];
         } else if (strcmp(cmd, "lift") == 0 || strcmp(cmd, "gain") == 0) {
             float f[3];
             if (n != 4 || !parse_floats(tok, 1, 3, f)) { SDL_Log("level_load:%d: bad %s line", line_no, cmd); continue; }
@@ -339,6 +345,7 @@ bool level_save(const Level *lv, const char *path) {
             lk->exposure, lk->saturation, lk->contrast, lk->bloom, lk->bloom_threshold);
     fprintf(f, "lift     %.3f %.3f %.3f\n", lk->lift.x, lk->lift.y, lk->lift.z);
     fprintf(f, "gain     %.3f %.3f %.3f\n", lk->gain.x, lk->gain.y, lk->gain.z);
+    fprintf(f, "pixel    %.0f %.0f %.2f %.0f %.2f\n", lk->pixel_scale, lk->pixel_levels, lk->pixel_outline, lk->pixel_palette, lk->pixel_inner);
 
     if (lv->scene_intro[0])   fprintf(f, "scene intro %s\n", lv->scene_intro);
     if (lv->scene_boss[0])    fprintf(f, "scene boss %s\n", lv->scene_boss);

@@ -1,18 +1,20 @@
-# Player: the green ninja from Ninja Adventure (CC0), a 32 px sprite in the 3D world.
-sprite sprites/hero.txt
+# Player: KayKit Knight (CC0), drawn through the pixel-art pass. The sprite version is hero_sprite.txt.
+model models/kaykit/Knight.glb
 scale 1.0
+texture_size 256
 yaw_offset 0
-anim idle       idle
-anim walk       walk
-anim run        run
-anim attack     attack
-anim attack2    attack2
-anim attack3    attack3
-anim parry      parry
-anim parry_hit  parry_hit
-anim dodge      dodge
-anim hurt       hurt
-anim kneel      kneel
-anim dead       dead
-anim roar       idle
-anim stagger    hurt
+hide Badge_Shield Rectangle_Shield Spike_Shield 1H_Sword_Offhand 2H_Sword
+anim idle       Idle loop
+anim walk       Walking_A loop
+anim run        Running_A loop
+anim attack     1H_Melee_Attack_Slice_Horizontal contact 0.42
+anim attack2    1H_Melee_Attack_Slice_Diagonal contact 0.42
+anim attack3    1H_Melee_Attack_Chop contact 0.45
+anim parry      Block contact 0.25
+anim parry_hit  Block_Hit contact 0.15
+anim dodge      Dodge_Backward
+anim hurt       Hit_A
+anim kneel      Sit_Floor_Down hold
+anim dead       Death_A hold
+anim roar       Cheer
+anim stagger    Hit_B

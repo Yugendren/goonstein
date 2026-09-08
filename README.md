@@ -104,6 +104,16 @@ placed pieces stand on the surface, Ctrl+Z undoes sculpting too, and saving writ
 `assets/levels/NAME_terrain_h.png` (heights) and `_c.png` (colours) next to the level, which
 loads them through its `terrain` line.
 
+**Pixel-art characters from 3D models.** The hero and the boss are KayKit rigged models
+(`assets/characters/hero.txt`, `warden.txt`), drawn through a pixel-art pass: they render into a
+small layer (one texel per art pixel), the camera is snapped to that layer's grid so the pixels do
+not swim while the world stays smooth, the colours are snapped to the Endesga 32 palette (or a
+few levels per channel) and a one-pixel outline is drawn, all depth-tested against the world. No
+frame is ever drawn by hand: animations are the models' own clips. The `pixel` look line and the
+PIXEL CHARACTERS sliders on the LOOK tab tune it; scale 0 turns it off. The Ninja Adventure
+sprite versions stay as `hero_sprite.txt` / `warden_sprite.txt` (`--hero hero_sprite`).
+Tuning from the command line: `HOLLOW_PIX="3 8 1 1 0.6"` overrides the look, `HOLLOW_NOPIX=1` disables the pass.
+
 **Sprite editor.** Draws in the tool window while the game keeps running with your character as
 the hero: every stroke updates the sprite in the world within a tenth of a second, so walk
 around or fight with it between edits. `]` opens it on a copy of the current hero (its sheets are

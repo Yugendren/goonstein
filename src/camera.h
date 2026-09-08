@@ -33,5 +33,7 @@ void camera_end_scene(Camera *c);
 void camera_add_shake(Camera *c, float amount);
 void camera_update(Camera *c, float dt);
 Mat4 camera_view_proj(const Camera *c, float aspect);
+// Same camera translated by `offset` (the pixel-art layer snaps the camera to its texel grid).
+Mat4 camera_view_proj_offset(const Camera *c, float aspect, Vec3 offset);
 // Convert stick input to a world XZ direction relative to the camera's facing.
 Vec3 camera_move_dir(const Camera *c, float in_x, float in_y);

@@ -47,6 +47,11 @@ typedef struct Gfx {
     int iw, ih;                                   // internal resolution
     SDL_GPUTexture *hdr, *depth, *ldr, *bloom_a, *bloom_b;
     int bw, bh;                                   // bloom resolution
+    // pixel-art character layer: a small target whose texels become art pixels (see gfx_pixel_begin)
+    SDL_GPUTexture *pix, *pix_depth; int pw, ph, pixel_scale;
+    float pix_levels, pix_outline, pix_palette, pix_inner;
+    SDL_GPUGraphicsPipeline *pipe_pixcomp;
+    Mat4 main_vp; float pix_off_x, pix_off_y; bool in_pix;
     SDL_GPUTextureFormat swap_format;
     SDL_GPUGraphicsPipeline *pipe_world, *pipe_skin, *pipe_sky, *pipe_particle_add, *pipe_particle_alpha,
                             *pipe_bright, *pipe_blur, *pipe_post, *pipe_ui, *pipe_blit;
@@ -66,6 +71,7 @@ typedef struct Gfx {
     FrameParams frame; Material material; const Texture *bound_tex;
     SDL_GPUGraphicsPipeline *bound_pipe;
     Vec3 cam_right, cam_up; float sprite_lean; bool planar_next;
+    unsigned char frame_uniforms[2048]; Uint32 frame_uniforms_size;   // re-pushed when a pass reopens
     unsigned draw_calls;
 } Gfx;
 
@@ -113,5 +119,12 @@ void gfx_ui_target(Gfx *g, int target);
 // Textured UI image (nearest sampled, alpha blended). uv = u0 v0 u1 v1, or NULL for the whole texture.
 void gfx_ui_image(Gfx *g, const Texture *t, float x, float y, float w, float h, const float *uv, Vec4 color);
 
+// Pixel-art layer. Between begin and end, draws go to a target 1/scale the size of the screen
+// (scale 0 disables the layer: draws stay in the main pass). view_proj is the camera snapped
+// to that target's texel grid and off_x/off_y the remaining sub-texel shift in texels; end
+// composites the layer over the world with a one-pixel outline and crunched colours, depth-tested.
+void gfx_set_pixel_look(Gfx *g, int scale, float levels, float outline, float palette, float inner);
+void gfx_pixel_begin(Gfx *g, Mat4 view_proj, float off_x, float off_y);
+void gfx_pixel_end(Gfx *g);
 bool gfx_screenshot(Gfx *g, const char *path);
 void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time);

@@ -93,13 +93,15 @@ void camera_update(Camera *c, float dt) {
     c->shake_t += dt;
 }
 
-Mat4 camera_view_proj(const Camera *c, float aspect) {
-    Vec3 eye = c->eye;
+Mat4 camera_view_proj(const Camera *c, float aspect) { return camera_view_proj_offset(c, aspect, v3(0, 0, 0)); }
+
+Mat4 camera_view_proj_offset(const Camera *c, float aspect, Vec3 offset) {
+    Vec3 eye = v3_add(c->eye, offset);
     if (c->shake > 0.001f) {
         float s = c->shake * 0.12f;
         eye = v3_add(eye, v3(sinf(c->shake_t * 47.0f) * s, cosf(c->shake_t * 61.0f) * s, sinf(c->shake_t * 53.0f) * s * 0.5f));
     }
-    Mat4 view = m4_look_at(eye, c->target, v3(0, 1, 0));
+    Mat4 view = m4_look_at(eye, v3_add(c->target, offset), v3(0, 1, 0));
     Mat4 proj = m4_perspective(c->fov * DEG2RAD, aspect, 0.1f, 80.0f);
     return m4_mul(proj, view);
 }
