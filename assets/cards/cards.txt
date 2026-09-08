@@ -1,0 +1,21 @@
+# Cards. One per line. Fields after the name are key value pairs in any order.
+#   cost N        energy to play
+#   kind K        attack | guard | draw | heal | buff
+#   damage N      per hit (attack)
+#   hits N        number of hits (attack), default 1
+#   block N       guard gained (guard)
+#   draw N        cards drawn (draw)
+#   heal N        hp restored (heal)
+#   effect NAME   buff effect: window (wider parry windows this round)
+#   needs parried the card is only playable after a parry this round
+#   anim NAME     player animation binding name (attack attack2 attack3 parry idle)
+#   color r g b   card tint
+#   desc "text"
+card strike   cost 1 kind attack damage 6  hits 1 anim attack  color 0.85 0.45 0.30 desc "Deal 6."
+card heavy    cost 2 kind attack damage 14 hits 1 anim attack3 color 0.80 0.30 0.25 desc "Deal 14. Slow."
+card flurry   cost 1 kind attack damage 3  hits 3 anim attack2 color 0.90 0.60 0.30 desc "Deal 3, three times."
+card riposte  cost 0 kind attack damage 10 hits 1 anim attack2 needs parried color 1.00 0.85 0.40 desc "Deal 10. Only after a parry this round."
+card guard    cost 1 kind guard  block 7 anim parry color 0.40 0.55 0.85 desc "Gain 7 Guard until your next turn."
+card focus    cost 1 kind draw   draw 2 anim idle color 0.55 0.75 0.85 desc "Draw 2 cards."
+card feint    cost 1 kind buff   effect window anim idle color 0.60 0.85 0.60 desc "Your parry windows are wide this round."
+card lantern  cost 2 kind heal   heal 8 anim idle color 0.95 0.80 0.45 desc "Heal 8. The light holds."

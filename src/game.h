@@ -10,11 +10,12 @@
 #include "charmodel.h"
 #include "props.h"
 #include "particles.h"
+#include "battle.h"
 
 #define INTERNAL_W 1280
 #define INTERNAL_H 800
 
-typedef enum GState { GS_EXPLORE, GS_SCENE, GS_FIGHT, GS_DEAD, GS_END } GState;
+typedef enum GState { GS_EXPLORE, GS_SCENE, GS_FIGHT, GS_DEAD, GS_END, GS_BATTLE } GState;
 
 typedef struct Game {
     double   time; unsigned tick;
@@ -22,7 +23,7 @@ typedef struct Game {
     Level    level; Camera cam; Scene scene;
     Player   player; Boss boss; PlayerDef player_def; BossDef boss_def;
     CharModel player_model, boss_model;
-    PropCache props; Particles particles;
+    PropCache props; Particles particles; Battle battle; Uifx fx; bool battle_loaded;
     GState   state, after_scene; float state_t;
     float    hitstop, letterbox, fade, fight_intensity;
     bool     paused, step_once;
@@ -36,6 +37,7 @@ typedef struct Game {
     float hint_t;
     bool     bot;                 // test harness: plays the fight by itself
     char     level_path[512];     // override (harness --level)
+    Platform *pf;
 } Game;
 
 void game_init(Game *g);

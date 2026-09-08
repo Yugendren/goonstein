@@ -3,7 +3,7 @@
 #include "hmath.h"
 #include "level.h"
 
-typedef enum CamMode { CAM_ORBIT, CAM_SCENE } CamMode;
+typedef enum CamMode { CAM_ORBIT, CAM_SCENE, CAM_ISO } CamMode;
 
 typedef struct Camera {
     CamMode mode;
@@ -23,6 +23,8 @@ void camera_init(Camera *c);
 // lock_pos is the lock-on target (used when locked). The camera never enters solid level blocks.
 void camera_orbit(Camera *c, Vec3 player_pos, float look_x, float look_y, bool has_lock, Vec3 lock_pos, const Level *lv, float dt);
 void camera_toggle_lock(Camera *c);
+// Fixed-angle isometric follow for the overworld. yaw fixed, pitch fixed, distance fixed.
+void camera_iso(Camera *c, Vec3 player_pos, const Level *lv, float dt);
 // Put the camera behind the player facing yaw (used on restarts).
 void camera_snap_behind(Camera *c, Vec3 player_pos, float player_yaw, const Level *lv);
 // Cutscene: absolute.

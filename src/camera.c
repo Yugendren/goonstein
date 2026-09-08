@@ -51,6 +51,22 @@ void camera_orbit(Camera *c, Vec3 pp, float look_x, float look_y, bool has_lock,
 
 void camera_toggle_lock(Camera *c) { if (c->has_lock) c->locked = !c->locked; }
 
+#define ISO_YAW   (-35.0f * DEG2RAD)
+#define ISO_PITCH (47.0f * DEG2RAD)
+#define ISO_DIST  15.0f
+void camera_iso(Camera *c, Vec3 pp, const Level *lv, float dt) {
+    (void)lv;
+    bool entering = c->mode != CAM_ISO;
+    c->mode = CAM_ISO;
+    c->yaw = ISO_YAW; c->pitch = ISO_PITCH; c->dist = c->cur_dist = ISO_DIST;
+    Vec3 pivot = v3(pp.x, pp.y + 1.0f, pp.z);
+    Vec3 eye = v3_add(pivot, v3_scale(orbit_dir(c->yaw, c->pitch), c->dist));
+    if (entering) { c->eye = eye; c->target = pivot; }
+    c->eye = v3_damp(c->eye, eye, 8, dt);
+    c->target = v3_damp(c->target, pivot, 8, dt);
+    c->fov = damp(c->fov, 32, 4, dt);   // long lens flattens the view, the isometric feel
+}
+
 void camera_snap_behind(Camera *c, Vec3 pp, float yaw, const Level *lv) {
     c->mode = CAM_ORBIT; c->yaw = yaw; c->pitch = 0.32f; c->cur_dist = c->dist = 5.5f;
     Vec3 pivot = v3(pp.x, pp.y + c->height, pp.z);

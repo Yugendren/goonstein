@@ -16,6 +16,10 @@ typedef struct Input {
     // Actions, edge-triggered this frame
     bool attack, parry, dodge, interact, lockon;
     bool sprint;   // held
+    // Mouse, for menus and cards
+    float mouse_x, mouse_y;          // window points
+    bool  click, rclick;             // edge-triggered this frame
+    bool  mouse_held, rmouse_held;
 } Input;
 
 typedef struct Platform {
@@ -35,3 +39,7 @@ bool platform_poll(Platform *pf);       // returns false on quit
 void platform_begin_frame(Platform *pf);
 void platform_end_frame(Platform *pf);
 void platform_shutdown(Platform *pf);
+// Show a free cursor (menus, cards) or capture it for camera look.
+void platform_set_cursor(Platform *pf, bool free_cursor);
+// Mouse position in internal-resolution UI pixels, accounting for letterboxing.
+void platform_mouse_ui(const Platform *pf, int iw, int ih, float *ux, float *uy);

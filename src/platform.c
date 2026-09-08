@@ -43,6 +43,7 @@ bool platform_poll(Platform *pf) {
     // Edge-triggered actions reset each frame; held state is re-derived below.
     in->attack = in->parry = in->dodge = in->interact = in->debug_toggle = false;
     in->pause_toggle = in->step = in->reload = in->skip = in->lockon = false;
+    in->click = in->rclick = false;
     in->look_x = in->look_y = 0.0f;
 
     SDL_Event e;
@@ -68,13 +69,19 @@ bool platform_poll(Platform *pf) {
             }
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
-            if (e.button.button == SDL_BUTTON_LEFT) in->attack = true;
-            else if (e.button.button == SDL_BUTTON_RIGHT) in->parry = true;
+            if (e.button.button == SDL_BUTTON_LEFT) { in->attack = true; in->click = true; in->mouse_held = true; }
+            else if (e.button.button == SDL_BUTTON_RIGHT) { in->parry = true; in->rclick = true; in->rmouse_held = true; }
             else if (e.button.button == SDL_BUTTON_MIDDLE) in->lockon = true;
+            in->mouse_x = e.button.x; in->mouse_y = e.button.y;
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+            if (e.button.button == SDL_BUTTON_LEFT) in->mouse_held = false;
+            else if (e.button.button == SDL_BUTTON_RIGHT) in->rmouse_held = false;
             break;
         case SDL_EVENT_MOUSE_MOTION:
             in->look_x += e.motion.xrel;
             in->look_y += e.motion.yrel;
+            in->mouse_x = e.motion.x; in->mouse_y = e.motion.y;
             break;
         case SDL_EVENT_GAMEPAD_ADDED:
             if (!pf->gamepad) pf->gamepad = SDL_OpenGamepad(e.gdevice.which);
@@ -141,4 +148,19 @@ void platform_shutdown(Platform *pf) {
     if (pf->gpu) SDL_DestroyGPUDevice(pf->gpu);
     if (pf->window) SDL_DestroyWindow(pf->window);
     SDL_Quit();
+}
+
+void platform_set_cursor(Platform *pf, bool free_cursor) {
+    SDL_SetWindowRelativeMouseMode(pf->window, !free_cursor);
+    if (free_cursor) SDL_ShowCursor(); else SDL_HideCursor();
+}
+
+void platform_mouse_ui(const Platform *pf, int iw, int ih, float *ux, float *uy) {
+    int ww = 1, wh = 1;
+    SDL_GetWindowSize(pf->window, &ww, &wh);
+    float ta = (float)iw / (float)ih, sw = (float)ww, sh = (float)wh;
+    float vw = sw, vh = sw / ta; if (vh > sh) { vh = sh; vw = sh * ta; }
+    float ox = (sw - vw) * 0.5f, oy = (sh - vh) * 0.5f;
+    *ux = (pf->input.mouse_x - ox) / vw * (float)iw;
+    *uy = (pf->input.mouse_y - oy) / vh * (float)ih;
 }

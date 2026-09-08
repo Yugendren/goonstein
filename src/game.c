@@ -80,6 +80,20 @@ static void restart_fight(Game *g) {
     g->cam.locked = true;
 }
 
+static void start_battle(Game *g) {
+    Vec3 f = v3(sinf(g->level.boss_yaw), 0, cosf(g->level.boss_yaw));   // direction the boss faces
+    Vec3 centre = v3_add(g->level.boss_spawn, v3_scale(f, 2.6f));       // stage centre in front of the boss
+    float stage_yaw = g->level.boss_yaw + PI;                            // the player faces the boss
+    battle_start(&g->battle, centre, stage_yaw, 5.2f, (int)g->player.c.hp, (int)g->player.c.hp_max);
+    g->boss.state = BS_SCRIPTED; g->player.state = PS_SCRIPTED;
+    g->boss.c.hp = g->boss.c.hp_max;
+    character_set_anim(&g->boss.c, ANIM_IDLE); character_set_anim(&g->player.c, ANIM_IDLE);
+    if (g->boss_model.loaded) anim_play(&g->boss_model.player, &g->boss_model.model, g->boss_model.bind[ANIM_IDLE].clip, 1, true, false, 0.2f);
+    if (g->player_model.loaded) anim_play(&g->player_model.player, &g->player_model.model, g->player_model.bind[ANIM_IDLE].clip, 1, true, false, 0.2f);
+    g->state = GS_BATTLE; g->state_t = 0; g->fade = 1;
+    uifx_clear(&g->fx);
+}
+
 void game_init(Game *g) {
     memset(g, 0, sizeof *g);
     if (!audio_init()) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "audio unavailable, running silent");
@@ -87,6 +101,8 @@ void game_init(Game *g) {
 }
 
 bool game_init_gfx(Game *g, Platform *pf) {
+    g->pf = pf;
+    platform_set_cursor(pf, true);
     if (!gfx_init(&g->gfx, pf, INTERNAL_W, INTERNAL_H)) return false;
     world_textures_create(&g->gfx, &g->wt);
     if (!load_defs(g)) return false;
@@ -94,6 +110,9 @@ bool game_init_gfx(Game *g, Platform *pf) {
     charmodel_load(&g->gfx, &g->player_model, ASSET("characters/knight.txt"));
     charmodel_load(&g->gfx, &g->boss_model, ASSET("characters/warden.txt"));
     particles_init(&g->particles);
+    uifx_init(&g->fx);
+    g->battle_loaded = battle_load(&g->battle, ASSET("cards/cards.txt"), ASSET("decks/knight.txt"), ASSET("enemies/warden_battle.txt"));
+    if (!g->battle_loaded) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "battle data failed to load; boss door falls back to real-time fight");
     setup_level_content(g);
     reset_to_start(g);
     return true;
@@ -113,6 +132,7 @@ void game_screenshot(Game *g, const char *path) { gfx_screenshot(&g->gfx, path);
 void game_start_at(Game *g, const char *where) {
     if (!strncmp(where, "level:", 6)) { snprintf(g->level_path, sizeof g->level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, where + 6); load_defs(g); setup_level_content(g); reset_to_start(g); return; }
     if (!strcmp(where, "fight")) restart_fight(g);
+    else if (!strcmp(where, "battle")) { if (g->battle_loaded) start_battle(g); }
     else if (!strcmp(where, "end")) { g->state = GS_END; g->state_t = 0; }
     else if (!strcmp(where, "boss_intro")) {
         g->player.c.pos = v3(0, 0, 24.2f); g->player.c.yaw = 0;
@@ -208,7 +228,7 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     Vec3 dir = camera_move_dir(&g->cam, in->move_x, in->move_y);
     player_update(&g->player, in, dir, &g->level, NULL, dt, &ev);
     apply_events(g, &ev);
-    camera_orbit(&g->cam, g->player.c.pos, in->look_x, in->look_y, false, v3(0, 0, 0), &g->level, dt);
+    camera_iso(&g->cam, g->player.c.pos, &g->level, dt);
     Trigger *t = level_trigger_at(&g->level, g->player.c.pos);
     if (t) {
         if (!strcmp(t->name, "intro")) play_scene(g, g->level.scene_intro, GS_EXPLORE);
@@ -233,7 +253,9 @@ static void tick_scene(Game *g, const Input *in, float dt) {
     if (g->scene.done) {
         g->player.state = PS_FREE; character_set_anim(&g->player.c, ANIM_IDLE);
         g->player.c.scripted_moving = false; g->boss.c.scripted_moving = false;
-        if (g->after_scene == GS_FIGHT) {
+        if (g->after_scene == GS_FIGHT && g->battle_loaded) {
+            start_battle(g);
+        } else if (g->after_scene == GS_FIGHT) {
             g->boss.state = BS_IDLE; g->boss.think = 1.2f;
             character_set_anim(&g->boss.c, ANIM_IDLE);
             g->state = GS_FIGHT;
@@ -288,6 +310,31 @@ static void tick_dead(Game *g, const Input *in, float dt) {
     }
 }
 
+static void tick_battle(Game *g, const Input *in_real, Platform *pf, float dt) {
+    Input in = *in_real;
+    float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my);
+    if (g->bot) battle_bot(&g->battle, &g->boss_model, &in, &mx, &my, g->tick);
+    CombatEvents ev = {0};
+    battle_tick(&g->battle, &in, mx, my, dt, &g->player, &g->boss, &g->player_model, &g->boss_model, &g->cam, &g->particles, &g->fx, &ev);
+    if (ev.shake > 0) camera_add_shake(&g->cam, ev.shake);
+    if (ev.parried) { screen_flash(g, v3(1, 1, 0.9f), 0.18f); g->parries++; }
+    if (ev.player_hit) { screen_flash(g, v3(0.6f, 0, 0), 0.25f); g->hits_taken++; }
+    g->fight_intensity = damp(g->fight_intensity, 0.8f, 2, dt);
+    audio_set_drone(0.3f); audio_set_fight(g->fight_intensity);
+    bool won;
+    if (battle_over(&g->battle, &won)) {
+        if (won) {
+            g->boss.state = BS_DEAD; g->boss.c.hp = 0; character_set_anim(&g->boss.c, ANIM_DEAD);
+            g->player.state = PS_SCRIPTED;
+            play_scene(g, g->level.scene_victory, GS_END);
+        } else {
+            g->deaths++;
+            g->player.c.hp = g->player.c.hp_max;
+            start_battle(g);
+        }
+    }
+}
+
 static void tick_end(Game *g, const Input *in, float dt) {
     g->state_t += dt;
     g->fade = 0;
@@ -325,13 +372,14 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     case GS_FIGHT:   tick_fight(g, in, dt); break;
     case GS_DEAD:    tick_dead(g, in, dt); break;
     case GS_END:     tick_end(g, in, dt); break;
+    case GS_BATTLE:  tick_battle(g, in, g->pf, dt); break;
     }
     if (g->state != GS_SCENE) {
         g->letterbox = damp(g->letterbox, 0, 6, dt);
         if (g->state != GS_DEAD) g->fade = damp(g->fade, 1, 3, dt);
     }
-    charmodel_drive_player(&g->player_model, &g->player, dt);
-    charmodel_drive_boss(&g->boss_model, &g->boss, dt);
+    if (g->state != GS_BATTLE) { charmodel_drive_player(&g->player_model, &g->player, dt); charmodel_drive_boss(&g->boss_model, &g->boss, dt); }
+    uifx_update(&g->fx, dt);
     update_particles(g, dt);
     if (g->hint_t > 0) g->hint_t -= dt;
     camera_update(&g->cam, dt);
@@ -352,6 +400,13 @@ static void text_center(Gfx *g, float cx, float y, float scale, Vec4 c, const ch
 
 static void draw_hud(Game *g, Platform *pf) {
     Gfx *x = &g->gfx;
+    if (g->state == GS_BATTLE) {
+        battle_draw_ui(&g->battle, x, camera_view_proj(&g->cam, (float)INTERNAL_W / INTERNAL_H));
+        uifx_draw(&g->fx, x);
+        if (g->msg_t > 0) gfx_ui_text(x, 12, INTERNAL_H - 16, 1.0f, v4(0.9f, 0.8f, 0.4f, 1), g->msg);
+        return;
+    }
+    uifx_draw(&g->fx, x);
     const float W = INTERNAL_W, H = INTERNAL_H;
     Vec4 white = v4(0.9f, 0.88f, 0.85f, 1), dim = v4(0.6f, 0.58f, 0.55f, 1);
 
@@ -395,8 +450,8 @@ static void draw_hud(Game *g, Platform *pf) {
     if (g->msg_t > 0) gfx_ui_text(x, 12, H - 16, 1.0f, v4(0.9f, 0.8f, 0.4f, 1), g->msg);
     if (g->hint_t > 0 && g->state == GS_EXPLORE) {
         float a = fminf(1, g->hint_t);
-        text_center(x, W * 0.5f, 30, 1.0f, v4(0.85f, 0.85f, 0.8f, a), "WASD move   mouse look   LMB attack   RMB deflect   Shift step / hold to sprint");
-        text_center(x, W * 0.5f, 44, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "MMB or Q lock-on   E interact   Enter skips cutscenes   F1 debug   Esc quit");
+        text_center(x, W * 0.5f, 30, 1.0f, v4(0.85f, 0.85f, 0.8f, a), "WASD move   Shift sprint   E interact   walk the path");
+        text_center(x, W * 0.5f, 44, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "Enter skips cutscenes   F1 debug   F5 reload   Esc quit");
     }
     if (g->state == GS_FIGHT && g->cam.locked && g->boss.state != BS_DEAD) {
         // lock-on marker: a small diamond over the boss, projected
@@ -413,7 +468,7 @@ static void draw_hud(Game *g, Platform *pf) {
     }
 
     if (pf->debug) {
-        static const char *GS[] = { "EXPLORE", "SCENE", "FIGHT", "DEAD", "END" };
+        static const char *GS[] = { "EXPLORE", "SCENE", "FIGHT", "DEAD", "END", "BATTLE" };
         static const char *PS[] = { "FREE", "ATTACK", "PARRY", "DODGE", "HURT", "DEAD", "SCRIPTED" };
         static const char *BS[] = { "IDLE", "APPROACH", "WINDUP", "ACTIVE", "RECOVER", "STAGGER", "DEAD", "SCRIPTED" };
         char l[8][160]; int n = 0;

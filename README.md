@@ -49,12 +49,20 @@ The game is meant to be edited without touching C:
 | Look (fog, light)     | `fog` / `light` lines in the level |                      |
 | Post-processing       | `shaders/post.frag`          |                            |
 
+## Card battle
+
+Reaching the boss starts a card battle. Cards are in `assets/cards/cards.txt`, the starting deck
+in `assets/decks/knight.txt`, the boss's attacks and pattern in `assets/enemies/warden_battle.txt`.
+Play cards with the mouse; End Turn (or Enter) hands over to the enemy. During its attack, click,
+right-click or press Space on the beat to deflect (the square closing on you is the cue), Shift to
+dodge unblockable attacks. Parries bank energy for your next turn; perfect parries counter.
+
 ## Headless test harness
 
     ./build/bin/hollow --start fight --bot --frames 3600 --screenshot out.png
 
 `--frames N` exits after N rendered frames, `--screenshot P` saves the internal-resolution
-frame, `--start` jumps to `fight`, `boss_intro`, `victory` or `end`, `--volume 0.1` keeps test runs quiet, and `--bot` lets a
+frame, `--start` jumps to `battle`, `fight`, `boss_intro`, `victory` or `end`, `--volume 0.1` keeps test runs quiet, and `--bot` lets a
 simple frame-perfect bot play the fight and logs every swing, parry and hit. This is how
 the fight is checked without a controller in hand.
 

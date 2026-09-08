@@ -1,0 +1,9 @@
+# Starting deck: card name and count
+strike 4
+flurry 2
+heavy 1
+riposte 1
+guard 2
+focus 1
+feint 1
+lantern 1
