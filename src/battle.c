@@ -1,5 +1,6 @@
 #include "battle.h"
 #include "audio.h"
+#include "debug.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -321,6 +322,7 @@ static void play_bound(CharModel *cm, Anim a, float lead, float tail, float fade
 
 static void begin_player_turn(Battle *b, Uifx *fx) {
     b->round++;
+    dbg_log("player turn %d", b->round);
     discard_hand(b);
     for (int i = 0; i < HAND_SIZE; i++) draw_card(b);
     b->energy = ENERGY_BASE + b->banked; if (b->energy > ENERGY_CAP) b->energy = ENERGY_CAP;
@@ -343,6 +345,7 @@ static void begin_enemy_turn(Battle *b, CharModel *bm, Boss *boss, Uifx *fx) {
     for (char *p = banner; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
     uifx_spawn(fx, UIFX_BANNER, 0, 300, banner, v4(a->tell.x, a->tell.y, a->tell.z, 1), 3.0f, 1.1f);
     boss->c.tell_color = a->tell; boss->c.tell = 0;
+    dbg_log("enemy turn: %s (%d hits, parry %s)", a->name, a->hits, a->parryable ? "yes" : "no");
     for (int i = 0; i < a->hits; i++) b->hit_t[i] = hit_time(b, bm, i);
     if (bm->is_sprite) {
         charmodel_sprite_play(bm, a->charge[0] ? a->charge : "idle", 0, true);
@@ -387,6 +390,7 @@ static void enemy_hit_lands(Battle *b, int i, Player *player, CharModel *pm, Cha
         if (b->combo % 4 == 0) gain += 1;                 // combo bonus every fourth parry
         b->banked += gain; if (b->banked > ENERGY_CAP - ENERGY_BASE) b->banked = ENERGY_CAP - ENERGY_BASE;
         const char *txt = j == J_PERFECT ? "PERFECT" : j == J_GREAT ? "GREAT" : "GOOD";
+        dbg_log("hit %d %s offset %+.3f combo %d", i, txt, offset, b->combo);
         Vec4 col = j == J_PERFECT ? v4(1, 0.95f, 0.5f, 1) : j == J_GREAT ? v4(0.6f, 1, 0.7f, 1) : v4(0.7f, 0.85f, 1, 1);
         uifx_spawn(fx, UIFX_PARRY, px, py - 80, txt, col, j == J_PERFECT ? 4.2f : 3.2f, 0.8f);
         if (b->combo >= 2) { char cs[16]; snprintf(cs, sizeof cs, "x%d", b->combo); uifx_spawn(fx, UIFX_DAMAGE, px + 90, py - 60, cs, v4(1, 0.8f, 0.4f, 1), 2.2f + fminf(b->combo, 12) * 0.12f, 0.7f); }
@@ -411,6 +415,7 @@ static void enemy_hit_lands(Battle *b, int i, Player *player, CharModel *pm, Cha
         return;
     }
     // Miss: the hit lands
+    dbg_log("hit %d MISS press %.3f beat %.3f dmg %d", i, b->parry_pressed_t, th, a->damage);
     b->combo = 0; b->last_judge = J_MISS; b->judge_t = 0; b->last_offset = have_press ? offset : (b->parry_pressed_t > th - 0.6f ? offset : 0);
     int dmg = a->damage;
     if (b->guard > 0) { int absorbed = dmg < b->guard ? dmg : b->guard; dmg -= absorbed; b->guard -= absorbed;
@@ -603,10 +608,12 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
             if (pick >= 0 && can_play(b, pick)) {
                 b->dragging = pick; b->hand[pick].phase = CP_DRAG; b->drag_t = 0; b->drag_x0 = mx; b->drag_y0 = my;
                 b->drop_target = b->cards[b->hand[pick].def].kind == CK_ATTACK ? 1 : 2;   // auto target from the moment it is picked up
+                dbg_log("pick %s at %.0f %.0f (card %.0f %.0f)", b->cards[b->hand[pick].def].name, mx, my, b->hand[pick].x, b->hand[pick].y);
                 audio_play_file(SFX("Menu/Accept.wav"), 0.3f, 1.3f);
             }
-            else if (pick >= 0) { audio_play(SND_FAIL, 0.4f, 1.6f); set_read(b, "can't"); }
+            else if (pick >= 0) { audio_play(SND_FAIL, 0.4f, 1.6f); set_read(b, "can't"); dbg_log("pick refused: %s (energy %d)", b->cards[b->hand[pick].def].name, b->energy); }
             else if (b->end_hover) begin_enemy_turn(b, bm, boss, fx);
+            else dbg_log("press at %.0f %.0f hit nothing (hand %d)", mx, my, b->nhand);
         }
         if (b->dragging >= 0) {
             b->drag_t += dt_real; b->drag_mx = mx; b->drag_my = my;
@@ -618,8 +625,8 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
             if (!in->mouse_held) {
                 bool quick = b->drag_t < 0.18f && hypotf(mx - b->drag_x0, my - b->drag_y0) < 12;   // a plain click plays straight away
                 int idx = b->dragging; b->dragging = -1;
-                if (quick || !in_hand_zone) { b->hand[idx].phase = CP_HAND; play_card(b, idx, player, pm, ps, fx); }
-                else { b->hand[idx].phase = CP_HAND; b->hand[idx].vy -= 200; }   // dropped back into the hand: cancelled
+                if (quick || !in_hand_zone) { b->hand[idx].phase = CP_HAND; dbg_log("release -> play %s target %d%s", b->cards[b->hand[idx].def].name, b->drop_target, quick ? " (quick)" : ""); play_card(b, idx, player, pm, ps, fx); }
+                else { b->hand[idx].phase = CP_HAND; b->hand[idx].vy -= 200; dbg_log("release in hand: cancelled %s", b->cards[b->hand[idx].def].name); }
                 b->drop_target = 0;
             }
         }
@@ -655,7 +662,7 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
     case BT_ENEMY_ATTACK: {
         const EnemyAttack *a = &b->enemy.attacks[b->cur_attack];
         shot_enemy_attack(b);
-        if (in->parry || in->click || in->rclick) { b->parry_pressed_t = b->t; b->press_used = false; audio_play(SND_WHIFF, 0.35f, 1.3f); play_bound(pm, ANIM_PARRY, 0.05f, 0.35f, 0.02f); }
+        if (in->parry || in->click || in->rclick) { b->parry_pressed_t = b->t; b->press_used = false; audio_play(SND_WHIFF, 0.35f, 1.3f); play_bound(pm, ANIM_PARRY, 0.05f, 0.35f, 0.02f); dbg_log("parry press t=%.3f (beats %.3f %.3f)", b->t, b->hit_t[0], a->hits > 1 ? b->hit_t[1] : 0.0f); }
         if (in->dodge && !b->dodging) { b->dodging = true; b->dodge_t = b->t; play_bound(pm, ANIM_DODGE, 0, 0.45f, 0.03f); audio_play(SND_WHIFF, 0.5f, 0.9f); }
         if (b->dodging && b->t > b->dodge_t + 0.45f) b->dodging = false;
         float window = W_GOOD * (b->wide_windows ? 1.5f : 1.0f);

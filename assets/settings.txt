@@ -1,0 +1,4 @@
+# Personal defaults, read at startup. Command-line flags override these.
+volume 0.2      # 0..1; keep this low while testing
+debug 0         # 1 starts with the F1 overlay on
+# hero demo     # play a character made in the sprite editor

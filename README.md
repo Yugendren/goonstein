@@ -64,6 +64,15 @@ and GOOD (150 ms); anything else is a miss and the hit lands. Perfects counter a
 greats bank one, every fourth combo hit banks a bonus, and a miss resets the combo. Shift dodges
 unblockable attacks. A timing bar shows whether you were early or late.
 
+## Testing and debugging
+
+`assets/settings.txt` holds personal defaults (volume, debug overlay, hero); flags override it.
+`--quiet` sets volume to 0.15 and `--volume 0` mutes. F1 toggles the debug overlay: state
+machines, timers, mouse position, card hover/drag/target, parry press and judgement offsets,
+and a live event log. Every event also goes to `hollow.log` in the working directory. F8 writes
+`hollow_snapshot.txt` with the full state plus recent events and copies it to the clipboard,
+so a bug report is: press F8 when it happens, paste.
+
 ## Sprite editor
 
     ./build/bin/hollow --edit NAME [--size 32]

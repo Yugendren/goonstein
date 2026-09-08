@@ -1,5 +1,6 @@
 #include "game.h"
 #include "audio.h"
+#include "debug.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +9,26 @@
 #define MUSIC(rel) (HOLLOW_ASSET_DIR "/sprites/ninja/Audio/Musics/" rel)
 
 static void say(Game *g, const char *m) { snprintf(g->msg, sizeof g->msg, "%s", m); g->msg_t = 2.5f; }
+
+static const char *GS_NAMES[] = { "EXPLORE", "SCENE", "FIGHT", "DEAD", "END", "BATTLE", "EDITOR" };
+static const char *BT_NAMES[] = { "INTRO", "PLAYER", "CARD", "ENEMY_TELL", "ENEMY_ATTACK", "ENEMY_RECOVER", "WIN", "LOSE" };
+
+static void debug_snapshot(Game *g) {
+    char h[2048]; size_t n = 0;
+    const Battle *b = &g->battle;
+    n += (size_t)snprintf(h + n, sizeof h - n, "game %s t=%.2f fps %.0f level %s\n", GS_NAMES[g->state], g->state_t, g->fps, g->level.path);
+    n += (size_t)snprintf(h + n, sizeof h - n, "player pos %.1f %.1f %.1f yaw %.0f hp %.0f anim %s | boss hp %.0f anim %s\n", g->player.c.pos.x, g->player.c.pos.y, g->player.c.pos.z, g->player.c.yaw / DEG2RAD, g->player.c.hp, anim_name(g->player.c.anim), g->boss.c.hp, anim_name(g->boss.c.anim));
+    if (g->state == GS_BATTLE) {
+        n += (size_t)snprintf(h + n, sizeof h - n, "battle %s t=%.2f round %d energy %d/%d banked %d hp %d/%d enemy %d/%d guard %d combo %d\n", BT_NAMES[b->state], b->t, b->round, b->energy, b->energy_max, b->banked, b->player_hp, b->player_hp_max, b->enemy_hp, b->enemy_hp_max, b->guard, b->combo);
+        n += (size_t)snprintf(h + n, sizeof h - n, "hand:"); for (int i = 0; i < b->nhand; i++) n += (size_t)snprintf(h + n, sizeof h - n, " %s(p%d)", b->cards[b->hand[i].def].name, b->hand[i].phase);
+        n += (size_t)snprintf(h + n, sizeof h - n, "\nhovered %d dragging %d drop_target %d | attack %s hit_t", b->hovered, b->dragging, b->drop_target, b->enemy.attacks[b->cur_attack].name);
+        for (int i = 0; i < b->enemy.attacks[b->cur_attack].hits; i++) n += (size_t)snprintf(h + n, sizeof h - n, " %.3f%s", b->hit_t[i], b->hit_done[i] ? "*" : "");
+        n += (size_t)snprintf(h + n, sizeof h - n, "\nlast press %.3f used %d last judge %d offset %+.3f\n", b->parry_pressed_t, b->press_used, b->last_judge, b->last_offset);
+    }
+    float mx, my; platform_mouse_ui(g->pf, INTERNAL_W, INTERNAL_H, &mx, &my);
+    n += (size_t)snprintf(h + n, sizeof h - n, "mouse ui %.0f %.0f held %d | hero %s\n", mx, my, g->pf->input.mouse_held, g->hero_config[0] ? g->hero_config : "hero");
+    say(g, dbg_snapshot(h) ? "snapshot copied to clipboard and hollow_snapshot.txt" : "snapshot: clipboard or file failed");
+}
 
 // ---------------------------------------------------------------- scene host
 
@@ -31,6 +52,7 @@ static const SceneHost HOST_TEMPLATE = { NULL, host_move, host_face, host_anim, 
 static void play_scene(Game *g, const char *name, GState after) {
     char path[640]; snprintf(path, sizeof path, "%s/scenes/%s", HOLLOW_ASSET_DIR, name);
     if (!scene_load(&g->scene, path)) { say(g, "scene failed to load"); return; }
+    dbg_log("scene %s", name);
     scene_start(&g->scene);
     g->state = GS_SCENE; g->after_scene = after; g->state_t = 0;
     g->player.state = PS_SCRIPTED; character_set_anim(&g->player.c, ANIM_IDLE);
@@ -140,6 +162,7 @@ static void start_battle(Game *g) {
 
 void game_init(Game *g) {
     // g is static-zeroed by main; do not memset here (command-line overrides are already in it)
+    dbg_init("hollow.log");
     if (!audio_init()) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "audio unavailable, running silent");
     audio_set_master(0.8f);
 }
@@ -165,6 +188,7 @@ bool game_init_gfx(Game *g, Platform *pf) {
 }
 
 void game_shutdown(Game *g) {
+    dbg_shutdown();
     if (g->editor_open) editor_shutdown(&g->editor);
     props_clear(&g->gfx, &g->props);
     charmodel_destroy(&g->gfx, &g->player_model);
@@ -286,6 +310,7 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     camera_iso(&g->cam, g->player.c.pos, &g->level, dt);
     Trigger *t = level_trigger_at(&g->level, g->player.c.pos);
     if (t) {
+        dbg_log("trigger %s at %.1f %.1f", t->name, g->player.c.pos.x, g->player.c.pos.z);
         if (!strcmp(t->name, "intro")) play_scene(g, g->level.scene_intro, GS_EXPLORE);
         else if (!strcmp(t->name, "boss_door")) play_scene(g, g->level.scene_boss, GS_FIGHT);
         else if (!strcmp(t->name, "arena")) audio_play(SND_STING, 0.6f, 0.9f);
@@ -415,6 +440,9 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     if (g->msg_t > 0) g->msg_t -= dt;
     if (g->last_hit_text_t > 0) g->last_hit_text_t -= dt;
 
+    dbg_set_time(g->time);
+    if (in->key_down[SDL_SCANCODE_F8]) debug_snapshot(g);
+    { static GState last = (GState)-1; if (g->state != last) { dbg_log("state -> %s", GS_NAMES[g->state]); last = g->state; } }
     if (in->pause_toggle) { g->paused = !g->paused; say(g, g->paused ? "paused (F3 steps one tick)" : "resumed"); }
     if (in->step) g->step_once = true;
     if (in->reload) {
@@ -590,8 +618,22 @@ static void draw_hud(Game *g, Platform *pf) {
         const BossMove *m = &g->boss.def.moves[g->boss.move];
         snprintf(l[n++], 160, "boss %s t=%.2f move %s  hp %.0f  posture %.0f  %s", BS[g->boss.state], g->boss.t, m->name, g->boss.c.hp, g->boss.c.posture, g->boss.phase2 ? "PHASE2" : "");
         if (g->state == GS_SCENE) snprintf(l[n++], 160, "scene t=%.2f next %d/%d  fade %.2f", g->scene.time, g->scene.next, g->scene.n, g->scene.fade);
-        snprintf(l[n++], 160, "F1 debug  F2 pause  F3 step  F5 reload  Enter skip scene  Esc quit");
+        snprintf(l[n++], 160, "F1 debug  F2 pause  F3 step  F5 reload  F8 snapshot  Enter skip scene  Esc quit");
         for (int i = 0; i < n; i++) gfx_ui_text(x, 8, 8 + i * 11, 1.0f, v4(0.7f, 1, 0.7f, 1), l[i]);
+        if (g->state == GS_BATTLE) {
+            const Battle *b = &g->battle; char bl[200];
+            snprintf(bl, sizeof bl, "battle %s t=%.2f hov %d drag %d target %d energy %d banked %d combo %d | press %.3f used %d judge %d off %+.3f",
+                     BT_NAMES[b->state], b->t, b->hovered, b->dragging, b->drop_target, b->energy, b->banked, b->combo, b->parry_pressed_t, b->press_used, b->last_judge, b->last_offset);
+            gfx_ui_text(x, 8, 8 + n * 11, 1.0f, v4(1, 0.9f, 0.6f, 1), bl);
+            float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my);
+            snprintf(bl, sizeof bl, "mouse %.0f %.0f held %d  hit_t %.2f %.2f %.2f", mx, my, pf->input.mouse_held, b->hit_t[0], b->hit_t[1], b->hit_t[2]);
+            gfx_ui_text(x, 8, 8 + (n + 1) * 11, 1.0f, v4(1, 0.9f, 0.6f, 1), bl);
+        }
+        // event log, newest at the bottom
+        int total = dbg_line_count(), show = total < 18 ? total : 18;
+        gfx_ui_rect(x, 860, 90, 412, 12 + show * 11 + 14, v4(0, 0, 0, 0.55f));
+        gfx_ui_text(x, 866, 96, 1.0f, v4(0.8f, 0.8f, 0.8f, 1), "EVENTS   (F8 copies a snapshot to the clipboard)");
+        for (int i = 0; i < show; i++) gfx_ui_text(x, 866, 110 + i * 11, 1.0f, v4(0.75f, 0.9f, 1, 1), dbg_line(total - show + i));
     }
 }
 

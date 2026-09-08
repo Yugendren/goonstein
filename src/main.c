@@ -21,12 +21,18 @@ int main(int argc, char **argv) {
     // --screenshot P  write the internal frame to P before exiting
     // --start S       begin in state S: explore (default), fight, end
     // --bot           let a simple bot play the fight (with --start fight)
-    // --volume V      master volume 0..1 (test runs use 0.1)
+    // --volume V      master volume 0..1;  --quiet = 0.15;  --debug starts with the overlay on
     // --edit NAME     open the sprite editor on assets/sprites/own/NAME (created if missing); --size N frame size for new characters
     // --hero NAME     play with assets/characters/NAME.txt as the player
     int max_frames = -1; const char *shot = NULL; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
-    const char *edit = NULL; int edit_size = 32;
+    const char *edit = NULL; int edit_size = 32; bool debug_on = false;
     static Game game;   // large; static keeps it off the stack (and zeroed)
+    // settings.txt next to the assets folder: volume V, debug 0|1, hero NAME. Command-line flags override it.
+    { char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR); size_t sn; char *st = SDL_LoadFile(sp, &sn);
+      if (st) { char *cur = st; while (*cur) { char *line = cur; char *nl = strchr(cur, '\n'); if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
+          char *hash = strchr(line, '#'); if (hash) *hash = 0; char key[32], val[128];
+          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); } }
+        SDL_free(st); } }
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) shot = argv[++i];
@@ -34,6 +40,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--bot")) bot = true;
         else if (!strcmp(argv[i], "--level") && i + 1 < argc) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, argv[++i]);
         else if (!strcmp(argv[i], "--volume") && i + 1 < argc) volume = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--quiet")) volume = 0.15f;
+        else if (!strcmp(argv[i], "--debug")) debug_on = true;
         else if (!strcmp(argv[i], "--shot-when") && i + 1 < argc) shot_when = argv[++i];
         else if (!strcmp(argv[i], "--edit") && i + 1 < argc) edit = argv[++i];
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) edit_size = atoi(argv[++i]);
@@ -51,6 +59,7 @@ int main(int argc, char **argv) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "gfx init failed: %s", SDL_GetError());
         return 1;
     }
+    pf.debug = debug_on;
     if (start) game_start_at(&game, start);
     if (edit) game_open_editor(&game, edit, edit_size);
     game.bot = bot;

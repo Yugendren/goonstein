@@ -3,3 +3,5 @@ build/
 compile_commands.json
 *.dSYM/
 .DS_Store
+hollow.log
+hollow_snapshot.txt
