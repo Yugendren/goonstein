@@ -12,11 +12,25 @@ static int g_head, g_count;
 static double g_time;
 static FILE *g_file;
 static char g_log_path[512];
+#define WARN_LINES 12
+static char g_warn[WARN_LINES][DBG_LEN]; static int g_warn_head, g_warn_count;
+static SDL_LogOutputFunction g_default_out; static void *g_default_ud;
+
+static void log_hook(void *ud, int category, SDL_LogPriority priority, const char *message) {
+    if (g_default_out) g_default_out(g_default_ud, category, priority, message);
+    if (priority < SDL_LOG_PRIORITY_WARN) return;
+    char *slot = g_warn[(g_warn_head + g_warn_count) % WARN_LINES];
+    if (g_warn_count == WARN_LINES) { g_warn_head = (g_warn_head + 1) % WARN_LINES; slot = g_warn[(g_warn_head + g_warn_count - 1) % WARN_LINES]; } else g_warn_count++;
+    snprintf(slot, DBG_LEN, "%7.2f  %s", g_time, message);
+    dbg_log("[warn] %s", message);
+}
 
 void dbg_init(const char *log_path) {
     snprintf(g_log_path, sizeof g_log_path, "%s", log_path);
     g_file = fopen(log_path, "w");
     if (g_file) { fprintf(g_file, "# hollow debug log\n"); fflush(g_file); }
+    SDL_GetLogOutputFunction(&g_default_out, &g_default_ud);
+    SDL_SetLogOutputFunction(log_hook, NULL);
 }
 void dbg_set_time(double t) { g_time = t; }
 
@@ -46,3 +60,6 @@ bool dbg_snapshot(const char *header) {
 }
 
 void dbg_shutdown(void) { if (g_file) fclose(g_file); g_file = NULL; }
+
+int dbg_warning_count(void) { return g_warn_count; }
+const char *dbg_warning(int i) { return g_warn[(g_warn_head + i) % WARN_LINES]; }

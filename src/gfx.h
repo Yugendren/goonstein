@@ -54,6 +54,10 @@ typedef struct Gfx {
     SDL_GPUBuffer *ui_vb, *p_vb; SDL_GPUTransferBuffer *ui_xfer, *p_xfer;
     UIVertex *ui_verts; Uint32 ui_count;
     struct { const Texture *tex; Uint32 start, count; } ui_batches[64]; int ui_nbatches;
+    // second UI list for the debugger window
+    UIVertex *ui2_verts; Uint32 ui2_count; struct { const Texture *tex; Uint32 start, count; } ui2_batches[64]; int ui2_nbatches;
+    SDL_GPUBuffer *ui2_vb; SDL_GPUTransferBuffer *ui2_xfer; SDL_GPUGraphicsPipeline *pipe_ui_swap;
+    int ui_target;   // 0 = game screen, 1 = debugger window
     PVertex *p_add, *p_alpha; Uint32 p_add_count, p_alpha_count;
     Texture white, soft;                          // 1x1 white, soft radial disc
     Mesh cube, quad;
@@ -104,6 +108,8 @@ void gfx_ui_quad(Gfx *g, const float *xy8, Vec4 color);
 void gfx_ui_text_xf(Gfx *g, float cx, float cy, float scale, float angle, Vec4 color, const char *text);  // centred, rotated
 void gfx_ui_ring(Gfx *g, float cx, float cy, float radius, float thickness, Vec4 color);
 void gfx_ui_disc(Gfx *g, float cx, float cy, float radius, Vec4 color);
+// Route subsequent UI calls to the game screen (0) or the debugger window (1).
+void gfx_ui_target(Gfx *g, int target);
 // Textured UI image (nearest sampled, alpha blended). uv = u0 v0 u1 v1, or NULL for the whole texture.
 void gfx_ui_image(Gfx *g, const Texture *t, float x, float y, float w, float h, const float *uv, Vec4 color);
 

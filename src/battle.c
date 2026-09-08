@@ -375,6 +375,7 @@ static void enemy_hit_lands(Battle *b, int i, Player *player, CharModel *pm, Cha
     Judge j = J_MISS;
     if (have_press) j = fabsf(offset) <= W_PERFECT * wide ? J_PERFECT : fabsf(offset) <= W_GREAT * wide ? J_GREAT : J_GOOD;
     b->burst_t[i] = 0; b->hit_judge[i] = j;
+    { int k = b->nhist < 10 ? b->nhist++ : 9; if (b->nhist == 10 && k == 9) { memmove(b->hist_offset, b->hist_offset + 1, 9 * sizeof(float)); memmove(b->hist_judge, b->hist_judge + 1, 9 * sizeof(Judge)); } b->hist_offset[k] = have_press ? offset : (a->parryable ? 0.2f : 0.0f); b->hist_judge[k] = a->parryable ? j : J_NONE; }
 
     if (b->dodging) {
         uifx_spawn(fx, UIFX_BLOCK, px, py - 70, "DODGED", v4(0.7f, 0.8f, 1, 1), 2.2f, 0.7f);

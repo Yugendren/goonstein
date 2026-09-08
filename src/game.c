@@ -492,34 +492,72 @@ static void text_center(Gfx *g, float cx, float y, float scale, Vec4 c, const ch
     gfx_ui_text(g, cx - w * 0.5f, y, scale, c, s);
 }
 
+static void sprite_line(char *out, size_t n, const char *who, const CharModel *cm) {
+    if (!cm->loaded) { snprintf(out, n, "%s: no model", who); return; }
+    if (!cm->is_sprite) { snprintf(out, n, "%s: skinned model", who); return; }
+    if (cm->sprite.anim < 0) { snprintf(out, n, "%s: no animation playing", who); return; }
+    const SpriteAnim *an = &cm->sdef.anims[cm->sprite.anim];
+    int frame = an->first + (int)(cm->sprite.time * an->fps * cm->sprite.rate); if (frame > an->last) frame = an->last;
+    const SpriteSheet *sh = &cm->sdef.sheets[an->sheet >= 0 ? an->sheet : 0];
+    snprintf(out, n, "%s: %s frame %d/%d  sheet %s %dx%d cells %dx%d  facing %d  rate %.2f%s", who, an->name, frame - an->first + 1, an->last - an->first + 1, sh->name, sh->fw, sh->fh, sh->cols, sh->rows, cm->sprite.facing, cm->sprite.rate, cm->sprite.finished ? " (done)" : "");
+}
+
 static void draw_console(Game *g, Platform *pf) {
     if (!pf->console) return;
     Gfx *x = &g->gfx;
     const Battle *b = &g->battle;
-    float px = 640, pw = 640, ph = 800;
-    gfx_ui_rect(x, px, 0, pw, ph, v4(0.02f, 0.02f, 0.04f, 0.88f));
-    gfx_ui_rect(x, px, 0, 2, ph, v4(0.5f, 0.8f, 1, 0.8f));
-    Vec4 head = v4(0.6f, 0.9f, 1, 1), txt = v4(0.85f, 0.9f, 0.95f, 1), dim = v4(0.55f, 0.6f, 0.65f, 1);
-    float y = 10; char l[200];
-    gfx_ui_text(x, px + 12, y, 1.4f, head, "DEBUGGER   \\ close   F8 copy snapshot to clipboard   F1 wireframes"); y += 20;
-    snprintf(l, sizeof l, "state %s  t=%.2f  fps %.0f  tick %u  paused %d", GS_NAMES[g->state], g->state_t, g->fps, g->tick, g->paused); gfx_ui_text(x, px + 12, y, 1.0f, txt, l); y += 12;
-    snprintf(l, sizeof l, "player %.1f %.1f %.1f yaw %.0f hp %.0f anim %s | boss hp %.0f anim %s", g->player.c.pos.x, g->player.c.pos.y, g->player.c.pos.z, g->player.c.yaw / DEG2RAD, g->player.c.hp, anim_name(g->player.c.anim), g->boss.c.hp, anim_name(g->boss.c.anim)); gfx_ui_text(x, px + 12, y, 1.0f, txt, l); y += 12;
+    bool windowed = pf->console_win != NULL;
+    float px = windowed ? 0 : 640, pw = windowed ? 720 : 640, ph = windowed ? 820 : 800;
+    gfx_ui_target(x, windowed ? 1 : 0);
+    if (!windowed) { gfx_ui_rect(x, px, 0, pw, ph, v4(0.02f, 0.02f, 0.04f, 0.9f)); gfx_ui_rect(x, px, 0, 2, ph, v4(0.5f, 0.8f, 1, 0.8f)); }
+    Vec4 head = v4(0.6f, 0.9f, 1, 1), txt = v4(0.85f, 0.9f, 0.95f, 1), dim = v4(0.55f, 0.6f, 0.65f, 1), red = v4(1, 0.45f, 0.4f, 1), amber = v4(1, 0.85f, 0.5f, 1), green = v4(0.75f, 0.95f, 0.8f, 1);
+    float y = 10, lx = px + 12; char l[240];
+    gfx_ui_text(x, lx, y, 1.4f, head, windowed ? "DEBUGGER     \\ closes     F8 copies everything to the clipboard" : "DEBUGGER  (window failed, inline)   \\ closes   F8 copies"); y += 22;
+
+    // 1. Warnings from data files and assets: the usual cause of "why is this not showing up"
+    int nw = dbg_warning_count();
+    gfx_ui_text(x, lx, y, 1.1f, nw ? red : dim, nw ? "WARNINGS  (missing files, bad lines in data)" : "WARNINGS  none"); y += 13;
+    for (int i = (nw > 4 ? nw - 4 : 0); i < nw; i++) { gfx_ui_text(x, lx, y, 1.0f, red, dbg_warning(i)); y += 11; }
+    y += 6;
+    // 2. Where we are
+    snprintf(l, sizeof l, "STATE  %s %.1fs   fps %.0f%s", GS_NAMES[g->state], g->state_t, g->fps, g->paused ? "   PAUSED" : ""); gfx_ui_text(x, lx, y, 1.1f, head, l); y += 13;
+    if (g->state == GS_BATTLE) { snprintf(l, sizeof l, "battle %s %.2fs  round %d  energy %d (+%d banked)  hp %d  enemy %d  combo %d", BT_NAMES[b->state], b->t, b->round, b->energy, b->banked, b->player_hp, b->enemy_hp, b->combo); gfx_ui_text(x, lx, y, 1.0f, txt, l); y += 11; }
+    y += 6;
+    // 3. Cards: is the mouse where the game thinks, and what did a press land on
     if (g->state == GS_BATTLE) {
-        snprintf(l, sizeof l, "battle %s t=%.2f round %d energy %d/%d banked %d guard %d combo %d hp %d enemy %d", BT_NAMES[b->state], b->t, b->round, b->energy, b->energy_max, b->banked, b->guard, b->combo, b->player_hp, b->enemy_hp); gfx_ui_text(x, px + 12, y, 1.0f, txt, l); y += 12;
-        snprintf(l, sizeof l, "hover %d drag %d target %d | press %.3f used %d judge %d offset %+.3f | beats %.2f %.2f", b->hovered, b->dragging, b->drop_target, b->parry_pressed_t, b->press_used, b->last_judge, b->last_offset, b->hit_t[0], b->hit_t[1]); gfx_ui_text(x, px + 12, y, 1.0f, txt, l); y += 12;
-        l[0] = 0; for (int i = 0; i < b->nhand; i++) { char c[40]; snprintf(c, sizeof c, "%s(p%d %.0f,%.0f) ", b->cards[b->hand[i].def].name, b->hand[i].phase, b->hand[i].x, b->hand[i].y); strncat(l, c, sizeof l - strlen(l) - 1); }
-        gfx_ui_text(x, px + 12, y, 1.0f, dim, l); y += 12;
+        float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my);
+        gfx_ui_text(x, lx, y, 1.1f, head, "CARDS"); y += 13;
+        snprintf(l, sizeof l, "mouse %.0f %.0f  button %s   hover %s   dragging %s   target %s", mx, my, pf->input.mouse_held ? "DOWN" : "up",
+                 b->hovered >= 0 ? b->cards[b->hand[b->hovered].def].name : "-", b->dragging >= 0 ? b->cards[b->hand[b->dragging].def].name : "-",
+                 b->drop_target == 1 ? "ENEMY" : b->drop_target == 2 ? "SELF" : "-"); gfx_ui_text(x, lx, y, 1.0f, txt, l); y += 11;
+        l[0] = 0; for (int i = 0; i < b->nhand; i++) { char c[48]; snprintf(c, sizeof c, "%s@%.0f,%.0f%s  ", b->cards[b->hand[i].def].name, b->hand[i].x, b->hand[i].y, b->hand[i].phase == CP_DRAWING ? "(dealing)" : b->hand[i].phase == CP_DRAG ? "(held)" : b->hand[i].phase == CP_PLAYING ? "(playing)" : ""); strncat(l, c, sizeof l - strlen(l) - 1); }
+        gfx_ui_text(x, lx, y, 1.0f, dim, l); y += 17;
+        // 4. Parry: the last judgements as marks on an early/late bar
+        gfx_ui_text(x, lx, y, 1.1f, head, "PARRY  last presses vs the beat (left = early, right = late)"); y += 13;
+        float bx0 = lx, bw = pw - 24;
+        gfx_ui_rect(x, bx0, y, bw, 10, v4(0.2f, 0.25f, 0.3f, 1));
+        gfx_ui_rect(x, bx0 + bw * 0.5f - bw * 0.5f * (0.15f / 0.3f) , y, bw * (0.15f / 0.3f), 10, v4(0.3f, 0.45f, 0.4f, 1));   // good
+        gfx_ui_rect(x, bx0 + bw * 0.5f - bw * 0.5f * (0.045f / 0.3f), y, bw * (0.045f / 0.3f), 10, v4(0.7f, 0.6f, 0.3f, 1));   // perfect
+        for (int i = 0; i < b->nhist; i++) {
+            float o = clampf(b->hist_offset[i] / 0.3f, -1, 1); Vec4 c = b->hist_judge[i] == J_PERFECT ? amber : b->hist_judge[i] == J_GREAT ? green : b->hist_judge[i] == J_GOOD ? v4(0.7f, 0.85f, 1, 1) : red;
+            gfx_ui_rect(x, bx0 + bw * 0.5f + o * bw * 0.5f - 2, y - 3 + (i % 2) * 8, 4, 8, c);
+        }
+        y += 14;
+        snprintf(l, sizeof l, "last press %.3fs  beat %.3fs  offset %+.0f ms  ->  %s", b->parry_pressed_t, b->hit_t[0], b->last_offset * 1000.0f, b->last_judge == J_PERFECT ? "PERFECT" : b->last_judge == J_GREAT ? "GREAT" : b->last_judge == J_GOOD ? "GOOD" : b->last_judge == J_MISS ? "MISS" : "-"); gfx_ui_text(x, lx, y, 1.0f, txt, l); y += 17;
     }
-    float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my);
-    snprintf(l, sizeof l, "mouse %.0f %.0f  left %d right %d  ctrl %d shift %d", mx, my, pf->input.mouse_held, pf->input.rmouse_held, pf->input.ctrl, pf->input.shift_held); gfx_ui_text(x, px + 12, y, 1.0f, txt, l); y += 16;
-    gfx_ui_rect(x, px + 12, y, pw - 24, 1, v4(0.4f, 0.5f, 0.6f, 0.6f)); y += 6;
-    gfx_ui_text(x, px + 12, y, 1.0f, head, "EVENTS  [in] = raw input, everything else = actions the game took"); y += 14;
+    // 5. Sprites: which frame of which sheet, the usual cause of "the art looks wrong"
+    gfx_ui_text(x, lx, y, 1.1f, head, "SPRITES"); y += 13;
+    sprite_line(l, sizeof l, "hero", &g->player_model); gfx_ui_text(x, lx, y, 1.0f, txt, l); y += 11;
+    sprite_line(l, sizeof l, "boss", &g->boss_model); gfx_ui_text(x, lx, y, 1.0f, txt, l); y += 17;
+    // 6. Inputs and the actions they caused
+    gfx_ui_text(x, lx, y, 1.1f, head, "INPUT -> ACTION   (amber = what you pressed, green = what the game did)"); y += 13;
     int total = dbg_line_count(), rows = (int)((ph - y - 8) / 11); int show = total < rows ? total : rows;
     for (int i = 0; i < show; i++) {
         const char *line = dbg_line(total - show + i);
-        bool input = strstr(line, "[in]") != NULL;
-        gfx_ui_text(x, px + 12, y + i * 11, 1.0f, input ? v4(1, 0.85f, 0.5f, 1) : v4(0.75f, 0.95f, 0.8f, 1), line);
+        bool input = strstr(line, "[in]") != NULL, warn = strstr(line, "[warn]") != NULL;
+        gfx_ui_text(x, lx, y + i * 11, 1.0f, warn ? red : input ? amber : green, line);
     }
+    gfx_ui_target(x, 0);
 }
 
 static void draw_debug_overlay(Game *g, Platform *pf) {

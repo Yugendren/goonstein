@@ -57,11 +57,15 @@ bool platform_poll(Platform *pf) {
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
         case SDL_EVENT_QUIT: return false;
+        case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+            if (pf->console_win && e.window.windowID == SDL_GetWindowID(pf->console_win)) platform_console_window(pf, false);
+            else if (e.window.windowID == SDL_GetWindowID(pf->window)) return false;
+            break;
         case SDL_EVENT_KEY_DOWN:
             if (e.key.scancode < 512) in->key_down[e.key.scancode] = true;   // repeats count for nudging
             if (e.key.repeat) break;
             dbg_log("[in] key %s", SDL_GetScancodeName(e.key.scancode));
-            if (e.key.scancode == SDL_SCANCODE_BACKSLASH || e.key.scancode == SDL_SCANCODE_GRAVE) { pf->console = !pf->console; break; }
+            if (e.key.scancode == SDL_SCANCODE_BACKSLASH || e.key.scancode == SDL_SCANCODE_GRAVE) { platform_console_window(pf, !pf->console); break; }
             switch (e.key.scancode) {
             case SDL_SCANCODE_ESCAPE: pf->want_quit = true; break;
             case SDL_SCANCODE_F1: in->debug_toggle = true; pf->debug = !pf->debug; break;
@@ -151,6 +155,8 @@ void platform_begin_frame(Platform *pf) {
                                                &pf->swap_w, &pf->swap_h)) {
         pf->swapchain = NULL;
     }
+    pf->console_swap = NULL;
+    if (pf->console_win && !SDL_AcquireGPUSwapchainTexture(pf->cmd, pf->console_win, &pf->console_swap, &pf->console_w, &pf->console_h)) pf->console_swap = NULL;
 }
 
 void platform_end_frame(Platform *pf) {
@@ -159,7 +165,23 @@ void platform_end_frame(Platform *pf) {
     pf->swapchain = NULL;
 }
 
+void platform_console_window(Platform *pf, bool open) {
+    if (open && !pf->console_win && !SDL_getenv("HOLLOW_CONSOLE_INLINE")) {
+        pf->console_win = SDL_CreateWindow("hollow debugger", 720, 820, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+        if (pf->console_win && !SDL_ClaimWindowForGPUDevice(pf->gpu, pf->console_win)) { SDL_DestroyWindow(pf->console_win); pf->console_win = NULL; }
+        if (pf->console_win) SDL_SetGPUSwapchainParameters(pf->gpu, pf->console_win, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
+        if (!pf->console_win) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "debugger window failed: %s (falling back to in-game panel)", SDL_GetError());
+        SDL_RaiseWindow(pf->window);
+    } else if (!open && pf->console_win) {
+        SDL_WaitForGPUIdle(pf->gpu);
+        SDL_ReleaseWindowFromGPUDevice(pf->gpu, pf->console_win);
+        SDL_DestroyWindow(pf->console_win); pf->console_win = NULL; pf->console_swap = NULL;
+    }
+    pf->console = open;
+}
+
 void platform_shutdown(Platform *pf) {
+    if (pf->console_win) platform_console_window(pf, false);
     if (pf->gamepad) SDL_CloseGamepad(pf->gamepad);
     if (pf->gpu && pf->window) SDL_ReleaseWindowFromGPUDevice(pf->gpu, pf->window);
     if (pf->gpu) SDL_DestroyGPUDevice(pf->gpu);

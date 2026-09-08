@@ -75,6 +75,7 @@ typedef struct Battle {
     // rhythm read
     int   combo, max_combo; Judge last_judge; float judge_t, last_offset;
     float burst_t[HITS_MAX]; Judge hit_judge[HITS_MAX];
+    float hist_offset[10]; Judge hist_judge[10]; int nhist;   // recent parry results for the debugger
     bool dodging; float dodge_t;
     int playing_card; int card_hit_i; bool card_hit_done[HITS_MAX];
     // presentation

@@ -36,12 +36,14 @@ typedef struct Platform {
     Input input;
     bool want_quit;
     bool debug;
-    bool console;    // the \ debugger panel
+    bool console;    // the \ debugger
+    SDL_Window *console_win; SDL_GPUTexture *console_swap; Uint32 console_w, console_h;   // separate debugger window
 } Platform;
 
 bool platform_init(Platform *pf, const char *title, int w, int h);
 bool platform_poll(Platform *pf);       // returns false on quit. Edge inputs accumulate until platform_clear_edges.
 void platform_clear_edges(Platform *pf); // call after a simulation tick has consumed the input
+void platform_console_window(Platform *pf, bool open);   // open or close the separate debugger window
 void platform_begin_frame(Platform *pf);
 void platform_end_frame(Platform *pf);
 void platform_shutdown(Platform *pf);

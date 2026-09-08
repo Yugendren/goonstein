@@ -12,3 +12,5 @@ const char *dbg_line(int i);          // 0 = oldest kept line
 // hollow_snapshot.txt and put it on the clipboard. Returns false if either failed.
 bool dbg_snapshot(const char *header);
 void dbg_shutdown(void);
+int  dbg_warning_count(void);
+const char *dbg_warning(int i);     // 0 = oldest kept warning

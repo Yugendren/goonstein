@@ -253,9 +253,10 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->pipe_blur = make_pipe(g, &(PipeDesc){ fs_vs, blur_fs, NULL, NULL, 0, HDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
     g->pipe_post = make_pipe(g, &(PipeDesc){ fs_vs, post_fs, NULL, NULL, 0, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
     g->pipe_ui = make_pipe(g, &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1 });
+    g->pipe_ui_swap = make_pipe(g, &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1 });
     g->pipe_blit = make_pipe(g, &(PipeDesc){ fs_vs, blit_fs, NULL, NULL, 0, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
     for (size_t i = 0; i < sizeof all / sizeof *all; i++) SDL_ReleaseGPUShader(g->dev, all[i]);
-    if (!g->pipe_world || !g->pipe_skin || !g->pipe_sky || !g->pipe_particle_add || !g->pipe_particle_alpha || !g->pipe_bright || !g->pipe_blur || !g->pipe_post || !g->pipe_ui || !g->pipe_blit) return false;
+    if (!g->pipe_world || !g->pipe_skin || !g->pipe_sky || !g->pipe_particle_add || !g->pipe_particle_alpha || !g->pipe_bright || !g->pipe_blur || !g->pipe_post || !g->pipe_ui || !g->pipe_ui_swap || !g->pipe_blit) return false;
 
     g->ui_vb = SDL_CreateGPUBuffer(g->dev, &(SDL_GPUBufferCreateInfo){ .usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = UI_MAX_VERTS * sizeof(UIVertex) });
     g->ui_xfer = SDL_CreateGPUTransferBuffer(g->dev, &(SDL_GPUTransferBufferCreateInfo){ .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = UI_MAX_VERTS * sizeof(UIVertex) });
@@ -263,6 +264,9 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->p_vb = SDL_CreateGPUBuffer(g->dev, &(SDL_GPUBufferCreateInfo){ .usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = 2 * P_MAX_VERTS * sizeof(PVertex) });
     g->p_xfer = SDL_CreateGPUTransferBuffer(g->dev, &(SDL_GPUTransferBufferCreateInfo){ .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = 2 * P_MAX_VERTS * sizeof(PVertex) });
     g->p_add = malloc(P_MAX_VERTS * sizeof(PVertex)); g->p_alpha = malloc(P_MAX_VERTS * sizeof(PVertex));
+    g->ui2_vb = SDL_CreateGPUBuffer(g->dev, &(SDL_GPUBufferCreateInfo){ .usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = UI_MAX_VERTS * sizeof(UIVertex) });
+    g->ui2_xfer = SDL_CreateGPUTransferBuffer(g->dev, &(SDL_GPUTransferBufferCreateInfo){ .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = UI_MAX_VERTS * sizeof(UIVertex) });
+    g->ui2_verts = malloc(UI_MAX_VERTS * sizeof(UIVertex));
 
     unsigned char white[4] = {255, 255, 255, 255};
     g->white = gfx_texture_create(g, white, 1, 1);
@@ -277,8 +281,9 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
 void gfx_shutdown(Gfx *g) {
     gfx_mesh_destroy(g, &g->cube); gfx_mesh_destroy(g, &g->quad);
     gfx_texture_destroy(g, &g->soft); gfx_texture_destroy(g, &g->white);
-    free(g->ui_verts); free(g->p_add); free(g->p_alpha);
+    free(g->ui_verts); free(g->ui2_verts); free(g->p_add); free(g->p_alpha);
     SDL_ReleaseGPUTransferBuffer(g->dev, g->ui_xfer); SDL_ReleaseGPUBuffer(g->dev, g->ui_vb);
+    SDL_ReleaseGPUTransferBuffer(g->dev, g->ui2_xfer); SDL_ReleaseGPUBuffer(g->dev, g->ui2_vb); SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_ui_swap);
     SDL_ReleaseGPUTransferBuffer(g->dev, g->p_xfer); SDL_ReleaseGPUBuffer(g->dev, g->p_vb);
     SDL_GPUGraphicsPipeline *pipes[] = { g->pipe_world, g->pipe_skin, g->pipe_sky, g->pipe_particle_add, g->pipe_particle_alpha, g->pipe_bright, g->pipe_blur, g->pipe_post, g->pipe_ui, g->pipe_blit };
     for (size_t i = 0; i < sizeof pipes / sizeof *pipes; i++) SDL_ReleaseGPUGraphicsPipeline(g->dev, pipes[i]);
@@ -297,7 +302,7 @@ static void push_material(Gfx *g, Vec4 tint) {
 }
 
 void gfx_begin(Gfx *g, Platform *pf, const FrameParams *fp) {
-    g->frame = *fp; g->ui_count = 0; g->ui_nbatches = 0; g->p_add_count = g->p_alpha_count = 0; g->draw_calls = 0;
+    g->frame = *fp; g->ui_count = 0; g->ui_nbatches = 0; g->ui2_count = 0; g->ui2_nbatches = 0; g->ui_target = 0; g->p_add_count = g->p_alpha_count = 0; g->draw_calls = 0;
     g->bound_tex = NULL; g->bound_pipe = NULL; g->pass = NULL; g->cmd = pf->cmd;
     g->material = material_default();
     g->cam_right = fp->cam_right; g->cam_up = fp->cam_up;
@@ -461,7 +466,16 @@ void gfx_ground_quad(Gfx *g, Vec3 c, float radius, Vec4 color, bool additive) {
 
 // ---------------------------------------------------------------- ui
 
+void gfx_ui_target(Gfx *g, int target) { g->ui_target = target; }
+
 static void ui_batch(Gfx *g, const Texture *t) {
+    if (g->ui_target == 1) {
+        if (g->ui2_nbatches > 0 && g->ui2_batches[g->ui2_nbatches - 1].tex == t) return;
+        if (g->ui2_nbatches >= 64) return;
+        g->ui2_batches[g->ui2_nbatches].tex = t; g->ui2_batches[g->ui2_nbatches].start = g->ui2_count; g->ui2_batches[g->ui2_nbatches].count = 0;
+        g->ui2_nbatches++;
+        return;
+    }
     // Extend the current batch if it uses the same texture, else start a new one
     if (g->ui_nbatches > 0 && g->ui_batches[g->ui_nbatches - 1].tex == t) return;
     if (g->ui_nbatches >= 64) return;
@@ -469,6 +483,15 @@ static void ui_batch(Gfx *g, const Texture *t) {
     g->ui_nbatches++;
 }
 static void ui_push(Gfx *g, float x, float y, float u, float v, Vec4 c) {
+    if (g->ui_target == 1) {
+        if (g->ui2_count >= UI_MAX_VERTS) return;
+        if (g->ui2_nbatches == 0) ui_batch(g, &g->white);
+        g->ui2_batches[g->ui2_nbatches - 1].count++;
+        UIVertex *o2 = &g->ui2_verts[g->ui2_count++];
+        o2->pos[0] = x; o2->pos[1] = y; o2->uv[0] = u; o2->uv[1] = v;
+        o2->color[0] = c.x; o2->color[1] = c.y; o2->color[2] = c.z; o2->color[3] = c.w;
+        return;
+    }
     if (g->ui_count >= UI_MAX_VERTS) return;
     if (g->ui_nbatches == 0) ui_batch(g, &g->white);
     g->ui_batches[g->ui_nbatches - 1].count++;
@@ -653,6 +676,31 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
         float vw = sw, vh = sw / ta; if (vh > sh) { vh = sh; vw = sh * ta; }
         SDL_GPUViewport vpt = { .x = (sw - vw) * 0.5f, .y = (sh - vh) * 0.5f, .w = vw, .h = vh, .min_depth = 0, .max_depth = 1 };
         fullscreen_pass(g, pf->cmd, g->pipe_blit, pf->swapchain, &(SDL_GPUTextureSamplerBinding){ .texture = g->ldr, .sampler = g->samp_clamp }, 1, NULL, 0, &vpt);
+    }
+    // Debugger window: its own UI list, drawn straight into its swapchain in a 720x820 coordinate space
+    if (pf->console_swap) {
+        SDL_GPUColorTargetInfo ct = { .texture = pf->console_swap, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE, .clear_color = { 0.05f, 0.05f, 0.07f, 1 } };
+        SDL_GPURenderPass *pass = NULL;
+        if (g->ui2_count > 0) {
+            void *map = SDL_MapGPUTransferBuffer(g->dev, g->ui2_xfer, true);
+            memcpy(map, g->ui2_verts, g->ui2_count * sizeof(UIVertex));
+            SDL_UnmapGPUTransferBuffer(g->dev, g->ui2_xfer);
+            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(pf->cmd);
+            SDL_UploadToGPUBuffer(cp, &(SDL_GPUTransferBufferLocation){ .transfer_buffer = g->ui2_xfer }, &(SDL_GPUBufferRegion){ .buffer = g->ui2_vb, .size = g->ui2_count * (Uint32)sizeof(UIVertex) }, true);
+            SDL_EndGPUCopyPass(cp);
+        }
+        pass = SDL_BeginGPURenderPass(pf->cmd, &ct, 1, NULL);
+        if (g->ui2_count > 0) {
+            SDL_BindGPUGraphicsPipeline(pass, g->pipe_ui_swap);
+            SDL_PushGPUVertexUniformData(pf->cmd, 0, &(Vec4){ 720, 820, 0, 0 }, sizeof(Vec4));
+            SDL_BindGPUVertexBuffers(pass, 0, &(SDL_GPUBufferBinding){ .buffer = g->ui2_vb }, 1);
+            for (int i = 0; i < g->ui2_nbatches; i++) {
+                if (g->ui2_batches[i].count == 0) continue;
+                SDL_BindGPUFragmentSamplers(pass, 0, &(SDL_GPUTextureSamplerBinding){ .texture = g->ui2_batches[i].tex->tex, .sampler = g->samp_nearest }, 1);
+                SDL_DrawGPUPrimitives(pass, g->ui2_batches[i].count, 1, g->ui2_batches[i].start, 0);
+            }
+        }
+        SDL_EndGPURenderPass(pass);
     }
 }
 
