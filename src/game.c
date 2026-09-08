@@ -66,7 +66,7 @@ static void reset_to_start(Game *g) {
     g->boss.state = BS_SCRIPTED;   // dormant until the fight starts
     g->state = GS_EXPLORE; g->state_t = 0;
     g->fade = 0; g->letterbox = 0; g->hitstop = 0; g->fight_intensity = 0;
-    audio_music_play(MUSIC("1 - Adventure Begin.ogg"), true, 0.55f, 2.0f);
+    audio_music_play(MUSIC("1 - Adventure Begin.ogg"), true, 0.28f, 2.0f);
     camera_init(&g->cam);
     camera_snap_behind(&g->cam, g->player.c.pos, g->player.c.yaw, &g->level);
     g->hint_t = 8.0f;
@@ -96,7 +96,7 @@ static void start_battle(Game *g) {
     else if (g->player_model.loaded) anim_play(&g->player_model.player, &g->player_model.model, g->player_model.bind[ANIM_IDLE].clip, 1, true, false, 0.2f);
     g->state = GS_BATTLE; g->state_t = 0; g->fade = 1;
     uifx_clear(&g->fx);
-    audio_music_play(MUSIC("17 - Fight.ogg"), true, 0.6f, 0.8f);
+    audio_music_play(MUSIC("17 - Fight.ogg"), true, 0.3f, 0.8f);
 }
 
 void game_init(Game *g) {
@@ -342,7 +342,7 @@ static void tick_battle(Game *g, const Input *in_real, Platform *pf, float dt) {
             g->boss.state = BS_DEAD; g->boss.c.hp = 0; character_set_anim(&g->boss.c, ANIM_DEAD);
             g->player.state = PS_SCRIPTED;
             play_scene(g, g->level.scene_victory, GS_END);
-            audio_music_play(MUSIC("11 - Clearing.ogg"), true, 0.5f, 1.5f);
+            audio_music_play(MUSIC("11 - Clearing.ogg"), true, 0.26f, 1.5f);
         } else {
             g->deaths++;
             g->player.c.hp = g->player.c.hp_max;
