@@ -5,6 +5,8 @@
 #include <SDL3/SDL_main.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "platform.h"
 #include "game.h"
@@ -14,7 +16,13 @@
 #define MAX_FRAME_DT 0.25  // clamp after a stall so we don't spiral
 
 int main(int argc, char **argv) {
-    (void)argc; (void)argv;
+    // --frames N      exit after N frames (headless checks, CI)
+    // --screenshot P  write the internal frame to P before exiting
+    int max_frames = -1; const char *shot = NULL;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) shot = argv[++i];
+    }
 
     Platform pf;
     if (!platform_init(&pf, "hollow", 1280, 800)) {
@@ -24,6 +32,10 @@ int main(int argc, char **argv) {
 
     Game game;
     game_init(&game);
+    if (!game_init_gfx(&game, &pf)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "gfx init failed: %s", SDL_GetError());
+        return 1;
+    }
 
     Uint64 freq = SDL_GetPerformanceFrequency();
     Uint64 prev = SDL_GetPerformanceCounter();
@@ -50,7 +62,9 @@ int main(int argc, char **argv) {
         platform_begin_frame(&pf);
         game_render(&game, &pf, (float)alpha);
         platform_end_frame(&pf);
+        if (max_frames >= 0 && --max_frames == 0) running = false;
     }
+    if (shot) game_screenshot(&game, shot);
 
     game_shutdown(&game);
     platform_shutdown(&pf);

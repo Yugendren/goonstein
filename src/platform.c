@@ -7,6 +7,7 @@ bool platform_init(Platform *pf, const char *title, int w, int h) {
     memset(pf, 0, sizeof *pf);
 
     SDL_SetAppMetadata(title, "0.0.1", "dev.hollow");
+    SDL_SetHint(SDL_HINT_ASSERT, "abort");  // never block on a dialog; log and die
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD)) return false;
 
     pf->window = SDL_CreateWindow(title, w, h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);

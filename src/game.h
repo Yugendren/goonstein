@@ -10,6 +10,8 @@ typedef struct Game {
 } Game;
 
 void game_init(Game *g);
+bool game_init_gfx(Game *g, Platform *pf);
 void game_tick(Game *g, const Input *in, double dt);
 void game_render(Game *g, Platform *pf, float alpha);
 void game_shutdown(Game *g);
+void game_screenshot(Game *g, const char *path);

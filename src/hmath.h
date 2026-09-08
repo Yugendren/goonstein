@@ -1,0 +1,122 @@
+// Small vector / matrix library. Matrices are column-major, depth range 0..1, y-up NDC,
+// which is what SDL_GPU expects on every backend.
+#pragma once
+#include <math.h>
+
+#define PI 3.14159265358979f
+#define DEG2RAD (PI / 180.0f)
+
+typedef struct Vec2 { float x, y; } Vec2;
+typedef struct Vec3 { float x, y, z; } Vec3;
+typedef struct Vec4 { float x, y, z, w; } Vec4;
+typedef struct Mat4 { float m[16]; } Mat4;  // m[col*4 + row]
+
+static inline Vec3 v3(float x, float y, float z) { return (Vec3){x, y, z}; }
+static inline Vec4 v4(float x, float y, float z, float w) { return (Vec4){x, y, z, w}; }
+static inline Vec3 v3_add(Vec3 a, Vec3 b) { return v3(a.x + b.x, a.y + b.y, a.z + b.z); }
+static inline Vec3 v3_sub(Vec3 a, Vec3 b) { return v3(a.x - b.x, a.y - b.y, a.z - b.z); }
+static inline Vec3 v3_scale(Vec3 a, float s) { return v3(a.x * s, a.y * s, a.z * s); }
+static inline float v3_dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+static inline Vec3 v3_cross(Vec3 a, Vec3 b) {
+    return v3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+}
+static inline float v3_len(Vec3 a) { return sqrtf(v3_dot(a, a)); }
+static inline Vec3 v3_norm(Vec3 a) { float l = v3_len(a); return l > 1e-6f ? v3_scale(a, 1.0f / l) : a; }
+static inline Vec3 v3_lerp(Vec3 a, Vec3 b, float t) { return v3_add(a, v3_scale(v3_sub(b, a), t)); }
+static inline float lerpf(float a, float b, float t) { return a + (b - a) * t; }
+static inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+static inline float smoothstep(float t) { t = clampf(t, 0, 1); return t * t * (3.0f - 2.0f * t); }
+static inline float ease_in_out(float t) { t = clampf(t, 0, 1); return t < 0.5f ? 2 * t * t : 1 - powf(-2 * t + 2, 2) / 2; }
+// Move v toward target by at most step
+static inline float approach(float v, float target, float step) {
+    if (v < target) return fminf(v + step, target);
+    return fmaxf(v - step, target);
+}
+// Exponential smoothing toward target, frame-rate independent
+static inline float damp(float v, float target, float lambda, float dt) {
+    return lerpf(v, target, 1.0f - expf(-lambda * dt));
+}
+static inline Vec3 v3_damp(Vec3 v, Vec3 t, float lambda, float dt) {
+    return v3_lerp(v, t, 1.0f - expf(-lambda * dt));
+}
+static inline float angle_wrap(float a) { while (a > PI) a -= 2 * PI; while (a < -PI) a += 2 * PI; return a; }
+static inline float angle_damp(float a, float target, float lambda, float dt) {
+    return a + angle_wrap(target - a) * (1.0f - expf(-lambda * dt));
+}
+
+static inline Mat4 m4_identity(void) {
+    Mat4 r = {{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}};
+    return r;
+}
+static inline Mat4 m4_mul(Mat4 a, Mat4 b) {  // a * b
+    Mat4 r;
+    for (int c = 0; c < 4; c++)
+        for (int rw = 0; rw < 4; rw++) {
+            float s = 0;
+            for (int k = 0; k < 4; k++) s += a.m[k * 4 + rw] * b.m[c * 4 + k];
+            r.m[c * 4 + rw] = s;
+        }
+    return r;
+}
+static inline Vec3 m4_mul_point(Mat4 a, Vec3 p) {
+    return v3(a.m[0] * p.x + a.m[4] * p.y + a.m[8] * p.z + a.m[12],
+              a.m[1] * p.x + a.m[5] * p.y + a.m[9] * p.z + a.m[13],
+              a.m[2] * p.x + a.m[6] * p.y + a.m[10] * p.z + a.m[14]);
+}
+static inline Mat4 m4_translate(Vec3 t) {
+    Mat4 r = m4_identity();
+    r.m[12] = t.x; r.m[13] = t.y; r.m[14] = t.z;
+    return r;
+}
+static inline Mat4 m4_scale(Vec3 s) {
+    Mat4 r = m4_identity();
+    r.m[0] = s.x; r.m[5] = s.y; r.m[10] = s.z;
+    return r;
+}
+static inline Mat4 m4_rotate_y(float a) {
+    Mat4 r = m4_identity();
+    float c = cosf(a), s = sinf(a);
+    r.m[0] = c; r.m[2] = -s; r.m[8] = s; r.m[10] = c;
+    return r;
+}
+static inline Mat4 m4_rotate_x(float a) {
+    Mat4 r = m4_identity();
+    float c = cosf(a), s = sinf(a);
+    r.m[5] = c; r.m[6] = s; r.m[9] = -s; r.m[10] = c;
+    return r;
+}
+static inline Mat4 m4_rotate_z(float a) {
+    Mat4 r = m4_identity();
+    float c = cosf(a), s = sinf(a);
+    r.m[0] = c; r.m[1] = s; r.m[4] = -s; r.m[5] = c;
+    return r;
+}
+// translate * rotateY * scale, the usual object transform
+static inline Mat4 m4_trs(Vec3 t, float yaw, Vec3 s) {
+    return m4_mul(m4_translate(t), m4_mul(m4_rotate_y(yaw), m4_scale(s)));
+}
+// Right-handed view matrix, camera looks down -Z.
+static inline Mat4 m4_look_at(Vec3 eye, Vec3 target, Vec3 up) {
+    Vec3 f = v3_norm(v3_sub(target, eye));
+    Vec3 s = v3_norm(v3_cross(f, up));
+    Vec3 u = v3_cross(s, f);
+    Mat4 r = m4_identity();
+    r.m[0] = s.x; r.m[4] = s.y; r.m[8] = s.z;
+    r.m[1] = u.x; r.m[5] = u.y; r.m[9] = u.z;
+    r.m[2] = -f.x; r.m[6] = -f.y; r.m[10] = -f.z;
+    r.m[12] = -v3_dot(s, eye);
+    r.m[13] = -v3_dot(u, eye);
+    r.m[14] = v3_dot(f, eye);
+    return r;
+}
+// Perspective with depth mapped to [0, 1].
+static inline Mat4 m4_perspective(float fov_y_rad, float aspect, float zn, float zf) {
+    float f = 1.0f / tanf(fov_y_rad * 0.5f);
+    Mat4 r = {{0}};
+    r.m[0] = f / aspect;
+    r.m[5] = f;
+    r.m[10] = zf / (zn - zf);
+    r.m[11] = -1.0f;
+    r.m[14] = (zn * zf) / (zn - zf);
+    return r;
+}

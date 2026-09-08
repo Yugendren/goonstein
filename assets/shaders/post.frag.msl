@@ -1,0 +1,39 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+// Implementation of the GLSL mod() function, which is slightly different than Metal fmod()
+template<typename Tx, typename Ty>
+inline Tx mod(Tx x, Ty y)
+{
+    return x - y * floor(x / y);
+}
+
+struct _40
+{
+    float4 _m0;
+    float4 _m1;
+};
+
+struct main0_out
+{
+    float4 m_106 [[color(0)]];
+};
+
+struct main0_in
+{
+    float2 m_33 [[user(locn0)]];
+};
+
+fragment main0_out main0(main0_in in [[stage_in]], constant _40& _42 [[buffer(0)]], texture2d<float> _30 [[texture(0)]], sampler _30Smplr [[sampler(0)]])
+{
+    main0_out out = {};
+    float2 _50 = floor(in.m_33 * _42._m1.xy);
+    float2 _87 = in.m_33 - float2(0.5);
+    out.m_106 = float4((((_30.sample(_30Smplr, in.m_33).xyz + float3((fract(sin(dot(_50 + float2(_42._m0.x * 7.309999942779541015625), float2(12.98980045318603515625, 78.233001708984375))) * 43758.546875) - 0.5) * _42._m0.y)) * (1.0 - (0.0599999986588954925537109375 * mod(_50.y, 2.0)))) * (1.0 - ((_42._m0.z * dot(_87, _87)) * 1.60000002384185791015625))) * _42._m0.w, 1.0);
+    return out;
+}
+
