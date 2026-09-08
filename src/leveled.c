@@ -242,7 +242,7 @@ void leveled_draw_world(LevelEd *e, const Level *lv, Gfx *g, PropCache *pc) {
     }
     // gizmos for lights and emitters
     for (int i = 0; i < lv->nlights; i++) { const LevelLight *l = &lv->lights[i]; gfx_draw_box_wire(g, l->pos, v3(0.3f, 0.3f, 0.3f), i == e->sel_light ? v4(1, 1, 1, 1) : v4(l->color.x, l->color.y, l->color.z, 1)); }
-    for (int i = 0; i < lv->nemitters; i++) { const LevelEmitter *m = &lv->emitters[i]; gfx_draw_box_wire(g, m->pos, v3_scale(m->extent, 2), i == e->sel_emitter ? v4(1, 1, 1, 1) : v4(0.4f, 0.8f, 0.6f, 0.6f)); }
+    for (int i = 0; i < lv->nemitters; i++) { const LevelEmitter *m = &lv->emitters[i]; if (i == e->sel_emitter) gfx_draw_box_wire(g, m->pos, v3_scale(m->extent, 2), v4(1, 1, 1, 1)); else gfx_draw_box_wire(g, m->pos, v3(0.4f, 0.4f, 0.4f), v4(0.4f, 0.8f, 0.6f, 1)); }
     // selection box
     if (e->sel_prop >= 0 && e->sel_prop < lv->nprops) {
         const Prop *p = &lv->props[e->sel_prop]; Vec3 bmin, bmax;
