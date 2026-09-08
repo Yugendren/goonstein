@@ -13,6 +13,7 @@
 #include "battle.h"
 #include "editor.h"
 #include "leveled.h"
+#include "terrain.h"
 #include "widgets.h"
 
 #define INTERNAL_W 1280
@@ -29,6 +30,7 @@ typedef struct Game {
     PropCache props; Particles particles; Battle battle; Uifx fx; bool battle_loaded;
     Editor editor; bool editor_open;
     LevelEd leveled; bool leveled_ready;
+    Terrain terrain;
     Ui ui; int tool_mode;            // 0 none, 1 debugger, 2 environment editor, 3 sprite editor
     float sprite_refresh_t;
     struct { char name[32]; Texture tex; } portraits[16]; int nportraits;

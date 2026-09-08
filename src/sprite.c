@@ -34,6 +34,7 @@ bool sprite_def_load(Gfx *g, SpriteDef *d, const char *path) {
             memset(sh, 0, sizeof *sh);
             snprintf(sh->name, sizeof sh->name, "%s", tok[1]);
             char full[1024]; snprintf(full, sizeof full, "%s/%s", HOLLOW_ASSET_DIR, tok[2]);
+            snprintf(sh->path, sizeof sh->path, "%s", full);
             sh->tex = gfx_texture_load_exact(g, full);
             sh->cols = atoi(tok[3]); sh->rows = atoi(tok[4]);
             sh->fw = sh->cols > 0 ? sh->tex.w / sh->cols : d->frame_w;

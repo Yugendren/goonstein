@@ -93,9 +93,22 @@ places the ghost, `1` select/move (drag pieces, lights and emitters), `2` piece,
 `Ctrl+Z` undo, `Ctrl+S` save. Saving rewrites the level file (comments are dropped) and the
 game hot-reloads it, so play, edit, play.
 
+The TERRAIN tab shapes the ground itself. The first click creates a 192 m heightmap under the
+level (or RANDOM MOUNTAINS rings it with peaks and a flat middle). Hold the left mouse button on
+the ground to sculpt with RAISE (Shift lowers), LOWER, SMOOTH and FLATTEN, PAINT biome colours
+(grass, forest floor, rock, snow, dirt, path, water, moss or a custom colour), SCATTER pieces of
+a kit category inside the brush (random spin and size, never on top of each other) or CLEAR them.
+Ctrl+wheel resizes the brush. APPLY AUTO BIOME paints grass, rock on steep slopes and snow above a
+height; MOUNTAIN FOREST LOOK sets a daylight alpine look to tune on the LOOK tab. Characters and
+placed pieces stand on the surface, Ctrl+Z undoes sculpting too, and saving writes
+`assets/levels/NAME_terrain_h.png` (heights) and `_c.png` (colours) next to the level, which
+loads them through its `terrain` line.
+
 **Sprite editor.** Draws in the tool window while the game keeps running with your character as
 the hero: every stroke updates the sprite in the world within a tenth of a second, so walk
-around or fight with it between edits. `--edit NAME` starts straight into it.
+around or fight with it between edits. `]` opens it on a copy of the current hero (its sheets are
+imported the first time, and Ctrl+S saves the copy as `HERO_own`, which `]` reopens afterwards);
+`--edit NAME` starts straight into a document by name.
 
 ## Sprite editor
 

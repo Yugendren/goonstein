@@ -186,7 +186,7 @@ bool pix_doc_load(PixDoc *d, const char *asset_dir, const char *name) {
     snprintf(path, sizeof path, "%s/sprites/own/%s.txt", asset_dir, name);
     size_t len;
     char *text = SDL_LoadFile(path, &len);
-    if (!text) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pixio: missing %s", path); return false; }
+    if (!text) { SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "pixio: no saved document %s", path); return false; }
 
     typedef struct { char name[32]; char path[256]; int cols, rows; } LoadSheet;
     LoadSheet sheets[PIX_MAX_ANIMS]; int nsheets = 0;

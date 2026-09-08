@@ -12,6 +12,7 @@ bool leveled_init(LevelEd *e, const char *kit_path) {
     memset(e, 0, sizeof *e);
     e->ghost_scale = 1; e->snap = false; e->cam_speed = 8; e->sel_prop = e->sel_light = e->sel_emitter = -1; e->tool = LT_PIECE;
     e->light_color = v3(1.0f, 0.8f, 0.5f); e->light_radius = 7; e->light_intensity = 3;
+    e->tradius = 6; e->tstrength = 6; e->tpaint = v3(0.22f, 0.36f, 0.18f); e->snow_h = 14; e->rock_slope = 0.45f; e->scatter_density = 0.6f;
     size_t n; char *text = SDL_LoadFile(kit_path, &n);
     if (!text) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "kit missing: %s", kit_path); return false; }
     char *cur = text;
@@ -36,7 +37,8 @@ bool leveled_init(LevelEd *e, const char *kit_path) {
     return e->nkit > 0;
 }
 
-void leveled_shutdown(LevelEd *e) { for (int i = 0; i < e->undo_n; i++) free(e->undo[i]); e->undo_n = 0; }
+typedef struct TerrainSnap { float height[TERRAIN_N * TERRAIN_N]; Vec3 color[TERRAIN_N * TERRAIN_N]; } TerrainSnap;
+void leveled_shutdown(LevelEd *e) { for (int i = 0; i < e->undo_n; i++) { free(e->undo[i]); free(e->tundo[i]); } e->undo_n = 0; }
 
 void leveled_open(LevelEd *e, const Level *lv, const Camera *cam) {
     (void)lv;
@@ -51,15 +53,21 @@ void leveled_open(LevelEd *e, const Level *lv, const Camera *cam) {
 // ---------------------------------------------------------------- undo
 
 static void push_undo(LevelEd *e, const Level *lv) {
-    if (e->undo_n == ED_UNDO_LEVELS) { free(e->undo[0]); memmove(e->undo, e->undo + 1, (ED_UNDO_LEVELS - 1) * sizeof *e->undo); e->undo_n--; }
+    if (e->undo_n == ED_UNDO_LEVELS) { free(e->undo[0]); free(e->tundo[0]); memmove(e->undo, e->undo + 1, (ED_UNDO_LEVELS - 1) * sizeof *e->undo); memmove(e->tundo, e->tundo + 1, (ED_UNDO_LEVELS - 1) * sizeof *e->tundo); e->undo_n--; }
     Level *copy = malloc(sizeof *copy);
     if (!copy) return;
-    *copy = *lv; e->undo[e->undo_n++] = copy;
+    *copy = *lv; e->undo[e->undo_n] = copy;
+    TerrainSnap *ts = NULL;
+    if (e->tr && e->tr->present && (ts = malloc(sizeof *ts))) { memcpy(ts->height, e->tr->height, sizeof ts->height); memcpy(ts->color, e->tr->color, sizeof ts->color); }
+    e->tundo[e->undo_n++] = ts;
     e->dirty = true;
 }
 static void pop_undo(LevelEd *e, Level *lv) {
     if (e->undo_n == 0) { say(e, "nothing to undo"); return; }
     Level *copy = e->undo[--e->undo_n];
+    TerrainSnap *ts = e->tundo[e->undo_n]; e->tundo[e->undo_n] = NULL;
+    if (ts && e->tr && e->tr->present) { memcpy(e->tr->height, ts->height, sizeof ts->height); memcpy(e->tr->color, ts->color, sizeof ts->color); e->tr->mesh_dirty = true; }
+    free(ts);
     *lv = *copy; free(copy);
     e->sel_prop = e->sel_light = e->sel_emitter = -1;
     say(e, "undone");
@@ -69,7 +77,7 @@ static void pop_undo(LevelEd *e, Level *lv) {
 
 static Vec3 fly_forward(const LevelEd *e) { return v3(sinf(e->cam_yaw) * cosf(e->cam_pitch), sinf(e->cam_pitch), cosf(e->cam_yaw) * cosf(e->cam_pitch)); }
 
-static bool ground_hit(const Camera *cam, float mx, float my, Vec3 *out) {
+static bool ground_hit(const Camera *cam, const Terrain *tr, float mx, float my, Vec3 *out) {
     Mat4 inv = m4_inverse(camera_view_proj(cam, 1280.0f / 800.0f));
     float nx = mx / 1280.0f * 2 - 1, ny = 1 - my / 800.0f * 2;
     // clip -> world for near and far points
@@ -78,6 +86,7 @@ static bool ground_hit(const Camera *cam, float mx, float my, Vec3 *out) {
     for (int r = 0; r < 4; r++) { pa[r] = inv.m[r] * a[0] + inv.m[4 + r] * a[1] + inv.m[8 + r] * a[2] + inv.m[12 + r] * a[3]; pb[r] = inv.m[r] * b[0] + inv.m[4 + r] * b[1] + inv.m[8 + r] * b[2] + inv.m[12 + r] * b[3]; }
     Vec3 p0 = v3(pa[0] / pa[3], pa[1] / pa[3], pa[2] / pa[3]), p1 = v3(pb[0] / pb[3], pb[1] / pb[3], pb[2] / pb[3]);
     Vec3 d = v3_sub(p1, p0);
+    if (tr && tr->present) return terrain_ray(tr, p0, p1, out);
     if (fabsf(d.y) < 1e-5f) return false;
     float t = -p0.y / d.y;
     if (t < 0 || t > 1) return false;
@@ -163,8 +172,8 @@ static void delete_selected(LevelEd *e, Level *lv) {
 
 // ---------------------------------------------------------------- tick (game window)
 
-void leveled_tick(LevelEd *e, Level *lv, Camera *cam, const Input *in, float mx, float my, float dt, Gfx *g, PropCache *pc) {
-    (void)g; (void)pc;
+void leveled_tick(LevelEd *e, Level *lv, Terrain *tr, Camera *cam, const Input *in, float mx, float my, float dt, Gfx *g, PropCache *pc) {
+    (void)g; (void)pc; e->tr = tr;
     if (e->msg_t > 0) e->msg_t -= dt;
     // Fly camera
     if (in->rmouse_held) { e->cam_yaw -= in->look_x * 0.0025f; e->cam_pitch = clampf(e->cam_pitch - in->look_y * 0.0025f, -1.4f, 1.4f); }
@@ -178,7 +187,7 @@ void leveled_tick(LevelEd *e, Level *lv, Camera *cam, const Input *in, float mx,
     camera_set_scene(cam, e->cam_pos, v3_add(e->cam_pos, f), 50, true);
 
     // Ground point under the mouse
-    Vec3 hit; e->ghost_valid = ground_hit(cam, mx, my, &hit);
+    Vec3 hit; e->ghost_valid = ground_hit(cam, tr, mx, my, &hit);
     if (e->ghost_valid) e->ghost_pos = snap3(e, hit);
 
     // Keys
@@ -194,8 +203,58 @@ void leveled_tick(LevelEd *e, Level *lv, Camera *cam, const Input *in, float mx,
     if (in->key_down[SDL_SCANCODE_1]) e->tool = LT_SELECT; if (in->key_down[SDL_SCANCODE_2]) e->tool = LT_PIECE;
     if (in->key_down[SDL_SCANCODE_3]) e->tool = LT_LIGHT;  if (in->key_down[SDL_SCANCODE_4]) e->tool = LT_EMITTER;
     if (in->ctrl && in->key_down[SDL_SCANCODE_Z]) pop_undo(e, lv);
-    if (in->ctrl && in->key_down[SDL_SCANCODE_S]) leveled_save(e, lv);
+    if (in->ctrl && in->key_down[SDL_SCANCODE_S]) leveled_save(e, lv, tr);
     if (in->key_down[SDL_SCANCODE_F] && !in->ctrl && e->sel_prop >= 0) { e->cam_pos = v3_add(lv->props[e->sel_prop].pos, v3(-f.x * 8, 5, -f.z * 8)); }
+
+    // Terrain tab: brushes act while the left button is held
+    if (e->tab == 2 && tr && tr->present) {
+        if (e->ghost_valid && in->mouse_held && !in->rmouse_held) {
+            if (!e->sculpting) { push_undo(e, lv); e->sculpting = true; }
+            Vec3 at = e->ghost_pos;
+            switch (e->tbrush) {
+            case TB_RAISE: terrain_brush(tr, in->shift_held ? TB_LOWER : TB_RAISE, at, e->tradius, e->tstrength, dt, e->tpaint, 0); break;
+            case TB_LOWER: terrain_brush(tr, TB_LOWER, at, e->tradius, e->tstrength, dt, e->tpaint, 0); break;
+            case TB_SMOOTH: terrain_brush(tr, TB_SMOOTH, at, e->tradius, e->tstrength, dt, e->tpaint, 0); break;
+            case TB_FLATTEN: terrain_brush(tr, TB_FLATTEN, at, e->tradius, e->tstrength, dt, e->tpaint, at.y); break;
+            case TB_PAINT: terrain_brush(tr, TB_PAINT, at, e->tradius, e->tstrength, dt, e->tpaint, 0); break;
+            case 5: {   // scatter pieces of the chosen category
+                e->scatter_accum += e->scatter_density * dt * 3.0f;
+                while (e->scatter_accum >= 1.0f && lv->nprops < LEVEL_MAX_PROPS) {
+                    e->scatter_accum -= 1.0f;
+                    int cands[KIT_MAX]; int nc = 0;
+                    for (int i = 0; i < e->nkit; i++) if (!strcmp(e->kit[i].category, e->categories[e->scatter_cat])) cands[nc++] = i;
+                    if (nc == 0) break;
+                    const KitPiece *k = &e->kit[cands[rand() % nc]];
+                    float ang = (float)(rand() % 360) * DEG2RAD, rr = e->tradius * sqrtf((float)(rand() % 1000) / 1000.0f);
+                    Vec3 p = v3(at.x + cosf(ang) * rr, 0, at.z + sinf(ang) * rr);
+                    if (!terrain_inside(tr, p.x, p.z)) continue;
+                    p.y = terrain_height(tr, p.x, p.z);
+                    bool crowded = false; for (int i = 0; i < lv->nprops; i++) if (hypotf(lv->props[i].pos.x - p.x, lv->props[i].pos.z - p.z) < 1.2f) crowded = true;
+                    if (crowded) continue;
+                    Prop *pr = &lv->props[lv->nprops++]; memset(pr, 0, sizeof *pr);
+                    snprintf(pr->file, sizeof pr->file, "%s", k->file);
+                    pr->pos = p; pr->yaw = (float)(rand() % 360) * DEG2RAD; pr->scale = k->scale * (0.8f + 0.4f * (float)(rand() % 100) / 100.0f); pr->tint = v4(1, 1, 1, 1); pr->glow = k->glow; pr->collide = k->collide;
+                    add_collider_for(lv, pr);
+                    e->dirty = true;
+                }
+            } break;
+            case 6: {   // clear props inside the brush
+                for (int i = lv->nprops - 1; i >= 0; i--) if (hypotf(lv->props[i].pos.x - at.x, lv->props[i].pos.z - at.z) < e->tradius) {
+                    remove_collider_for(lv, &lv->props[i]);
+                    for (int k = i; k < lv->nprops - 1; k++) lv->props[k] = lv->props[k + 1];
+                    lv->nprops--; e->dirty = true;
+                }
+            } break;
+            }
+            if (e->tbrush <= TB_FLATTEN) {   // keep props on the surface after sculpting
+                for (int i = 0; i < lv->nprops; i++) if (hypotf(lv->props[i].pos.x - at.x, lv->props[i].pos.z - at.z) < e->tradius + 2) { Prop *pr = &lv->props[i]; remove_collider_for(lv, pr); pr->pos.y = terrain_height(tr, pr->pos.x, pr->pos.z); add_collider_for(lv, pr); }
+                for (int i = 0; i < lv->nlights; i++) if (hypotf(lv->lights[i].pos.x - at.x, lv->lights[i].pos.z - at.z) < e->tradius + 2) lv->lights[i].pos.y = fmaxf(lv->lights[i].pos.y, terrain_height(tr, lv->lights[i].pos.x, lv->lights[i].pos.z) + 1.0f);
+                e->dirty = true;
+            }
+        } else e->sculpting = false;
+        if (in->ctrl && in->wheel != 0) e->tradius = clampf(e->tradius * (in->wheel > 0 ? 1.15f : 0.87f), 1, 40);
+        return;
+    }
 
     // Mouse in the world
     if (!e->ghost_valid) { if (!in->mouse_held) e->dragging = false; return; }
@@ -225,13 +284,25 @@ void leveled_tick(LevelEd *e, Level *lv, Camera *cam, const Input *in, float mx,
 // ---------------------------------------------------------------- draw (game window)
 
 void leveled_draw_world(LevelEd *e, const Level *lv, Gfx *g, PropCache *pc) {
+    if (e->tab == 2 && e->ghost_valid) {
+        // brush ring: 32 short bars around the cursor, lifted to the surface height
+        Vec3 p = e->ghost_pos; int n = 40;
+        Vec4 col = e->tbrush == TB_PAINT ? v4(e->tpaint.x * 2, e->tpaint.y * 2, e->tpaint.z * 2, 1) : e->tbrush == 5 ? v4(0.5f, 1, 0.6f, 1) : e->tbrush == 6 ? v4(1, 0.4f, 0.3f, 1) : v4(1, 0.9f, 0.5f, 1);
+        Material m = material_default(); m.emissive = v3(col.x, col.y, col.z); gfx_set_material(g, &m);
+        for (int i = 0; i < n; i++) {
+            float a = (float)i / n * 2 * PI; Vec3 q = v3(p.x + cosf(a) * e->tradius, p.y + 0.15f, p.z + sinf(a) * e->tradius);
+            gfx_draw_box(g, &g->white, q, v3(0.25f, 0.08f, 0.25f), 0, col, 0);
+        }
+        gfx_set_material(g, NULL);
+        return;
+    }
     // ground cursor and a small grid
     if (e->ghost_valid) {
         Vec3 p = e->ghost_pos;
-        gfx_draw_box_wire(g, v3(p.x, 0.02f, p.z), v3(0.5f, 0.02f, 0.5f), v4(1, 1, 0.6f, 1));
+        gfx_draw_box_wire(g, v3(p.x, p.y + 0.02f, p.z), v3(0.5f, 0.02f, 0.5f), v4(1, 1, 0.6f, 1));
         for (int i = -4; i <= 4; i++) {
-            gfx_draw_box(g, &g->white, v3(roundf(p.x) + i, 0.01f, roundf(p.z)), v3(0.02f, 0.01f, 9), 0, v4(1, 1, 1, 0.15f), 0);
-            gfx_draw_box(g, &g->white, v3(roundf(p.x), 0.01f, roundf(p.z) + i), v3(9, 0.01f, 0.02f), 0, v4(1, 1, 1, 0.15f), 0);
+            gfx_draw_box(g, &g->white, v3(roundf(p.x) + i, p.y + 0.01f, roundf(p.z)), v3(0.02f, 0.01f, 9), 0, v4(1, 1, 1, 0.15f), 0);
+            gfx_draw_box(g, &g->white, v3(roundf(p.x), p.y + 0.01f, roundf(p.z) + i), v3(9, 0.01f, 0.02f), 0, v4(1, 1, 1, 0.15f), 0);
         }
         if (e->tool == LT_PIECE && e->piece >= 0) {
             const KitPiece *k = &e->kit[e->piece];
@@ -256,14 +327,14 @@ void leveled_draw_world(LevelEd *e, const Level *lv, Gfx *g, PropCache *pc) {
 
 // ---------------------------------------------------------------- panel (tool window)
 
-void leveled_panel(LevelEd *e, Level *lv, Ui *ui, float w, float h) {
-    (void)h;
-    float x = 12, y = 10;
+void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h) {
+    float x = 12, y = 10; e->tr = tr;
     ui_header(ui, x, y, e->dirty ? "ENVIRONMENT EDITOR  *unsaved" : "ENVIRONMENT EDITOR"); y += 22;
     if (ui_button(ui, x, y, 90, 26, "PLACE")) e->tab = 0;
     if (ui_button(ui, x + 96, y, 90, 26, "LOOK")) e->tab = 1;
+    if (ui_button(ui, x + 192, y, 100, 26, "TERRAIN")) e->tab = 2;
     if (ui_button(ui, w - 200, y, 90, 26, "UNDO ^Z")) { pop_undo(e, lv); }
-    if (ui_button(ui, w - 104, y, 92, 26, "SAVE ^S")) leveled_save(e, lv);
+    if (ui_button(ui, w - 104, y, 92, 26, "SAVE ^S")) leveled_save(e, lv, tr);
     y += 34;
     if (e->tab == 0) {
         ui_label(ui, x, y, "TOOL   1 select/move   2 piece   3 light   4 emitter", v4(0.6f, 0.58f, 0.55f, 1)); y += 14;
@@ -327,6 +398,56 @@ void leveled_panel(LevelEd *e, Level *lv, Ui *ui, float w, float h) {
             if (ui_button(ui, x + 330, y + 26, 110, 24, "DELETE X")) delete_selected(e, lv);
             y += 74;
         }
+    } else if (e->tab == 2) {
+        float cw = (w - 36) / 2;
+        if (!tr->present) {
+            ui_label(ui, x, y, "This level has no terrain yet. Create one to sculpt mountains and paint biomes.", v4(0.85f, 0.85f, 0.8f, 1)); y += 20;
+            if (ui_button(ui, x, y, 260, 30, "CREATE TERRAIN (192 m, flat)")) {
+                terrain_init(tr, 1.5f, v3(-96, 0, -96), 0, v3(0.20f, 0.34f, 0.16f));
+                snprintf(tr->file, sizeof tr->file, "%s", "levels/terrain_new");
+                if (lv->path[0]) { const char *slash = strrchr(lv->path, '/'); const char *base = slash ? slash + 1 : lv->path; char nm[96]; snprintf(nm, sizeof nm, "%s", base); char *dot = strrchr(nm, '.'); if (dot) *dot = 0; snprintf(tr->file, sizeof tr->file, "levels/%s_terrain", nm); }
+                e->dirty = true; say(e, "terrain created: sculpt with the brushes, then SAVE");
+            }
+            y += 40;
+        } else {
+            ui_label(ui, x, y, "BRUSH   hold left mouse on the ground.  Shift with Raise lowers.  Ctrl+wheel = radius", v4(0.6f, 0.58f, 0.55f, 1)); y += 16;
+            const char *br[] = { "RAISE", "LOWER", "SMOOTH", "FLATTEN", "PAINT", "SCATTER", "CLEAR" };
+            for (int i = 0; i < 7; i++) { bool on = e->tbrush == i; if (ui_toggle(ui, x + (i % 4) * 172, y + (i / 4) * 30, 166, 26, br[i], &on) && on) e->tbrush = i; }
+            y += 66;
+            ui_slider(ui, x, y, cw, "radius", &e->tradius, 1, 40); ui_slider(ui, x + cw + 12, y, cw, "strength", &e->tstrength, 0.5f, 30); y += 26;
+            // biome palette for the paint brush
+            static const struct { const char *name; Vec3 c; } B[] = { {"grass", {0.20f, 0.34f, 0.16f}}, {"forest floor", {0.11f, 0.17f, 0.10f}}, {"rock", {0.36f, 0.34f, 0.35f}}, {"snow", {0.88f, 0.90f, 0.95f}}, {"dirt", {0.30f, 0.22f, 0.15f}}, {"path", {0.55f, 0.50f, 0.44f}}, {"water", {0.10f, 0.22f, 0.32f}}, {"moss", {0.28f, 0.42f, 0.20f}} };
+            ui_label(ui, x, y, "PAINT COLOUR", v4(1, 0.85f, 0.4f, 1)); y += 14;
+            for (int i = 0; i < 8; i++) { bool on = e->tpaint_sel == i; if (ui_toggle(ui, x + (i % 4) * 172, y + (i / 4) * 28, 166, 24, B[i].name, &on) && on) { e->tpaint_sel = i; e->tpaint = B[i].c; e->tbrush = TB_PAINT; } }
+            y += 60;
+            if (ui_color(ui, x, y, cw, "custom", &e->tpaint, 1)) e->tbrush = TB_PAINT;
+            // scatter
+            ui_label(ui, x + cw + 12, y, "SCATTER category", v4(1, 0.85f, 0.4f, 1));
+            for (int i = 0; i < e->ncat && i < 6; i++) { bool on = e->scatter_cat == i; if (ui_toggle(ui, x + cw + 12 + (i % 3) * 112, y + 16 + (i / 3) * 26, 108, 22, e->categories[i], &on) && on) { e->scatter_cat = i; e->tbrush = 5; } }
+            ui_slider(ui, x + cw + 12, y + 70, cw, "density", &e->scatter_density, 0.05f, 3);
+            y += 100;
+            // auto biome
+            ui_label(ui, x, y, "AUTO BIOME  paints grass, rock on slopes, snow above a height", v4(1, 0.85f, 0.4f, 1)); y += 16;
+            ui_slider(ui, x, y, cw, "snow height", &e->snow_h, 0, 60); ui_slider(ui, x + cw + 12, y, cw, "rock slope", &e->rock_slope, 0.1f, 0.9f); y += 26;
+            if (ui_button(ui, x, y, 200, 28, "APPLY AUTO BIOME")) { push_undo(e, lv); terrain_auto_biome(tr, e->snow_h, e->rock_slope, B[0].c, B[2].c, B[3].c, B[4].c); e->dirty = true; }
+            if (ui_button(ui, x + 210, y, 200, 28, "MOUNTAIN FOREST LOOK")) {
+                Look *k = &lv->look;
+                k->sun_dir = v3(0.35f, -0.55f, 0.45f); k->sun_intensity = 1.1f; k->sun_color = v3(1.0f, 0.92f, 0.8f);
+                k->sky_ambient = v3(0.35f, 0.45f, 0.65f); k->ground_ambient = v3(0.10f, 0.12f, 0.10f);
+                k->fog_color = v3(0.55f, 0.66f, 0.80f); k->fog_density = 0.012f; k->fog_base = 0; k->fog_falloff = 0.04f; k->fog_scatter = 0.5f; k->fog_start = 10;
+                k->sky_zenith = v3(0.18f, 0.35f, 0.70f); k->sky_horizon = v3(0.70f, 0.80f, 0.92f); k->sky_ground = v3(0.25f, 0.30f, 0.35f); k->sun_glow = 0.5f; k->stars = 0; k->sky_fog_blend = 0.6f;
+                k->exposure = 1.05f; k->saturation = 1.1f; k->contrast = 1.05f; k->bloom = 0.25f; k->bloom_threshold = 1.1f; k->lift = v3(0.01f, 0.01f, 0.02f); k->gain = v3(1, 1, 1);
+                e->dirty = true; say(e, "mountain forest look applied (LOOK tab to tune)");
+            }
+            y += 36;
+            if (ui_button(ui, x, y, 200, 28, "RANDOM MOUNTAINS")) {
+                push_undo(e, lv);
+                terrain_generate_mountains(tr, 28);
+                terrain_auto_biome(tr, e->snow_h, e->rock_slope, B[0].c, B[2].c, B[3].c, B[4].c); e->dirty = true;
+                say(e, "mountains generated around the edge; sculpt from here");
+            }
+            y += 40;
+        }
     } else {
         Look *k = &lv->look; float cw = (w - 36) / 2;
         // sun as yaw/pitch for easy tuning
@@ -362,7 +483,8 @@ void leveled_panel(LevelEd *e, Level *lv, Ui *ui, float w, float h) {
     ui_label(ui, x, h - 22, "game window: WASD+QE fly, right-drag look, wheel speed, click place/select, drag move, R rotate, [ ] scale, X delete, G dup, F fly to", v4(0.55f, 0.55f, 0.5f, 1));
 }
 
-bool leveled_save(LevelEd *e, const Level *lv) {
+bool leveled_save(LevelEd *e, Level *lv, Terrain *tr) {
+    if (tr && tr->present) { snprintf(lv->terrain_file, sizeof lv->terrain_file, "%s", tr->file); if (!terrain_save(tr, HOLLOW_ASSET_DIR)) say(e, "terrain save failed"); }
     bool ok = level_save(lv, lv->path);
     say(e, ok ? "saved level" : "save failed, see log");
     if (ok) e->dirty = false;

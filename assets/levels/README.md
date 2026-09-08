@@ -24,6 +24,8 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
              # ember, spore, spark) glow: colours above 1.0 bloom.
     trigger  name  minx miny minz maxx maxy maxz  [once]
     scene    intro|boss|victory  FILE          # cutscene file under assets/scenes/ for that beat
+    terrain  FILE                              # heightmap base name relative to assets/, e.g. levels/glade_terrain
+             # (files FILE_h.png, FILE_c.png, FILE.txt)
 
 ## Look
 

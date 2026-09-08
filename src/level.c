@@ -146,6 +146,10 @@ static bool parse_level(Level *out, const char *path) {
             else if (strcmp(tok[1], "boss") == 0) SDL_strlcpy(out->scene_boss, tok[2], sizeof out->scene_boss);
             else if (strcmp(tok[1], "victory") == 0) SDL_strlcpy(out->scene_victory, tok[2], sizeof out->scene_victory);
             else SDL_Log("level_load:%d: unknown scene slot '%s'", line_no, tok[1]);
+        } else if (strcmp(cmd, "terrain") == 0) {
+            // terrain FILE   (base name relative to assets/, e.g. levels/glade_terrain)
+            if (n != 2) { SDL_Log("level_load:%d: bad terrain line", line_no); continue; }
+            SDL_strlcpy(out->terrain_file, tok[1], sizeof out->terrain_file);
         } else if (strcmp(cmd, "sun") == 0) {
             float f[7];
             if (n != 8 || !parse_floats(tok, 1, 7, f)) { SDL_Log("level_load:%d: bad sun line", line_no); continue; }
@@ -339,6 +343,7 @@ bool level_save(const Level *lv, const char *path) {
     if (lv->scene_intro[0])   fprintf(f, "scene intro %s\n", lv->scene_intro);
     if (lv->scene_boss[0])    fprintf(f, "scene boss %s\n", lv->scene_boss);
     if (lv->scene_victory[0]) fprintf(f, "scene victory %s\n", lv->scene_victory);
+    if (lv->terrain_file[0])  fprintf(f, "terrain %s\n", lv->terrain_file);
 
     fprintf(f, "spawn %.3f %.3f %.3f %.3f\n",
             lv->spawn.x, lv->spawn.y, lv->spawn.z, lv->spawn_yaw * (180.0f / PI));

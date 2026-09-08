@@ -22,7 +22,7 @@
 
 typedef enum Facing { FACE_DOWN, FACE_UP, FACE_LEFT, FACE_RIGHT } Facing;
 
-typedef struct SpriteSheet { char name[32]; Texture tex; int cols, rows, fw, fh, foot; } SpriteSheet;
+typedef struct SpriteSheet { char name[32]; char path[256]; Texture tex; int cols, rows, fw, fh, foot; } SpriteSheet;
 
 typedef struct SpriteAnim {
     char name[32];

@@ -67,6 +67,7 @@ typedef struct Level {
     LevelEmitter emitters[LEVEL_MAX_EMITTERS]; int nemitters;
     Look  look;
     char  scene_intro[128], scene_boss[128], scene_victory[128];   // scene file names under assets/scenes/
+    char  terrain_file[128];              // heightmap base name relative to assets/, empty = no terrain
     Block     blocks[LEVEL_MAX_BLOCKS];   int nblocks;
     CamVolume cams[LEVEL_MAX_CAMS];       int ncams;
     Trigger   triggers[LEVEL_MAX_TRIGGERS]; int ntriggers;

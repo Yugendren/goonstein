@@ -61,8 +61,30 @@ static void play_scene(Game *g, const char *name, GState after) {
 
 // ---------------------------------------------------------------- setup and resets
 
+// Characters stand on the terrain surface wherever the level has one.
+static void snap_to_terrain(Game *g) {
+    if (!g->terrain.present) return;
+    Character *cs[2] = { &g->player.c, &g->boss.c };
+    for (int i = 0; i < 2; i++) if (terrain_inside(&g->terrain, cs[i]->pos.x, cs[i]->pos.z)) cs[i]->pos.y = terrain_height(&g->terrain, cs[i]->pos.x, cs[i]->pos.z);
+}
+
 static void setup_level_content(Game *g) {
     props_load_level(&g->gfx, &g->props, &g->level);
+    // terrain follows the level: reload when the level names one, drop it otherwise
+    if (g->level.terrain_file[0]) {
+        if (!g->terrain.present || strcmp(g->terrain.file, g->level.terrain_file) != 0) {
+            terrain_destroy(&g->gfx, &g->terrain);
+            if (!terrain_load(&g->terrain, HOLLOW_ASSET_DIR, g->level.terrain_file)) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "terrain %s failed to load", g->level.terrain_file);
+        }
+    } else if (g->terrain.present && !(g->tool_mode == 2 && g->leveled.open)) { terrain_destroy(&g->gfx, &g->terrain); g->terrain.present = false; }
+    if (!g->terrain.present && SDL_getenv("HOLLOW_TERRAIN_DEMO")) {   // headless check of the sculpting path
+        terrain_init(&g->terrain, 1.5f, v3(-96, 0, -96), 0, v3(0.20f, 0.34f, 0.16f));
+        terrain_generate_mountains(&g->terrain, 28);
+        terrain_auto_biome(&g->terrain, 14, 0.45f, v3(0.20f, 0.34f, 0.16f), v3(0.36f, 0.34f, 0.35f), v3(0.88f, 0.90f, 0.95f), v3(0.30f, 0.22f, 0.15f));
+        snprintf(g->terrain.file, sizeof g->terrain.file, "%s", "levels/demo_terrain");
+        if (!strcmp(SDL_getenv("HOLLOW_TERRAIN_DEMO"), "save")) terrain_save(&g->terrain, HOLLOW_ASSET_DIR);
+    }
+    snap_to_terrain(g);
     particles_clear(&g->particles);
     for (int i = 0; i < g->level.nemitters; i++) {
         const LevelEmitter *le = &g->level.emitters[i];
@@ -161,7 +183,7 @@ static void start_battle(Game *g) {
 }
 
 void game_init(Game *g) {
-    // g is static-zeroed by main; do not memset here (command-line overrides are already in it)
+    (void)g;   // static-zeroed by main; do not memset here (command-line overrides are already in it)
     dbg_init("hollow.log");
     if (!audio_init()) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "audio unavailable, running silent");
     audio_set_master(0.8f);
@@ -190,6 +212,7 @@ bool game_init_gfx(Game *g, Platform *pf) {
 
 void game_shutdown(Game *g) {
     leveled_shutdown(&g->leveled);
+    terrain_destroy(&g->gfx, &g->terrain);
     dbg_shutdown();
     if (g->editor_open) editor_shutdown(&g->editor);
     props_clear(&g->gfx, &g->props);
@@ -308,6 +331,7 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     CombatEvents ev = {0};
     Vec3 dir = camera_move_dir(&g->cam, in->move_x, in->move_y);
     player_update(&g->player, in, dir, &g->level, NULL, dt, &ev);
+    snap_to_terrain(g);
     apply_events(g, &ev);
     camera_iso(&g->cam, g->player.c.pos, &g->level, dt);
     Trigger *t = level_trigger_at(&g->level, g->player.c.pos);
@@ -369,6 +393,7 @@ static void tick_fight(Game *g, const Input *in, float dt) {
     player_update(&g->player, in, dir, &g->level, &g->boss, dt, &ev);
     boss_update(&g->boss, &g->player, &g->level, dt, &ev);
     if (g->boss.state != BS_DEAD) character_separate(&g->player.c, &g->boss.c, &g->level);
+    snap_to_terrain(g);
     apply_events(g, &ev);
     if (in->lockon) camera_toggle_lock(&g->cam);
     camera_orbit(&g->cam, g->player.c.pos, in->look_x, in->look_y, g->boss.state != BS_DEAD, g->boss.c.pos, &g->level, dt);
@@ -467,8 +492,9 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     }
     if (g->tool_mode == 2 && g->leveled.open && g->state != GS_BATTLE && g->state != GS_SCENE) {
         float mx, my; platform_mouse_ui(g->pf, INTERNAL_W, INTERNAL_H, &mx, &my);
-        leveled_tick(&g->leveled, &g->level, &g->cam, in, mx, my, dt, &g->gfx, &g->props);
+        leveled_tick(&g->leveled, &g->level, &g->terrain, &g->cam, in, mx, my, dt, &g->gfx, &g->props);
         props_load_level(&g->gfx, &g->props, &g->level);
+        snap_to_terrain(g);
         charmodel_drive_player(&g->player_model, &g->player, dt);
         uifx_update(&g->fx, dt); update_particles(g, dt);
         g->fade = 1; g->letterbox = 0; g->hint_t = 0;
@@ -604,7 +630,7 @@ static void draw_tool_window(Game *g, Platform *pf) {
         if (!windowed) { float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my); uin.mx = mx - 560; uin.my = my; uin.down = pf->input.mouse_held; uin.pressed = pf->input.click; uin.released = false; uin.wheel = pf->input.wheel; }
         ui_begin(&g->ui, x, uin);
         if (!windowed) { /* draw at an offset by shifting coordinates through a translated call */ }
-        leveled_panel(&g->leveled, &g->level, &g->ui, w, h);
+        leveled_panel(&g->leveled, &g->level, &g->terrain, &g->ui, w, h);
         ui_end(&g->ui);
         gfx_ui_target(x, 0);
         return;
@@ -816,6 +842,7 @@ void game_render(Game *g, Platform *pf, float alpha) {
     Gfx *x = &g->gfx;
     gfx_begin(x, pf, &fp);
     draw_level(x, lv, &g->wt);
+    if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain); }
     props_draw(x, &g->props, lv, t);
     {
         Vec4 pt = v4(lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), 1);
@@ -893,6 +920,37 @@ void game_open_editor(Game *g, const char *name, int frame_size) {
     audio_music_stop(0.5f);
 }
 
+// The sprite editor edits a copy of the current hero: "<hero>_own". The first time, the hero's
+// sheets are imported so the editor opens on the real character rather than an empty document.
+static void open_sprite_editor_doc(Game *g) {
+    const char *hero = g->hero_config[0] ? g->hero_config : "hero";
+    char own[64]; snprintf(own, sizeof own, "%s_own", hero);
+    editor_init(&g->editor, own, 32);
+    char saved[640]; snprintf(saved, sizeof saved, "%s/sprites/own/%s.txt", HOLLOW_ASSET_DIR, own);
+    FILE *f = fopen(saved, "rb"); if (f) { fclose(f); return; }   // an edited copy already exists
+    CharModel *cm = &g->player_model;
+    if (!cm->loaded || !cm->is_sprite || cm->sdef.nsheets == 0) return;
+    const SpriteDef *sd = &cm->sdef;
+    if (sd->frame_w > PIX_MAX_SIZE || sd->frame_h > PIX_MAX_SIZE) { say(g, "hero frames too large for the editor (max 64px); editing a blank sheet"); return; }
+    pix_doc_free(&g->editor.doc); pix_doc_init(&g->editor.doc, own); g->editor.doc.size = sd->size;
+    int imported = 0;
+    for (int i = 0; i < sd->nsheets && g->editor.doc.nanims < PIX_MAX_ANIMS; i++) {
+        const SpriteSheet *sh = &sd->sheets[i];
+        // playback settings come from the first animation that uses this sheet
+        float fps = 8; bool loop = true, dircol = true; const int *contact = NULL; int ncontact = 0;
+        for (int a = 0; a < sd->nanims; a++) if (sd->anims[a].sheet == i) { fps = sd->anims[a].fps; loop = sd->anims[a].loop; dircol = sd->anims[a].dir_cols; contact = sd->anims[a].contact; ncontact = sd->anims[a].ncontact; break; }
+        int idx = pix_anim_import_sheet(&g->editor.doc, sh->path, sh->name, sh->fw, sh->fh, dircol, fps, loop);
+        if (idx < 0) continue;
+        PixAnim *pa = &g->editor.doc.anims[idx];
+        for (int c = 0; c < ncontact && c < PIX_MAX_CONTACT; c++) pa->contact[c] = contact[c];
+        pa->ncontact = ncontact < PIX_MAX_CONTACT ? ncontact : PIX_MAX_CONTACT;
+        imported++;
+    }
+    g->editor.anim = 0; g->editor.dir = 0; g->editor.frame = 0;
+    char msg[96]; snprintf(msg, sizeof msg, "imported %d sheets from %s; Ctrl+S saves as %s", imported, hero, own);
+    say(g, msg);
+}
+
 void game_set_tool(Game *g, int mode) {
     if (mode == g->tool_mode) mode = 0;
     g->tool_mode = mode;
@@ -906,7 +964,7 @@ void game_set_tool(Game *g, int mode) {
     }
     if (mode == 3) {
         platform_tool_window(g->pf, true, 1280, 800, "hollow sprite editor");
-        if (!g->editor_open) { editor_init(&g->editor, g->hero_config[0] ? g->hero_config : "hero_own", 32); g->editor_open = true; }
+        if (!g->editor_open) { open_sprite_editor_doc(g); g->editor_open = true; }
         charmodel_refresh_from_doc(&g->player_model, &g->gfx, &g->editor.doc);
     }
 }
