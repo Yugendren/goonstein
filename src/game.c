@@ -492,12 +492,46 @@ static void text_center(Gfx *g, float cx, float y, float scale, Vec4 c, const ch
     gfx_ui_text(g, cx - w * 0.5f, y, scale, c, s);
 }
 
+static void draw_debug_overlay(Game *g, Platform *pf) {
+    Gfx *x = &g->gfx;
+    if (!pf->debug) return;
+    {
+        static const char *GS[] = { "EXPLORE", "SCENE", "FIGHT", "DEAD", "END", "BATTLE" };
+        static const char *PS[] = { "FREE", "ATTACK", "PARRY", "DODGE", "HURT", "DEAD", "SCRIPTED" };
+        static const char *BS[] = { "IDLE", "APPROACH", "WINDUP", "ACTIVE", "RECOVER", "STAGGER", "DEAD", "SCRIPTED" };
+        char l[8][160]; int n = 0;
+        snprintf(l[n++], 160, "fps %.0f  draws %u  tick %u  %s", g->fps, g->gfx.draw_calls, g->tick, g->paused ? "PAUSED" : "");
+        snprintf(l[n++], 160, "game %s %.2fs   cam %s  vol %s", GS[g->state], g->state_t, g->cam.mode == CAM_ORBIT ? (g->cam.locked ? "orbit+lock" : "orbit") : "scene", "-");
+        snprintf(l[n++], 160, "player %s t=%.2f  pos %.1f %.1f %.1f  yaw %.0f  hp %.0f  anim %s", PS[g->player.state], g->player.t, g->player.c.pos.x, g->player.c.pos.y, g->player.c.pos.z, g->player.c.yaw / DEG2RAD, g->player.c.hp, anim_name(g->player.c.anim));
+        const BossMove *m = &g->boss.def.moves[g->boss.move];
+        snprintf(l[n++], 160, "boss %s t=%.2f move %s  hp %.0f  posture %.0f  %s", BS[g->boss.state], g->boss.t, m->name, g->boss.c.hp, g->boss.c.posture, g->boss.phase2 ? "PHASE2" : "");
+        if (g->state == GS_SCENE) snprintf(l[n++], 160, "scene t=%.2f next %d/%d  fade %.2f", g->scene.time, g->scene.next, g->scene.n, g->scene.fade);
+        snprintf(l[n++], 160, "F1 debug  F2 pause  F3 step  F5 reload  F8 snapshot  Enter skip scene  Esc quit");
+        for (int i = 0; i < n; i++) gfx_ui_text(x, 8, 8 + i * 11, 1.0f, v4(0.7f, 1, 0.7f, 1), l[i]);
+        if (g->state == GS_BATTLE) {
+            const Battle *b = &g->battle; char bl[200];
+            snprintf(bl, sizeof bl, "battle %s t=%.2f hov %d drag %d target %d energy %d banked %d combo %d | press %.3f used %d judge %d off %+.3f",
+                     BT_NAMES[b->state], b->t, b->hovered, b->dragging, b->drop_target, b->energy, b->banked, b->combo, b->parry_pressed_t, b->press_used, b->last_judge, b->last_offset);
+            gfx_ui_text(x, 8, 8 + n * 11, 1.0f, v4(1, 0.9f, 0.6f, 1), bl);
+            float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my);
+            snprintf(bl, sizeof bl, "mouse %.0f %.0f held %d  hit_t %.2f %.2f %.2f", mx, my, pf->input.mouse_held, b->hit_t[0], b->hit_t[1], b->hit_t[2]);
+            gfx_ui_text(x, 8, 8 + (n + 1) * 11, 1.0f, v4(1, 0.9f, 0.6f, 1), bl);
+        }
+        // event log, newest at the bottom
+        int total = dbg_line_count(), show = total < 18 ? total : 18;
+        gfx_ui_rect(x, 860, 90, 412, 12 + show * 11 + 14, v4(0, 0, 0, 0.55f));
+        gfx_ui_text(x, 866, 96, 1.0f, v4(0.8f, 0.8f, 0.8f, 1), "EVENTS   (F8 copies a snapshot to the clipboard)");
+        for (int i = 0; i < show; i++) gfx_ui_text(x, 866, 110 + i * 11, 1.0f, v4(0.75f, 0.9f, 1, 1), dbg_line(total - show + i));
+    }
+}
+
 static void draw_hud(Game *g, Platform *pf) {
     Gfx *x = &g->gfx;
     if (g->state == GS_BATTLE) {
         battle_draw_ui(&g->battle, x, camera_view_proj(&g->cam, (float)INTERNAL_W / INTERNAL_H));
         uifx_draw(&g->fx, x);
         if (g->msg_t > 0) gfx_ui_text(x, 12, INTERNAL_H - 16, 1.0f, v4(0.9f, 0.8f, 0.4f, 1), g->msg);
+        draw_debug_overlay(g, pf);
         return;
     }
     uifx_draw(&g->fx, x);
@@ -607,34 +641,7 @@ static void draw_hud(Game *g, Platform *pf) {
         }
     }
 
-    if (pf->debug) {
-        static const char *GS[] = { "EXPLORE", "SCENE", "FIGHT", "DEAD", "END", "BATTLE" };
-        static const char *PS[] = { "FREE", "ATTACK", "PARRY", "DODGE", "HURT", "DEAD", "SCRIPTED" };
-        static const char *BS[] = { "IDLE", "APPROACH", "WINDUP", "ACTIVE", "RECOVER", "STAGGER", "DEAD", "SCRIPTED" };
-        char l[8][160]; int n = 0;
-        snprintf(l[n++], 160, "fps %.0f  draws %u  tick %u  %s", g->fps, g->gfx.draw_calls, g->tick, g->paused ? "PAUSED" : "");
-        snprintf(l[n++], 160, "game %s %.2fs   cam %s  vol %s", GS[g->state], g->state_t, g->cam.mode == CAM_ORBIT ? (g->cam.locked ? "orbit+lock" : "orbit") : "scene", "-");
-        snprintf(l[n++], 160, "player %s t=%.2f  pos %.1f %.1f %.1f  yaw %.0f  hp %.0f  anim %s", PS[g->player.state], g->player.t, g->player.c.pos.x, g->player.c.pos.y, g->player.c.pos.z, g->player.c.yaw / DEG2RAD, g->player.c.hp, anim_name(g->player.c.anim));
-        const BossMove *m = &g->boss.def.moves[g->boss.move];
-        snprintf(l[n++], 160, "boss %s t=%.2f move %s  hp %.0f  posture %.0f  %s", BS[g->boss.state], g->boss.t, m->name, g->boss.c.hp, g->boss.c.posture, g->boss.phase2 ? "PHASE2" : "");
-        if (g->state == GS_SCENE) snprintf(l[n++], 160, "scene t=%.2f next %d/%d  fade %.2f", g->scene.time, g->scene.next, g->scene.n, g->scene.fade);
-        snprintf(l[n++], 160, "F1 debug  F2 pause  F3 step  F5 reload  F8 snapshot  Enter skip scene  Esc quit");
-        for (int i = 0; i < n; i++) gfx_ui_text(x, 8, 8 + i * 11, 1.0f, v4(0.7f, 1, 0.7f, 1), l[i]);
-        if (g->state == GS_BATTLE) {
-            const Battle *b = &g->battle; char bl[200];
-            snprintf(bl, sizeof bl, "battle %s t=%.2f hov %d drag %d target %d energy %d banked %d combo %d | press %.3f used %d judge %d off %+.3f",
-                     BT_NAMES[b->state], b->t, b->hovered, b->dragging, b->drop_target, b->energy, b->banked, b->combo, b->parry_pressed_t, b->press_used, b->last_judge, b->last_offset);
-            gfx_ui_text(x, 8, 8 + n * 11, 1.0f, v4(1, 0.9f, 0.6f, 1), bl);
-            float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my);
-            snprintf(bl, sizeof bl, "mouse %.0f %.0f held %d  hit_t %.2f %.2f %.2f", mx, my, pf->input.mouse_held, b->hit_t[0], b->hit_t[1], b->hit_t[2]);
-            gfx_ui_text(x, 8, 8 + (n + 1) * 11, 1.0f, v4(1, 0.9f, 0.6f, 1), bl);
-        }
-        // event log, newest at the bottom
-        int total = dbg_line_count(), show = total < 18 ? total : 18;
-        gfx_ui_rect(x, 860, 90, 412, 12 + show * 11 + 14, v4(0, 0, 0, 0.55f));
-        gfx_ui_text(x, 866, 96, 1.0f, v4(0.8f, 0.8f, 0.8f, 1), "EVENTS   (F8 copies a snapshot to the clipboard)");
-        for (int i = 0; i < show; i++) gfx_ui_text(x, 866, 110 + i * 11, 1.0f, v4(0.75f, 0.9f, 1, 1), dbg_line(total - show + i));
-    }
+    draw_debug_overlay(g, pf);
 }
 
 void game_render(Game *g, Platform *pf, float alpha) {
