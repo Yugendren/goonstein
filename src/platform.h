@@ -26,6 +26,7 @@ typedef struct Input {
     bool  ctrl, shift_held;
     // Mouse in the tool window (editor / debugger), in that window's points
     float tool_mx, tool_my; bool tool_down, tool_pressed, tool_released; float tool_wheel;
+    bool tool_rdown, tool_rpressed;   // right button in the tool window (sprite editor colour pick / erase)
 } Input;
 
 typedef struct Platform {

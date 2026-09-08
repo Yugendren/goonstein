@@ -44,7 +44,7 @@ void platform_clear_edges(Platform *pf) {
     in->attack = in->parry = in->dodge = in->interact = in->debug_toggle = false;
     in->pause_toggle = in->step = in->reload = in->skip = in->lockon = false;
     in->click = in->rclick = false; in->wheel = 0;
-    in->tool_pressed = in->tool_released = false; in->tool_wheel = 0;
+    in->tool_pressed = in->tool_released = in->tool_rpressed = false; in->tool_wheel = 0;
     memset(in->key_down, 0, sizeof in->key_down);
     in->look_x = in->look_y = 0.0f;
 }
@@ -86,6 +86,7 @@ bool platform_poll(Platform *pf) {
             if (pf->console_win && e.button.windowID == SDL_GetWindowID(pf->console_win)) {
                 in->tool_mx = e.button.x; in->tool_my = e.button.y;
                 if (e.button.button == SDL_BUTTON_LEFT) { in->tool_pressed = true; in->tool_down = true; }
+                else if (e.button.button == SDL_BUTTON_RIGHT) { in->tool_rpressed = true; in->tool_rdown = true; }
                 break;
             }
             dbg_log("[in] mouse %s down at %.0f %.0f", e.button.button == SDL_BUTTON_LEFT ? "left" : e.button.button == SDL_BUTTON_RIGHT ? "right" : "middle", e.button.x, e.button.y);
@@ -101,6 +102,7 @@ bool platform_poll(Platform *pf) {
             if (pf->console_win && e.button.windowID == SDL_GetWindowID(pf->console_win)) {
                 in->tool_mx = e.button.x; in->tool_my = e.button.y;
                 if (e.button.button == SDL_BUTTON_LEFT) { in->tool_released = true; in->tool_down = false; }
+                else if (e.button.button == SDL_BUTTON_RIGHT) in->tool_rdown = false;
                 break;
             }
             dbg_log("[in] mouse %s up at %.0f %.0f", e.button.button == SDL_BUTTON_LEFT ? "left" : e.button.button == SDL_BUTTON_RIGHT ? "right" : "middle", e.button.x, e.button.y);

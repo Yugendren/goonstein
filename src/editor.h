@@ -7,7 +7,8 @@
 
 #define ED_UNDO 48
 
-typedef enum EdTool { TOOL_PENCIL, TOOL_ERASER, TOOL_FILL, TOOL_PICK, TOOL_LINE } EdTool;
+typedef enum EdTool { TOOL_PENCIL, TOOL_ERASER, TOOL_FILL, TOOL_PICK, TOOL_LINE,
+                       TOOL_RECT, TOOL_ELLIPSE, TOOL_SELECT, TOOL_LIGHTEN, TOOL_DARKEN } EdTool;
 
 typedef struct EdSnapshot { int anim, dir, frame; PixFrame px; bool valid; } EdSnapshot;
 
@@ -20,6 +21,20 @@ typedef struct Editor {
     int zoom, cx, cy;                 // canvas placement
     bool painting; int last_x, last_y; bool stroke_open;
     int line_x0, line_y0; bool line_armed;
+    int brush_size;                                   // 1..4, pencil / eraser / shade tools
+    bool shade_visited[PIX_MAX_SIZE * PIX_MAX_SIZE];   // per-stroke, so lighten/darken don't repeat a pixel
+    // rectangle / ellipse drag
+    bool shape_drag, shape_filled; int shape_x0, shape_y0, shape_x1, shape_y1;
+    // rectangle select / move
+    bool sel_on, sel_creating, sel_moving;
+    int sel_x0, sel_y0, sel_x1, sel_y1;                // normalised (x0<=x1, y0<=y1)
+    int sel_start_x, sel_start_y;                      // press point while creating a selection
+    int sel_move_press_x, sel_move_press_y, sel_move_dx, sel_move_dy;
+    float ants_t;                                      // marching-ants animation clock
+    // right mouse: drag erases, click (<=8px movement) picks the colour under the cursor
+    bool rmb_prev, rmb_moved; float rmb_press_mx, rmb_press_my;
+    bool rstroke_open; int rlast_x, rlast_y;
+    bool lmb_prev;                                     // for detecting the release edge
     EdSnapshot undo[ED_UNDO]; int undo_n; EdSnapshot redo[ED_UNDO]; int redo_n;
     char msg[160]; float msg_t;
     bool dirty;

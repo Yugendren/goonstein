@@ -484,7 +484,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     if (in->ctrl && in->key_down[SDL_SCANCODE_G]) debug_snapshot(g);                                          // snapshot (F8)
     if (g->tool_mode == 3 && g->editor_open) {
         // sprite editor runs in the tool window with that window's mouse; keys are shared
-        Input ein = *in; ein.click = in->tool_pressed; ein.mouse_held = in->tool_down; ein.rmouse_held = false; ein.wheel = in->tool_wheel;
+        Input ein = *in; ein.click = in->tool_pressed; ein.mouse_held = in->tool_down; ein.rclick = in->tool_rpressed; ein.rmouse_held = in->tool_rdown; ein.wheel = in->tool_wheel;
         float sx = g->pf->tool_w > 0 ? 1280.0f / (float)g->pf->tool_w : 1, sy = g->pf->tool_h > 0 ? 800.0f / (float)g->pf->tool_h : 1;
         editor_tick(&g->editor, &ein, in->tool_mx * sx, in->tool_my * sy, dt);
         g->sprite_refresh_t += dt;
@@ -948,7 +948,7 @@ static void open_sprite_editor_doc(Game *g) {
     }
     g->editor.anim = 0; g->editor.dir = 0; g->editor.frame = 0;
     char msg[96]; snprintf(msg, sizeof msg, "imported %d sheets from %s; Ctrl+S saves as %s", imported, hero, own);
-    say(g, msg);
+    say(g, msg); snprintf(g->editor.msg, sizeof g->editor.msg, "%s", msg); g->editor.msg_t = 4;
 }
 
 void game_set_tool(Game *g, int mode) {

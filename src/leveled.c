@@ -41,6 +41,7 @@ typedef struct TerrainSnap { float height[TERRAIN_N * TERRAIN_N]; Vec3 color[TER
 void leveled_shutdown(LevelEd *e) { for (int i = 0; i < e->undo_n; i++) { free(e->undo[i]); free(e->tundo[i]); } e->undo_n = 0; }
 
 void leveled_open(LevelEd *e, const Level *lv, const Camera *cam) {
+    { const char *t = SDL_getenv("HOLLOW_LEVELED_TAB"); if (t) e->tab = atoi(t); }   // headless captures of a given tab
     (void)lv;
     e->open = true;
     e->cam_pos = cam->eye;
@@ -414,7 +415,7 @@ void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h)
             const char *br[] = { "RAISE", "LOWER", "SMOOTH", "FLATTEN", "PAINT", "SCATTER", "CLEAR" };
             for (int i = 0; i < 7; i++) { bool on = e->tbrush == i; if (ui_toggle(ui, x + (i % 4) * 172, y + (i / 4) * 30, 166, 26, br[i], &on) && on) e->tbrush = i; }
             y += 66;
-            ui_slider(ui, x, y, cw, "radius", &e->tradius, 1, 40); ui_slider(ui, x + cw + 12, y, cw, "strength", &e->tstrength, 0.5f, 30); y += 26;
+            ui_slider(ui, x, y, cw - 48, "radius", &e->tradius, 1, 40); ui_slider(ui, x + cw + 12, y, cw - 48, "strength", &e->tstrength, 0.5f, 30); y += 26;
             // biome palette for the paint brush
             static const struct { const char *name; Vec3 c; } B[] = { {"grass", {0.20f, 0.34f, 0.16f}}, {"forest floor", {0.11f, 0.17f, 0.10f}}, {"rock", {0.36f, 0.34f, 0.35f}}, {"snow", {0.88f, 0.90f, 0.95f}}, {"dirt", {0.30f, 0.22f, 0.15f}}, {"path", {0.55f, 0.50f, 0.44f}}, {"water", {0.10f, 0.22f, 0.32f}}, {"moss", {0.28f, 0.42f, 0.20f}} };
             ui_label(ui, x, y, "PAINT COLOUR", v4(1, 0.85f, 0.4f, 1)); y += 14;
@@ -424,11 +425,11 @@ void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h)
             // scatter
             ui_label(ui, x + cw + 12, y, "SCATTER category", v4(1, 0.85f, 0.4f, 1));
             for (int i = 0; i < e->ncat && i < 6; i++) { bool on = e->scatter_cat == i; if (ui_toggle(ui, x + cw + 12 + (i % 3) * 112, y + 16 + (i / 3) * 26, 108, 22, e->categories[i], &on) && on) { e->scatter_cat = i; e->tbrush = 5; } }
-            ui_slider(ui, x + cw + 12, y + 70, cw, "density", &e->scatter_density, 0.05f, 3);
+            ui_slider(ui, x + cw + 12, y + 70, cw - 48, "density", &e->scatter_density, 0.05f, 3);
             y += 100;
             // auto biome
             ui_label(ui, x, y, "AUTO BIOME  paints grass, rock on slopes, snow above a height", v4(1, 0.85f, 0.4f, 1)); y += 16;
-            ui_slider(ui, x, y, cw, "snow height", &e->snow_h, 0, 60); ui_slider(ui, x + cw + 12, y, cw, "rock slope", &e->rock_slope, 0.1f, 0.9f); y += 26;
+            ui_slider(ui, x, y, cw - 48, "snow height", &e->snow_h, 0, 60); ui_slider(ui, x + cw + 12, y, cw - 48, "rock slope", &e->rock_slope, 0.1f, 0.9f); y += 26;
             if (ui_button(ui, x, y, 200, 28, "APPLY AUTO BIOME")) { push_undo(e, lv); terrain_auto_biome(tr, e->snow_h, e->rock_slope, B[0].c, B[2].c, B[3].c, B[4].c); e->dirty = true; }
             if (ui_button(ui, x + 210, y, 200, 28, "MOUNTAIN FOREST LOOK")) {
                 Look *k = &lv->look;
