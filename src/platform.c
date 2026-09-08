@@ -1,0 +1,124 @@
+#include "platform.h"
+#include <string.h>
+
+static float dead(float v) { return (v > -0.15f && v < 0.15f) ? 0.0f : v; }
+
+bool platform_init(Platform *pf, const char *title, int w, int h) {
+    memset(pf, 0, sizeof *pf);
+
+    SDL_SetAppMetadata(title, "0.0.1", "dev.hollow");
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD)) return false;
+
+    pf->window = SDL_CreateWindow(title, w, h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    if (!pf->window) return false;
+
+    // Shaders: SPIR-V on Vulkan (Linux/Deck), MSL on Metal (mac), DXIL on D3D12 (Windows).
+    pf->gpu = SDL_CreateGPUDevice(
+        SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXIL,
+#ifdef HOLLOW_DEBUG
+        true,
+#else
+        false,
+#endif
+        NULL);
+    if (!pf->gpu) return false;
+    if (!SDL_ClaimWindowForGPUDevice(pf->gpu, pf->window)) return false;
+    SDL_SetGPUSwapchainParameters(pf->gpu, pf->window,
+                                  SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
+
+    SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(pf->gpu));
+
+    // Pick up an already-connected gamepad; hotplug is handled in poll.
+    int count = 0;
+    SDL_JoystickID *ids = SDL_GetGamepads(&count);
+    if (ids && count > 0) pf->gamepad = SDL_OpenGamepad(ids[0]);
+    SDL_free(ids);
+    return true;
+}
+
+bool platform_poll(Platform *pf) {
+    Input *in = &pf->input;
+    // Edge-triggered actions reset each frame; held state is re-derived below.
+    in->attack = in->parry = in->dodge = in->interact = in->debug_toggle = false;
+    in->look_x = in->look_y = 0.0f;
+
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        switch (e.type) {
+        case SDL_EVENT_QUIT: return false;
+        case SDL_EVENT_KEY_DOWN:
+            if (e.key.repeat) break;
+            switch (e.key.scancode) {
+            case SDL_SCANCODE_ESCAPE: pf->want_quit = true; break;
+            case SDL_SCANCODE_F1: in->debug_toggle = true; pf->debug = !pf->debug; break;
+            case SDL_SCANCODE_J: in->attack = true; break;
+            case SDL_SCANCODE_K: in->parry = true; break;
+            case SDL_SCANCODE_SPACE: in->dodge = true; break;
+            case SDL_SCANCODE_E: in->interact = true; break;
+            default: break;
+            }
+            break;
+        case SDL_EVENT_MOUSE_MOTION:
+            in->look_x += e.motion.xrel;
+            in->look_y += e.motion.yrel;
+            break;
+        case SDL_EVENT_GAMEPAD_ADDED:
+            if (!pf->gamepad) pf->gamepad = SDL_OpenGamepad(e.gdevice.which);
+            break;
+        case SDL_EVENT_GAMEPAD_REMOVED:
+            if (pf->gamepad && SDL_GetGamepadID(pf->gamepad) == e.gdevice.which) {
+                SDL_CloseGamepad(pf->gamepad);
+                pf->gamepad = NULL;
+            }
+            break;
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            switch (e.gbutton.button) {
+            case SDL_GAMEPAD_BUTTON_WEST:  in->attack = true; break;   // X / Square
+            case SDL_GAMEPAD_BUTTON_NORTH: in->parry = true; break;    // Y / Triangle
+            case SDL_GAMEPAD_BUTTON_EAST:  in->dodge = true; break;    // B / Circle
+            case SDL_GAMEPAD_BUTTON_SOUTH: in->interact = true; break; // A / Cross
+            default: break;
+            }
+            break;
+        default: break;
+        }
+    }
+
+    // Held movement: keyboard, overridden by stick if it's deflected.
+    const bool *keys = SDL_GetKeyboardState(NULL);
+    in->move_x = (float)(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]);
+    in->move_y = (float)(keys[SDL_SCANCODE_S] - keys[SDL_SCANCODE_W]);
+    if (pf->gamepad) {
+        float sx = dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_LEFTX) / 32767.0f);
+        float sy = dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_LEFTY) / 32767.0f);
+        if (sx != 0.0f || sy != 0.0f) { in->move_x = sx; in->move_y = sy; }
+        in->look_x += dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_RIGHTX) / 32767.0f) * 8.0f;
+        in->look_y += dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_RIGHTY) / 32767.0f) * 8.0f;
+    }
+    return true;
+}
+
+void platform_begin_frame(Platform *pf) {
+    pf->cmd = SDL_AcquireGPUCommandBuffer(pf->gpu);
+    pf->swapchain = NULL;
+    if (!pf->cmd) return;
+    // Blocks until a swapchain image is ready; pairs with VSYNC present mode.
+    if (!SDL_WaitAndAcquireGPUSwapchainTexture(pf->cmd, pf->window, &pf->swapchain,
+                                               &pf->swap_w, &pf->swap_h)) {
+        pf->swapchain = NULL;
+    }
+}
+
+void platform_end_frame(Platform *pf) {
+    if (pf->cmd) SDL_SubmitGPUCommandBuffer(pf->cmd);
+    pf->cmd = NULL;
+    pf->swapchain = NULL;
+}
+
+void platform_shutdown(Platform *pf) {
+    if (pf->gamepad) SDL_CloseGamepad(pf->gamepad);
+    if (pf->gpu && pf->window) SDL_ReleaseWindowFromGPUDevice(pf->gpu, pf->window);
+    if (pf->gpu) SDL_DestroyGPUDevice(pf->gpu);
+    if (pf->window) SDL_DestroyWindow(pf->window);
+    SDL_Quit();
+}
