@@ -74,6 +74,7 @@ int main(int argc, char **argv) {
 
         while (accumulator >= TICK_DT) {
             game_tick(&game, &pf.input, TICK_DT);
+            platform_clear_edges(&pf);   // each press is seen by exactly one tick
             accumulator -= TICK_DT;
         }
 

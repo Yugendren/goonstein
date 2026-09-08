@@ -39,7 +39,8 @@ typedef struct Platform {
 } Platform;
 
 bool platform_init(Platform *pf, const char *title, int w, int h);
-bool platform_poll(Platform *pf);       // returns false on quit
+bool platform_poll(Platform *pf);       // returns false on quit. Edge inputs accumulate until platform_clear_edges.
+void platform_clear_edges(Platform *pf); // call after a simulation tick has consumed the input
 void platform_begin_frame(Platform *pf);
 void platform_end_frame(Platform *pf);
 void platform_shutdown(Platform *pf);

@@ -38,14 +38,19 @@ bool platform_init(Platform *pf, const char *title, int w, int h) {
     return true;
 }
 
-bool platform_poll(Platform *pf) {
+void platform_clear_edges(Platform *pf) {
     Input *in = &pf->input;
-    // Edge-triggered actions reset each frame; held state is re-derived below.
     in->attack = in->parry = in->dodge = in->interact = in->debug_toggle = false;
     in->pause_toggle = in->step = in->reload = in->skip = in->lockon = false;
     in->click = in->rclick = false; in->wheel = 0;
     memset(in->key_down, 0, sizeof in->key_down);
     in->look_x = in->look_y = 0.0f;
+}
+
+bool platform_poll(Platform *pf) {
+    Input *in = &pf->input;
+    // Edge-triggered actions are NOT cleared here: a press that lands on a frame with no simulation
+    // tick (120 Hz display, 60 Hz sim) must survive until the next tick consumes it.
 
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
