@@ -23,7 +23,17 @@ void main() {
     float nl = clamp(dot(n, -light_dir.xyz), 0.0, 1.0);
     vec3 lit = light_color.rgb * nl + light_dir.w;
     gl_Position = cp;
-    v_uv = a_uv * uv_xform.xy + uv_xform.zw;
+    if (uv_xform.x < 0.0) {
+        // World-space planar mapping picked by the dominant normal axis: textures stay
+        // continuous across blocks and never stretch, whatever the box proportions.
+        vec3 an = abs(n);
+        float tile = -uv_xform.x;
+        if (an.x > an.y && an.x > an.z)      v_uv = wp.zy * tile;
+        else if (an.y > an.z)                v_uv = wp.xz * tile;
+        else                                 v_uv = wp.xy * tile;
+    } else {
+        v_uv = a_uv * uv_xform.xy + uv_xform.zw;
+    }
     v_color = vec4(a_color.rgb * tint.rgb * lit, a_color.a * tint.a);
     v_fog = clamp((cp.w - fog_params.x) / (fog_params.y - fog_params.x), 0.0, 1.0);
 }

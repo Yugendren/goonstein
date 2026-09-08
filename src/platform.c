@@ -41,6 +41,7 @@ bool platform_poll(Platform *pf) {
     Input *in = &pf->input;
     // Edge-triggered actions reset each frame; held state is re-derived below.
     in->attack = in->parry = in->dodge = in->interact = in->debug_toggle = false;
+    in->pause_toggle = in->step = in->reload = in->skip = false;
     in->look_x = in->look_y = 0.0f;
 
     SDL_Event e;
@@ -52,6 +53,10 @@ bool platform_poll(Platform *pf) {
             switch (e.key.scancode) {
             case SDL_SCANCODE_ESCAPE: pf->want_quit = true; break;
             case SDL_SCANCODE_F1: in->debug_toggle = true; pf->debug = !pf->debug; break;
+            case SDL_SCANCODE_F2: in->pause_toggle = true; break;
+            case SDL_SCANCODE_F3: in->step = true; break;
+            case SDL_SCANCODE_F5: in->reload = true; break;
+            case SDL_SCANCODE_RETURN: in->skip = true; break;
             case SDL_SCANCODE_J: in->attack = true; break;
             case SDL_SCANCODE_K: in->parry = true; break;
             case SDL_SCANCODE_SPACE: in->dodge = true; break;
@@ -78,6 +83,8 @@ bool platform_poll(Platform *pf) {
             case SDL_GAMEPAD_BUTTON_NORTH: in->parry = true; break;    // Y / Triangle
             case SDL_GAMEPAD_BUTTON_EAST:  in->dodge = true; break;    // B / Circle
             case SDL_GAMEPAD_BUTTON_SOUTH: in->interact = true; break; // A / Cross
+            case SDL_GAMEPAD_BUTTON_START: in->skip = true; break;
+            case SDL_GAMEPAD_BUTTON_BACK:  in->debug_toggle = true; pf->debug = !pf->debug; break;
             default: break;
             }
             break;

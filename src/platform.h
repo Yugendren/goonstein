@@ -8,7 +8,7 @@
 typedef struct Input {
     // Digital
     bool quit_requested;
-    bool debug_toggle;
+    bool debug_toggle, pause_toggle, step, reload, skip;
     // Movement stick / WASD, in [-1, 1]
     float move_x, move_y;
     // Camera stick / mouse delta

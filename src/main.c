@@ -18,10 +18,14 @@
 int main(int argc, char **argv) {
     // --frames N      exit after N frames (headless checks, CI)
     // --screenshot P  write the internal frame to P before exiting
-    int max_frames = -1; const char *shot = NULL;
+    // --start S       begin in state S: explore (default), fight, end
+    // --bot           let a simple bot play the fight (with --start fight)
+    int max_frames = -1; const char *shot = NULL; const char *start = NULL; bool bot = false;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) shot = argv[++i];
+        else if (!strcmp(argv[i], "--start") && i + 1 < argc) start = argv[++i];
+        else if (!strcmp(argv[i], "--bot")) bot = true;
     }
 
     Platform pf;
@@ -36,6 +40,8 @@ int main(int argc, char **argv) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "gfx init failed: %s", SDL_GetError());
         return 1;
     }
+    if (start) game_start_at(&game, start);
+    game.bot = bot;
 
     Uint64 freq = SDL_GetPerformanceFrequency();
     Uint64 prev = SDL_GetPerformanceCounter();
@@ -65,6 +71,8 @@ int main(int argc, char **argv) {
         if (max_frames >= 0 && --max_frames == 0) running = false;
     }
     if (shot) game_screenshot(&game, shot);
+    SDL_Log("stats: state=%d parries=%u hits_taken=%u deaths=%u boss_hp=%.0f player_hp=%.0f",
+            game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, game.player.c.hp);
 
     game_shutdown(&game);
     platform_shutdown(&pf);

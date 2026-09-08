@@ -1,0 +1,15 @@
+# intro.txt - opening. The corridor behind the player is gone. ~14 s.
+0.0 letterbox on
+0.0 fade 0 1 3.0
+0.0 cam 1.4 2.4 13.0   0 0.9 1.5   40 cut
+0.2 actor player anim idle
+0.5 sound door
+1.0 say "The door behind you is already gone." 3.5
+5.0 say "Something below is counting your steps." 4.0
+6.0 cam 1.4 2.4 13.0   0 0.9 1.5   34
+6.5 actor player move 0 0 4.5 6.5
+9.0 cam -1.6 0.6 8.2   0.2 1.0 4.5   50 cut
+12.5 sound sting
+13.0 cam -1.6 0.6 8.2   0.2 1.2 4.5   46
+13.5 letterbox off
+14.0 end

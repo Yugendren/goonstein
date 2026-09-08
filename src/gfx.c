@@ -312,12 +312,13 @@ void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Ve
 }
 
 void gfx_draw_box(Gfx *g, const Texture *t, Vec3 center, Vec3 size, float yaw, Vec4 tint, float uv_tile) {
-    // Tile the texture by world size on the largest two axes so walls and floors repeat sensibly.
-    float sx = size.x, sy = size.y, sz = size.z;
-    float u = (sx >= sz ? sx : sz) * uv_tile, v = (sy >= sz ? sy : sz) * uv_tile;
-    if (uv_tile <= 0) { u = 1; v = 1; }
-    gfx_draw(g, &g->cube, t, m4_trs(center, yaw, size), tint, v4(u, v, 0, 0));
+    // uv_tile > 0: world-space planar mapping at that many repeats per metre (see world.vert).
+    // uv_tile <= 0: the texture is stretched once across each face.
+    Vec4 xf = uv_tile > 0 ? v4(-uv_tile, 0, 0, 0) : v4(1, 1, 0, 0);
+    gfx_draw(g, &g->cube, t, m4_trs(center, yaw, size), tint, xf);
 }
+
+void gfx_set_ambient(Gfx *g, float ambient) { g->frame.ambient = ambient; }
 
 void gfx_draw_box_wire(Gfx *g, Vec3 c, Vec3 s, Vec4 color) {
     const float th = 0.02f;

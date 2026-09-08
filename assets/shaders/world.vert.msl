@@ -16,9 +16,9 @@ struct _11
 
 struct main0_out
 {
-    float2 m_87 [[user(locn0)]];
-    float4 m_100 [[user(locn1)]];
-    float m_123 [[user(locn2)]];
+    float2 m_118 [[user(locn0)]];
+    float4 m_152 [[user(locn1)]];
+    float m_175 [[user(locn2)]];
     float4 gl_Position [[position]];
 };
 
@@ -26,18 +26,55 @@ struct main0_in
 {
     float3 m_21 [[attribute(0)]];
     float3 m_47 [[attribute(1)]];
-    float2 m_89 [[attribute(2)]];
-    float4 m_102 [[attribute(3)]];
+    float2 m_142 [[attribute(2)]];
+    float4 m_154 [[attribute(3)]];
 };
 
 vertex main0_out main0(main0_in in [[stage_in]], constant _11& _13 [[buffer(0)]])
 {
     main0_out out = {};
-    float4 _34 = _13._m0 * (_13._m1 * float4(in.m_21, 1.0));
+    float4 _28 = _13._m1 * float4(in.m_21, 1.0);
+    float4 _34 = _13._m0 * _28;
+    float3 _50 = fast::normalize(float3x3(_13._m1[0].xyz, _13._m1[1].xyz, _13._m1[2].xyz) * in.m_47);
     out.gl_Position = _34;
-    out.m_87 = (in.m_89 * _13._m6.xy) + _13._m6.zw;
-    out.m_100 = float4((in.m_102.xyz * _13._m2.xyz) * ((_13._m5.xyz * fast::clamp(dot(fast::normalize(float3x3(_13._m1[0].xyz, _13._m1[1].xyz, _13._m1[2].xyz) * in.m_47), -_13._m4.xyz), 0.0, 1.0)) + float3(_13._m4.w)), in.m_102.w * _13._m2.w);
-    out.m_123 = fast::clamp((_34.w - _13._m3.x) / (_13._m3.y - _13._m3.x), 0.0, 1.0);
+    if (_13._m6.x < 0.0)
+    {
+        float3 _95 = abs(_50);
+        float _99 = -_13._m6.x;
+        float _101 = _95.x;
+        float _103 = _95.y;
+        bool _104 = _101 > _103;
+        bool _113;
+        if (_104)
+        {
+            _113 = _101 > _95.z;
+        }
+        else
+        {
+            _113 = _104;
+        }
+        if (_113)
+        {
+            out.m_118 = _28.zy * _99;
+        }
+        else
+        {
+            if (_103 > _95.z)
+            {
+                out.m_118 = _28.xz * _99;
+            }
+            else
+            {
+                out.m_118 = _28.xy * _99;
+            }
+        }
+    }
+    else
+    {
+        out.m_118 = (in.m_142 * _13._m6.xy) + _13._m6.zw;
+    }
+    out.m_152 = float4((in.m_154.xyz * _13._m2.xyz) * ((_13._m5.xyz * fast::clamp(dot(_50, -_13._m4.xyz), 0.0, 1.0)) + float3(_13._m4.w)), in.m_154.w * _13._m2.w);
+    out.m_175 = fast::clamp((_34.w - _13._m3.x) / (_13._m3.y - _13._m3.x), 0.0, 1.0);
     return out;
 }
 

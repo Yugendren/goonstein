@@ -55,6 +55,8 @@ void gfx_begin(Gfx *g, Platform *pf, const FrameParams *fp);
 void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Vec4 uv_xform);
 void gfx_draw_box(Gfx *g, const Texture *t, Vec3 center, Vec3 size, float yaw, Vec4 tint, float uv_tile);
 void gfx_draw_box_wire(Gfx *g, Vec3 center, Vec3 size, Vec4 color);
+// Ambient for subsequent draws this frame (characters use a higher floor than the level).
+void gfx_set_ambient(Gfx *g, float ambient);
 
 // UI, in internal-resolution pixels, drawn after the world
 void gfx_ui_rect(Gfx *g, float x, float y, float w, float h, Vec4 color);
