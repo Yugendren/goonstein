@@ -424,6 +424,47 @@ void gfx_ui_text(Gfx *g, float x, float y, float scale, Vec4 c, const char *text
 }
 float gfx_ui_text_width(float scale, const char *text) { return stb_easy_font_width((char *)text) * scale; }
 
+void gfx_ui_quad(Gfx *g, const float *q, Vec4 c) {
+    ui_push(g, q[0], q[1], 0, 0, c); ui_push(g, q[2], q[3], 1, 0, c); ui_push(g, q[4], q[5], 1, 1, c);
+    ui_push(g, q[0], q[1], 0, 0, c); ui_push(g, q[4], q[5], 1, 1, c); ui_push(g, q[6], q[7], 0, 1, c);
+}
+
+void gfx_ui_text_xf(Gfx *g, float cx, float cy, float scale, float angle, Vec4 c, const char *text) {
+    static char buf[64 * 1024];
+    int quads = stb_easy_font_print(0, 0, (char *)text, NULL, buf, sizeof buf);
+    const float *q = (const float *)buf;
+    float w = stb_easy_font_width((char *)text), h = 7.0f;
+    float ca = cosf(angle), sa = sinf(angle);
+    for (int i = 0; i < quads; i++) {
+        float px[4], py[4];
+        for (int k = 0; k < 4; k++) {
+            float lx = (q[(i * 4 + k) * 4 + 0] - w * 0.5f) * scale, ly = (q[(i * 4 + k) * 4 + 1] - h * 0.5f) * scale;
+            px[k] = cx + lx * ca - ly * sa; py[k] = cy + lx * sa + ly * ca;
+        }
+        ui_push(g, px[0], py[0], 0, 0, c); ui_push(g, px[1], py[1], 0, 0, c); ui_push(g, px[2], py[2], 0, 0, c);
+        ui_push(g, px[0], py[0], 0, 0, c); ui_push(g, px[2], py[2], 0, 0, c); ui_push(g, px[3], py[3], 0, 0, c);
+    }
+}
+
+void gfx_ui_ring(Gfx *g, float cx, float cy, float r, float th, Vec4 c) {
+    int n = r > 80 ? 48 : 32;
+    float r0 = r - th * 0.5f, r1 = r + th * 0.5f;
+    for (int i = 0; i < n; i++) {
+        float a0 = (float)i / n * 2 * PI, a1 = (float)(i + 1) / n * 2 * PI;
+        float q[8] = { cx + cosf(a0) * r0, cy + sinf(a0) * r0, cx + cosf(a0) * r1, cy + sinf(a0) * r1,
+                       cx + cosf(a1) * r1, cy + sinf(a1) * r1, cx + cosf(a1) * r0, cy + sinf(a1) * r0 };
+        gfx_ui_quad(g, q, c);
+    }
+}
+
+void gfx_ui_disc(Gfx *g, float cx, float cy, float r, Vec4 c) {
+    int n = 32;
+    for (int i = 0; i < n; i++) {
+        float a0 = (float)i / n * 2 * PI, a1 = (float)(i + 1) / n * 2 * PI;
+        ui_push(g, cx, cy, 0, 0, c); ui_push(g, cx + cosf(a0) * r, cy + sinf(a0) * r, 0, 0, c); ui_push(g, cx + cosf(a1) * r, cy + sinf(a1) * r, 0, 0, c);
+    }
+}
+
 // ---------------------------------------------------------------- end of frame
 
 static void fullscreen_pass(Gfx *g, SDL_GPUCommandBuffer *cmd, SDL_GPUGraphicsPipeline *pipe, SDL_GPUTexture *dst,

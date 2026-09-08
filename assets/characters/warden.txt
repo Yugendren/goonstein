@@ -1,12 +1,13 @@
-# Boss: KayKit Skeleton Warrior, scaled up. CC0. Same rig family as the knight.
-model models/kaykit/Skeleton_Warrior.glb
-scale 1.35
+# Boss: KayKit Barbarian, scaled up. CC0. Same rig family as the knight.
+model models/kaykit/Barbarian.glb
+scale 1.45
 texture_size 256
 yaw_offset 0
-anim idle       Idle_Combat loop
-anim walk       Walking_D_Skeletons loop
+hide 1H_Axe_Offhand 1H_Axe Mug Barbarian_Round_Shield
+anim idle       2H_Melee_Idle loop
+anim walk       Walking_A loop
 anim attack     2H_Melee_Attack_Chop contact 0.45
 anim hurt       Hit_A
 anim stagger    Hit_B
-anim roar       Taunt
-anim dead       Death_C_Skeletons hold
+anim roar       Cheer
+anim dead       Death_A hold

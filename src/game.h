@@ -48,3 +48,5 @@ void game_shutdown(Game *g);
 void game_screenshot(Game *g, const char *path);
 // Test harness: jump to a state ("explore", "fight", "end").
 void game_start_at(Game *g, const char *where);
+// Harness: true once when the named battle moment is on screen (ring closing, a judgement burst, a card in flight).
+bool game_shot_moment(Game *g, const char *when);

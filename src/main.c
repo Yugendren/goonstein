@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
     // --start S       begin in state S: explore (default), fight, end
     // --bot           let a simple bot play the fight (with --start fight)
     // --volume V      master volume 0..1 (test runs use 0.1)
-    int max_frames = -1; const char *shot = NULL; const char *start = NULL; bool bot = false; float volume = 1.0f;
+    int max_frames = -1; const char *shot = NULL; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
     static Game game;   // large; static keeps it off the stack
     game_init(&game);
     for (int i = 1; i < argc; i++) {
@@ -32,6 +32,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--bot")) bot = true;
         else if (!strcmp(argv[i], "--level") && i + 1 < argc) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, argv[++i]);
         else if (!strcmp(argv[i], "--volume") && i + 1 < argc) volume = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--shot-when") && i + 1 < argc) shot_when = argv[++i];   // ring | judge | play: screenshot at that battle moment, then exit
     }
 
     Platform pf;
@@ -74,10 +75,11 @@ int main(int argc, char **argv) {
         game_render(&game, &pf, (float)alpha);
         platform_end_frame(&pf);
         if (max_frames >= 0 && --max_frames == 0) running = false;
+        if (shot_when && shot && game_shot_moment(&game, shot_when)) { game_screenshot(&game, shot); shot = NULL; running = false; }
     }
     if (shot) game_screenshot(&game, shot);
-    SDL_Log("stats: state=%d parries=%u hits_taken=%u deaths=%u boss_hp=%.0f player_hp=%.0f player_yaw=%.0f flash=%.2f t=%.3f player=(%.1f %.1f %.1f) boss=(%.1f %.1f %.1f) cam=(%.1f %.1f %.1f) dist=%.1f",
-            game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, game.player.c.hp, game.player.c.yaw / DEG2RAD, game.flash, game.time,
+    SDL_Log("stats: battle=%d enemy_hp=%d round=%d | state=%d parries=%u hits_taken=%u deaths=%u boss_hp=%.0f player_hp=%.0f player_yaw=%.0f flash=%.2f t=%.3f player=(%.1f %.1f %.1f) boss=(%.1f %.1f %.1f) cam=(%.1f %.1f %.1f) dist=%.1f",
+            game.battle.state, game.battle.enemy_hp, game.battle.round, game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, game.player.c.hp, game.player.c.yaw / DEG2RAD, game.flash, game.time,
             game.player.c.pos.x, game.player.c.pos.y, game.player.c.pos.z, game.boss.c.pos.x, game.boss.c.pos.y, game.boss.c.pos.z, game.cam.eye.x, game.cam.eye.y, game.cam.eye.z, game.cam.cur_dist);
 
     game_shutdown(&game);

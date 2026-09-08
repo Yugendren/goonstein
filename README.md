@@ -53,9 +53,12 @@ The game is meant to be edited without touching C:
 
 Reaching the boss starts a card battle. Cards are in `assets/cards/cards.txt`, the starting deck
 in `assets/decks/knight.txt`, the boss's attacks and pattern in `assets/enemies/warden_battle.txt`.
-Play cards with the mouse; End Turn (or Enter) hands over to the enemy. During its attack, click,
-right-click or press Space on the beat to deflect (the square closing on you is the cue), Shift to
-dodge unblockable attacks. Parries bank energy for your next turn; perfect parries counter.
+Play cards with the mouse; End Turn (or Enter) hands over to the enemy. Its attacks are rhythm
+reads: a numbered hit circle appears on you and an approach ring closes onto it. Click, right-click
+or press Space when the ring meets the circle. Judgement tiers are PERFECT (45 ms), GREAT (95 ms)
+and GOOD (150 ms); anything else is a miss and the hit lands. Perfects counter and bank two energy,
+greats bank one, every fourth combo hit banks a bonus, and a miss resets the combo. Shift dodges
+unblockable attacks. A timing bar shows whether you were early or late.
 
 ## Headless test harness
 

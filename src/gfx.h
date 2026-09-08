@@ -92,6 +92,11 @@ void gfx_ground_quad(Gfx *g, Vec3 center, float radius, Vec4 color, bool additiv
 void gfx_ui_rect(Gfx *g, float x, float y, float w, float h, Vec4 color);
 void gfx_ui_text(Gfx *g, float x, float y, float scale, Vec4 color, const char *text);
 float gfx_ui_text_width(float scale, const char *text);
+// Arbitrary quad (4 corners, clockwise or counter-clockwise) and transformed text / rings for card and rhythm UI.
+void gfx_ui_quad(Gfx *g, const float *xy8, Vec4 color);
+void gfx_ui_text_xf(Gfx *g, float cx, float cy, float scale, float angle, Vec4 color, const char *text);  // centred, rotated
+void gfx_ui_ring(Gfx *g, float cx, float cy, float radius, float thickness, Vec4 color);
+void gfx_ui_disc(Gfx *g, float cx, float cy, float radius, Vec4 color);
 
 bool gfx_screenshot(Gfx *g, const char *path);
 void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time);

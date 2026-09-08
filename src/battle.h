@@ -43,7 +43,16 @@ typedef enum BattleState {
     BT_INTRO, BT_PLAYER, BT_CARD, BT_ENEMY_TELL, BT_ENEMY_ATTACK, BT_ENEMY_RECOVER, BT_WIN, BT_LOSE
 } BattleState;
 
-typedef struct HandCard { int def; float lift; bool flying; float fly_t; } HandCard;
+// A card in the hand has physical state: springs pull it toward its fan slot, the hover slot,
+// the play point, or the discard pile.
+typedef enum CardPhase { CP_DRAWING, CP_HAND, CP_PLAYING, CP_DISCARDING } CardPhase;
+typedef struct HandCard {
+    int def; CardPhase phase; float phase_t;
+    float x, y, rot, sc, vx, vy, vrot, vsc;   // position, rotation, scale and their velocities
+    float hover;                               // 0..1 smoothed
+} HandCard;
+
+typedef enum Judge { J_NONE, J_PERFECT, J_GREAT, J_GOOD, J_MISS } Judge;
 
 typedef struct Battle {
     CardDef cards[CARDS_MAX]; int ncards;
@@ -59,7 +68,10 @@ typedef struct Battle {
     int enemy_hp, enemy_hp_max;
     bool parried_this_round, wide_windows;
     int pattern_i, cur_attack, hit_i; bool hit_done[HITS_MAX]; float hit_t[HITS_MAX];   // game time of each hit
-    float parry_pressed_t;               // time of the last parry press (for early/late reads)
+    float parry_pressed_t; bool press_used;   // last parry press and whether a hit consumed it
+    // rhythm read
+    int   combo, max_combo; Judge last_judge; float judge_t, last_offset;
+    float burst_t[HITS_MAX]; Judge hit_judge[HITS_MAX];
     bool dodging; float dodge_t;
     int playing_card; int card_hit_i; bool card_hit_done[HITS_MAX];
     // presentation

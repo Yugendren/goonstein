@@ -4,9 +4,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PARRY_WINDOW   0.14f
-#define PARRY_WIDE     0.24f
-#define PERFECT_WINDOW 0.06f
+// Judgement windows (seconds either side of the beat), osu-style tiers
+#define W_PERFECT 0.045f
+#define W_GREAT   0.095f
+#define W_GOOD    0.150f
+#define APPROACH  0.85f      // how long the approach ring takes to close
+#define RING_R    46.0f      // hit circle radius in UI pixels
 #define HAND_SIZE      5
 #define ENERGY_BASE    3
 #define ENERGY_CAP     6
@@ -143,6 +146,8 @@ bool battle_load(Battle *b, const char *cards_path, const char *deck_path, const
 }
 
 // ---------------------------------------------------------------- piles
+static void card_begin_play(Battle *b, int i);
+static void card_begin_discard(Battle *b, int i);
 
 static void shuffle(int *a, int n) { for (int i = n - 1; i > 0; i--) { int j = rand() % (i + 1); int t = a[i]; a[i] = a[j]; a[j] = t; } }
 
@@ -157,12 +162,16 @@ static void draw_card(Battle *b) {
     HandCard *h = &b->hand[b->nhand++];
     memset(h, 0, sizeof *h);
     h->def = b->draw_pile[--b->ndraw];
+    h->phase = CP_DRAWING; h->x = 1330; h->y = 760; h->rot = 0.6f; h->sc = 0.6f;
+    h->vx = -900 + (float)(rand() % 300); h->vy = -500; h->vrot = -6;
 }
 
 static void discard_hand(Battle *b) {
-    for (int i = 0; i < b->nhand; i++) if (b->ndiscard < DECK_MAX) b->discard[b->ndiscard++] = b->hand[i].def;
-    b->nhand = 0;
+    for (int i = 0; i < b->nhand; i++) if (b->hand[i].phase == CP_HAND || b->hand[i].phase == CP_DRAWING) card_begin_discard(b, i);
 }
+
+static void card_begin_play(Battle *b, int i) { b->hand[i].phase = CP_PLAYING; b->hand[i].phase_t = 0; b->hand[i].vy -= 900; b->hand[i].vrot += 3; }
+static void card_begin_discard(Battle *b, int i) { b->hand[i].phase = CP_DISCARDING; b->hand[i].phase_t = 0; b->hand[i].vx -= 600; b->hand[i].vrot -= 4; }
 
 static void remove_from_hand(Battle *b, int i) {
     if (b->ndiscard < DECK_MAX) b->discard[b->ndiscard++] = b->hand[i].def;
@@ -190,7 +199,8 @@ void battle_start(Battle *b, Vec3 centre, float stage_yaw, float spacing, int pl
     b->state = BT_INTRO; b->t = 0; b->round = 0;
     b->energy = 0; b->energy_max = ENERGY_BASE; b->banked = 0; b->guard = 0;
     b->pattern_i = 0; b->timescale = 1; b->hitstop = 0; b->hovered = -1; b->playing_card = -1;
-    b->parries = b->perfects = b->hits_taken = 0;
+    b->parries = b->perfects = b->hits_taken = 0; b->combo = b->max_combo = 0; b->last_judge = J_NONE; b->judge_t = -1;
+    for (int i = 0; i < HITS_MAX; i++) { b->burst_t[i] = -1; b->hit_judge[i] = J_NONE; }
     // opening shot: wide from the player's side
     Vec3 c = centre; Vec3 r = right_of(stage_yaw);
     b->shot_eye = v3_add(v3_add(v3_add(c, v3_scale(r, -10.0f)), v3_scale(f, -4.0f)), v3(0, 3.6f, 0));
@@ -269,7 +279,8 @@ static void begin_enemy_turn(Battle *b, CharModel *bm, Boss *boss, Uifx *fx) {
     b->pattern_i++;
     b->state = BT_ENEMY_TELL; b->t = 0; b->hit_i = 0;
     for (int i = 0; i < HITS_MAX; i++) b->hit_done[i] = false;
-    b->parry_pressed_t = -10; b->dodging = false;
+    b->parry_pressed_t = -10; b->press_used = true; b->dodging = false;
+    for (int i = 0; i < HITS_MAX; i++) { b->burst_t[i] = -1; b->hit_judge[i] = J_NONE; }
     const EnemyAttack *a = &b->enemy.attacks[b->cur_attack];
     char banner[96]; snprintf(banner, sizeof banner, "%s", b->enemy.name);
     for (char *p = banner; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
@@ -283,63 +294,80 @@ static void begin_enemy_turn(Battle *b, CharModel *bm, Boss *boss, Uifx *fx) {
     }
 }
 
+static Vec3 hit_world(const Battle *b, int i) {
+    // Where hit i's circle sits: on the player's body, alternating sides for multi-hit attacks
+    Vec3 r = right_of(b->stage_yaw);
+    float side = i == 0 ? 0.0f : (i % 2 ? 0.55f : -0.55f);
+    return v3_add(chest(b->player_pos, 1.25f + (i >= 2 ? 0.35f : 0.0f)), v3_scale(r, side));
+}
+
 static void enemy_hit_lands(Battle *b, int i, Player *player, CharModel *pm, CharModel *bm, Particles *ps, Uifx *fx, CombatEvents *ev, Mat4 vp) {
     (void)bm;
     const EnemyAttack *a = &b->enemy.attacks[b->cur_attack];
     float th = b->hit_t[i];
-    float window = b->wide_windows ? PARRY_WIDE : PARRY_WINDOW;
+    float wide = b->wide_windows ? 1.5f : 1.0f;
     Vec3 contact = v3_add(chest(b->player_pos, 1.1f), v3_scale(fwd_of(b->stage_yaw), 0.7f));
-    float px, py; bool on = uifx_project(vp, chest(b->player_pos, 2.2f), &px, &py);
-    if (!on) { px = 640; py = 300; }
-    bool pressed = fabsf(b->parry_pressed_t - th) <= window;
-    if (b->dodging && a->parryable == false) {
-        uifx_spawn(fx, UIFX_BLOCK, px, py, "DODGED", v4(0.7f, 0.8f, 1, 1), 2.2f, 0.7f);
+    float px, py; if (!uifx_project(vp, hit_world(b, i), &px, &py)) { px = 640; py = 300; }
+    float offset = b->parry_pressed_t - th;             // negative = early
+    bool have_press = !b->press_used && fabsf(offset) <= W_GOOD * wide;
+    Judge j = J_MISS;
+    if (have_press) j = fabsf(offset) <= W_PERFECT * wide ? J_PERFECT : fabsf(offset) <= W_GREAT * wide ? J_GREAT : J_GOOD;
+    b->burst_t[i] = 0; b->hit_judge[i] = j;
+
+    if (b->dodging) {
+        uifx_spawn(fx, UIFX_BLOCK, px, py - 70, "DODGED", v4(0.7f, 0.8f, 1, 1), 2.2f, 0.7f);
         set_read(b, "dodged"); audio_play(SND_WHIFF, 0.6f, 1.1f);
         return;
     }
-    if (b->dodging) {
-        uifx_spawn(fx, UIFX_BLOCK, px, py, "DODGED", v4(0.7f, 0.8f, 1, 1), 2.2f, 0.7f);
-        audio_play(SND_WHIFF, 0.6f, 1.1f);
-        return;
-    }
-    if (pressed && a->parryable) {
-        bool perfect = fabsf(b->parry_pressed_t - th) <= PERFECT_WINDOW;
+    if (have_press && a->parryable) {
+        b->press_used = true;
         b->parries++; b->parried_this_round = true;
-        b->banked += 1; if (perfect) { b->perfects++; b->banked += 1; }
-        if (b->banked > ENERGY_CAP - ENERGY_BASE) b->banked = ENERGY_CAP - ENERGY_BASE;
-        uifx_spawn(fx, UIFX_PARRY, px, py - 10, perfect ? "PERFECT" : "PARRY", perfect ? v4(1, 0.95f, 0.5f, 1) : v4(0.95f, 0.85f, 0.55f, 1), perfect ? 4.0f : 3.2f, 0.8f);
-        spawn_sparks(ps, contact, v3(3.0f, 2.4f, 1.2f), perfect ? 60 : 32, perfect ? 9.0f : 6.0f);
+        b->combo++; if (b->combo > b->max_combo) b->max_combo = b->combo;
+        b->last_judge = j; b->judge_t = 0; b->last_offset = offset;
+        int gain = j == J_PERFECT ? 2 : j == J_GREAT ? 1 : 0;
+        if (b->combo % 4 == 0) gain += 1;                 // combo bonus every fourth parry
+        b->banked += gain; if (b->banked > ENERGY_CAP - ENERGY_BASE) b->banked = ENERGY_CAP - ENERGY_BASE;
+        const char *txt = j == J_PERFECT ? "PERFECT" : j == J_GREAT ? "GREAT" : "GOOD";
+        Vec4 col = j == J_PERFECT ? v4(1, 0.95f, 0.5f, 1) : j == J_GREAT ? v4(0.6f, 1, 0.7f, 1) : v4(0.7f, 0.85f, 1, 1);
+        uifx_spawn(fx, UIFX_PARRY, px, py - 80, txt, col, j == J_PERFECT ? 4.2f : 3.2f, 0.8f);
+        if (b->combo >= 2) { char cs[16]; snprintf(cs, sizeof cs, "x%d", b->combo); uifx_spawn(fx, UIFX_DAMAGE, px + 90, py - 60, cs, v4(1, 0.8f, 0.4f, 1), 2.2f + fminf(b->combo, 12) * 0.12f, 0.7f); }
+        spawn_sparks(ps, contact, j == J_PERFECT ? v3(3.0f, 2.6f, 1.2f) : v3(1.6f, 2.4f, 2.6f), j == J_PERFECT ? 64 : 28, j == J_PERFECT ? 9.0f : 5.5f);
         play_bound(pm, ANIM_PARRY_HIT, 0.04f, 0.5f, 0.0f);
         ev->parried = true; ev->contact = contact;
-        ev->shake = fmaxf(ev->shake, perfect ? 0.5f : 0.3f);
-        b->hitstop = perfect ? 0.14f : 0.09f;
-        if (perfect) b->timescale = 0.3f;
-        audio_play(SND_PARRY, 1.0f, perfect ? 1.15f : 1.0f);
-        set_read(b, perfect ? "perfect" : "parry");
-        if (perfect) {
-            // Counter: a quick riposte for a little damage
-            b->enemy_hp -= COUNTER_DAMAGE; if (b->enemy_hp < 0) b->enemy_hp = 0;
-            float ex, ey; if (uifx_project(vp, chest(b->enemy_pos, 2.6f), &ex, &ey)) { char s[16]; snprintf(s, sizeof s, "%d", COUNTER_DAMAGE); uifx_spawn(fx, UIFX_DAMAGE, ex, ey, s, v4(1, 0.9f, 0.6f, 1), 2.6f, 0.9f); }
+        ev->shake = fmaxf(ev->shake, j == J_PERFECT ? 0.5f : 0.25f);
+        b->hitstop = j == J_PERFECT ? 0.14f : j == J_GREAT ? 0.09f : 0.05f;
+        if (j == J_PERFECT) b->timescale = 0.3f;
+        float pitch = 1.0f + 0.03f * (float)(b->combo < 12 ? b->combo : 12);
+        audio_play(SND_PARRY, 1.0f, pitch * (j == J_PERFECT ? 1.12f : 1.0f));
+        if (j == J_GOOD) audio_play(SND_BLIP, 0.4f, 0.8f);
+        b->perfects += j == J_PERFECT;
+        set_read(b, txt);
+        if (j == J_PERFECT) {
+            int cd = COUNTER_DAMAGE + b->combo / 3;
+            b->enemy_hp -= cd; if (b->enemy_hp < 0) b->enemy_hp = 0;
+            float ex, ey; if (uifx_project(vp, chest(b->enemy_pos, 2.6f), &ex, &ey)) { char t[16]; snprintf(t, sizeof t, "%d", cd); uifx_spawn(fx, UIFX_DAMAGE, ex, ey, t, v4(1, 0.9f, 0.6f, 1), 2.8f, 0.9f); }
         }
         return;
     }
-    // Hit lands
+    // Miss: the hit lands
+    b->combo = 0; b->last_judge = J_MISS; b->judge_t = 0; b->last_offset = have_press ? offset : (b->parry_pressed_t > th - 0.6f ? offset : 0);
     int dmg = a->damage;
     if (b->guard > 0) { int absorbed = dmg < b->guard ? dmg : b->guard; dmg -= absorbed; b->guard -= absorbed;
-        if (absorbed > 0) { char s[24]; snprintf(s, sizeof s, "GUARD %d", absorbed); uifx_spawn(fx, UIFX_BLOCK, px - 40, py + 30, s, v4(0.6f, 0.7f, 0.95f, 1), 2.0f, 0.8f); } }
+        if (absorbed > 0) { char t[24]; snprintf(t, sizeof t, "GUARD %d", absorbed); uifx_spawn(fx, UIFX_BLOCK, px - 40, py + 30, t, v4(0.6f, 0.7f, 0.95f, 1), 2.0f, 0.8f); } }
     b->player_hp -= dmg; if (b->player_hp < 0) b->player_hp = 0;
     b->hits_taken++;
-    char s[16]; snprintf(s, sizeof s, "%d", dmg);
-    uifx_spawn(fx, UIFX_DAMAGE, px, py, s, v4(1, 0.35f, 0.3f, 1), 3.4f, 0.9f);
-    if (!a->parryable && b->parry_pressed_t > th - 1.0f) uifx_spawn(fx, UIFX_FAIL, px, py - 40, "UNBLOCKABLE", v4(0.9f, 0.3f, 0.9f, 1), 2.4f, 0.9f);
-    else if (a->parryable && b->parry_pressed_t > -5 && b->parry_pressed_t < th) uifx_spawn(fx, UIFX_FAIL, px, py - 40, "EARLY", v4(1, 0.4f, 0.3f, 1), 2.4f, 0.9f);
-    else if (a->parryable && b->parry_pressed_t > th) uifx_spawn(fx, UIFX_FAIL, px, py - 40, "LATE", v4(1, 0.4f, 0.3f, 1), 2.4f, 0.9f);
+    char t[16]; snprintf(t, sizeof t, "%d", dmg);
+    uifx_spawn(fx, UIFX_DAMAGE, px, py, t, v4(1, 0.35f, 0.3f, 1), 3.4f, 0.9f);
+    if (!a->parryable && b->parry_pressed_t > th - 0.8f) uifx_spawn(fx, UIFX_FAIL, px, py - 70, "UNBLOCKABLE", v4(0.9f, 0.3f, 0.9f, 1), 2.4f, 0.9f);
+    else if (a->parryable && !b->press_used && offset < 0 && offset > -0.6f) uifx_spawn(fx, UIFX_FAIL, px, py - 70, "EARLY", v4(1, 0.4f, 0.3f, 1), 2.4f, 0.9f);
+    else if (a->parryable && !b->press_used && offset > 0) uifx_spawn(fx, UIFX_FAIL, px, py - 70, "LATE", v4(1, 0.4f, 0.3f, 1), 2.4f, 0.9f);
+    else uifx_spawn(fx, UIFX_FAIL, px, py - 70, "MISS", v4(1, 0.4f, 0.3f, 1), 2.4f, 0.9f);
     spawn_sparks(ps, contact, v3(2.5f, 0.3f, 0.2f), 18, 4.0f);
     play_bound(pm, ANIM_HURT, 0, 0.45f, 0.0f);
     player->c.flash = 1.0f;
     ev->player_hit = true; ev->contact = contact; ev->shake = fmaxf(ev->shake, 0.5f);
     b->hitstop = 0.06f;
-    audio_play(SND_HURT, 0.9f, 1.0f);
+    audio_play(SND_HURT, 0.9f, 1.0f); audio_play(SND_FAIL, 0.7f, 1.0f);
     if (b->player_hp <= 0) { b->state = BT_LOSE; b->t = 0; play_bound(pm, ANIM_DEAD, 0, 0, 0.1f); audio_play(SND_DEATH, 1, 1); }
 }
 
@@ -364,27 +392,83 @@ static bool can_play(const Battle *b, int hand_i) {
     return true;
 }
 
-// Card layout in UI pixels: returns the rect of hand card i
-static void card_rect(const Battle *b, int i, float *x, float *y, float *w, float *h) {
-    const float CW = 150, CH = 210, GAP = 14;
-    float total = b->nhand * CW + (b->nhand - 1) * GAP;
-    float x0 = 640 - total * 0.5f;
-    *w = CW; *h = CH;
-    *x = x0 + i * (CW + GAP);
-    *y = 800 - CH - 18 - b->hand[i].lift * 34.0f;
+// Fan layout: slot i of n has a centre and a rotation along an arc at the bottom of the screen.
+#define CARD_W 150.0f
+#define CARD_H 210.0f
+static int hand_slots(const Battle *b) { int n = 0; for (int i = 0; i < b->nhand; i++) if (b->hand[i].phase == CP_HAND || b->hand[i].phase == CP_DRAWING) n++; return n; }
+static void fan_slot(int slot, int n, float *cx, float *cy, float *rot) {
+    float spread = fminf(1.0f, 6.5f / (float)(n > 1 ? n : 1));
+    float k = n > 1 ? ((float)slot - (n - 1) * 0.5f) : 0.0f;
+    float ang = k * 0.058f * spread * 2.0f;
+    float radius = 1300.0f;
+    *cx = 640 + sinf(ang) * radius;
+    *cy = 800 - CARD_H * 0.5f - 12 + (1.0f - cosf(ang)) * radius;
+    *rot = ang;
 }
 static bool inside(float px, float py, float x, float y, float w, float h) { return px >= x && px <= x + w && py >= y && py <= y + h; }
+static bool inside_card(const HandCard *h, float px, float py) {
+    // test in the card's local frame
+    float ca = cosf(-h->rot), sa = sinf(-h->rot);
+    float dx = px - h->x, dy = py - h->y;
+    float lx = dx * ca - dy * sa, ly = dx * sa + dy * ca;
+    float hw = CARD_W * 0.5f * h->sc, hh = CARD_H * 0.5f * h->sc;
+    return lx >= -hw && lx <= hw && ly >= -hh - 30 && ly <= hh;
+}
 #define END_X 1090.0f
 #define END_Y 560.0f
 #define END_W 160.0f
 #define END_H 52.0f
+
+static void spring(float *x, float *v, float target, float k, float d, float dt) {
+    float a = (target - *x) * k - *v * d;
+    *v += a * dt; *x += *v * dt;
+}
+
+static void update_cards(Battle *b, float mx, float my, float dt) {
+    int n = hand_slots(b), slot = 0;
+    b->hovered = -1;
+    // hover pick: of the cards under the mouse, the one whose centre is nearest (fans overlap)
+    float best = 1e9f;
+    for (int i = 0; i < b->nhand; i++) {
+        if (b->state != BT_PLAYER || b->hand[i].phase != CP_HAND || !inside_card(&b->hand[i], mx, my)) continue;
+        float d = fabsf(mx - b->hand[i].x) - (b->hovered == i ? 20.0f : 0.0f);   // a little hysteresis on the current pick
+        if (d < best) { best = d; b->hovered = i; }
+    }
+    for (int i = 0; i < b->nhand; i++) {
+        HandCard *h = &b->hand[i];
+        float tx, ty, trot, tsc = 1.0f;
+        h->phase_t += dt;
+        if (h->phase == CP_DRAWING || h->phase == CP_HAND) {
+            fan_slot(slot++, n, &tx, &ty, &trot);
+            if (h->phase == CP_DRAWING && h->phase_t > 0.25f) h->phase = CP_HAND;
+            bool hov = b->hovered == i;
+            h->hover = damp(h->hover, hov ? 1.0f : 0.0f, 16.0f, dt);
+            ty -= 70.0f * h->hover; tsc = 1.0f + 0.14f * h->hover;
+            // hovered cards stand upright and tilt toward the mouse
+            trot = lerpf(trot, (mx - h->x) * 0.0012f, h->hover);
+            // neighbours make room
+            if (b->hovered >= 0 && !hov) { float away = (float)(i - b->hovered); tx += (away > 0 ? 1 : -1) * 22.0f / fabsf(away); }
+        } else if (h->phase == CP_PLAYING) {
+            tx = 640; ty = 330; trot = 0; tsc = 0.35f;
+            if (h->phase_t > 0.45f) { remove_from_hand(b, i); i--; continue; }
+        } else { // discarding
+            tx = -120; ty = 700; trot = -0.8f; tsc = 0.6f;
+            if (h->phase_t > 0.5f) { remove_from_hand(b, i); i--; continue; }
+        }
+        float k = h->phase == CP_PLAYING ? 320 : 240, d = 2.0f * sqrtf(k) * 0.9f;
+        spring(&h->x, &h->vx, tx, k, d, dt);
+        spring(&h->y, &h->vy, ty, k, d, dt);
+        spring(&h->rot, &h->vrot, trot, k, d, dt);
+        spring(&h->sc, &h->vsc, tsc, k, d, dt);
+    }
+}
 
 static void play_card(Battle *b, int hand_i, Player *player, CharModel *pm, Particles *ps, Uifx *fx) {
     (void)player;
     const CardDef *c = &b->cards[b->hand[hand_i].def];
     b->energy -= c->cost;
     b->playing_card = b->hand[hand_i].def;
-    b->hand[hand_i].flying = true; b->hand[hand_i].fly_t = 0;
+    card_begin_play(b, hand_i);
     b->state = BT_CARD; b->t = 0; b->card_hit_i = 0;
     for (int i = 0; i < HITS_MAX; i++) b->card_hit_done[i] = false;
     audio_play(SND_BLIP, 0.6f, 0.9f);
@@ -424,18 +508,10 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
     if (boss->c.flash > 0) boss->c.flash = fmaxf(0, boss->c.flash - dt_real * 5);
     Mat4 vp = camera_view_proj(cam, 1280.0f / 800.0f);
 
-    // Hand hover / card fly animation (real time)
-    b->hovered = -1;
-    for (int i = 0; i < b->nhand; i++) {
-        HandCard *h = &b->hand[i];
-        if (h->flying) { h->fly_t += dt_real * 3.0f; continue; }
-        float x, y, w, hh; card_rect(b, i, &x, &y, &w, &hh);
-        bool hov = b->state == BT_PLAYER && inside(mx, my, x, y - 34, w, hh + 34);
-        if (hov) b->hovered = i;
-        h->lift = damp(h->lift, hov ? 1.0f : 0.0f, 14.0f, dt_real);
-    }
-    for (int i = 0; i < b->nhand; i++) if (b->hand[i].flying && b->hand[i].fly_t >= 1.0f) { remove_from_hand(b, i); i--; }
+    update_cards(b, mx, my, dt_real);
     b->end_hover = b->state == BT_PLAYER && inside(mx, my, END_X, END_Y, END_W, END_H);
+    if (b->judge_t >= 0) b->judge_t += dt_real;
+    for (int i = 0; i < HITS_MAX; i++) if (b->burst_t[i] >= 0) b->burst_t[i] += dt_real;
 
     switch (b->state) {
     case BT_INTRO:
@@ -482,15 +558,15 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
     case BT_ENEMY_ATTACK: {
         const EnemyAttack *a = &b->enemy.attacks[b->cur_attack];
         shot_enemy_attack(b);
-        if (in->parry || in->click || in->rclick) { b->parry_pressed_t = b->t; audio_play(SND_WHIFF, 0.35f, 1.3f); play_bound(pm, ANIM_PARRY, 0.05f, 0.35f, 0.02f); }
+        if (in->parry || in->click || in->rclick) { b->parry_pressed_t = b->t; b->press_used = false; audio_play(SND_WHIFF, 0.35f, 1.3f); play_bound(pm, ANIM_PARRY, 0.05f, 0.35f, 0.02f); }
         if (in->dodge && !b->dodging) { b->dodging = true; b->dodge_t = b->t; play_bound(pm, ANIM_DODGE, 0, 0.45f, 0.03f); audio_play(SND_WHIFF, 0.5f, 0.9f); }
         if (b->dodging && b->t > b->dodge_t + 0.45f) b->dodging = false;
-        float window = b->wide_windows ? PARRY_WIDE : PARRY_WINDOW;
+        float window = W_GOOD * (b->wide_windows ? 1.5f : 1.0f);
         for (int i = 0; i < a->hits; i++) {
             if (b->hit_done[i]) continue;
             float th = b->hit_t[i];
-            bool pressed_ok = a->parryable && fabsf(b->parry_pressed_t - th) <= window && b->parry_pressed_t <= b->t;
-            // Resolve at contact if a parry is already in, else wait for the late edge of the window.
+            bool pressed_ok = a->parryable && !b->press_used && fabsf(b->parry_pressed_t - th) <= window;
+            // Resolve at the beat if a press is already in, else at the late edge of the window.
             if ((b->t >= th && pressed_ok) || b->t >= th + window) {
                 b->hit_done[i] = true;
                 enemy_hit_lands(b, i, player, pm, bm, ps, fx, ev, vp);
@@ -543,6 +619,7 @@ static void frame_rect(Gfx *g, float x, float y, float w, float h, float th, Vec
 }
 
 // Word-wrap a description into the card
+static void wrap_text(Gfx *g, float x, float y, float maxw, float sc, Vec4 col, const char *s) __attribute__((unused));
 static void wrap_text(Gfx *g, float x, float y, float maxw, float sc, Vec4 col, const char *s) {
     char line[96] = ""; char word[48]; const char *p = s; float ly = y;
     while (*p) {
@@ -580,25 +657,53 @@ void battle_draw_ui(const Battle *b, Gfx *g, Mat4 vp) {
             if (!a->parryable) text_c(g, ex, ey + 26, 1.1f, v4(0.9f, 0.5f, 1, 1), "UNBLOCKABLE - DODGE (SHIFT)");
         }
     }
-    // Parry cue during the enemy attack: a square closing on the player at each hit
-    if (b->state == BT_ENEMY_ATTACK) {
+    // Rhythm read during the enemy attack: hit circles with approach rings, osu-style
+    if (b->state == BT_ENEMY_ATTACK || b->state == BT_ENEMY_RECOVER) {
         const EnemyAttack *a = &b->enemy.attacks[b->cur_attack];
-        float px, py;
-        if (uifx_project(vp, chest(b->player_pos, 1.3f), &px, &py)) {
-            for (int i = 0; i < a->hits; i++) {
-                if (b->hit_done[i]) continue;
-                float th = b->hit_t[i];
-                float remain = th - b->t;
-                if (remain > 0.9f || remain < -0.05f) continue;
-                float k = clampf(remain / 0.9f, 0, 1);
-                float size = 40 + 260 * k;
-                float alpha = 1.0f - k * 0.6f;
-                Vec4 col = a->parryable ? v4(1, 0.9f, 0.5f, alpha) : v4(0.9f, 0.4f, 1, alpha);
-                frame_rect(g, px - size * 0.5f, py - size * 0.5f, size, size, k < 0.12f ? 6 : 3, col);
+        for (int i = 0; i < a->hits; i++) {
+            float px, py; if (!uifx_project(vp, hit_world(b, i), &px, &py)) continue;
+            float th = b->hit_t[i];
+            float remain = th - b->t;
+            Vec4 col = a->parryable ? v4(1, 0.9f, 0.5f, 1) : v4(0.9f, 0.4f, 1, 1);
+            if (!b->hit_done[i] && remain <= APPROACH && remain > -0.2f) {
+                float k = clampf(remain / APPROACH, 0, 1);           // 1 far .. 0 on the beat
+                float alpha = 1.0f - k * 0.5f;
+                gfx_ui_disc(g, px, py, RING_R, v4(col.x * 0.25f, col.y * 0.25f, col.z * 0.25f, 0.75f * alpha));
+                gfx_ui_ring(g, px, py, RING_R, 5, v4(col.x, col.y, col.z, alpha));
+                char num[4]; snprintf(num, sizeof num, "%d", i + 1);
+                gfx_ui_text_xf(g, px, py, 2.6f, 0, v4(1, 1, 1, alpha), num);
+                float ar = RING_R + (RING_R * 2.6f) * k;             // approach ring
+                gfx_ui_ring(g, px, py, ar, k < 0.1f ? 7 : 4, v4(col.x, col.y, col.z, 0.95f * alpha));
+                if (!a->parryable) gfx_ui_text_xf(g, px, py + RING_R + 22, 1.3f, 0, v4(0.95f, 0.5f, 1, alpha), "SHIFT DODGE");
             }
-            frame_rect(g, px - 20, py - 20, 40, 40, 3, v4(1, 1, 1, 0.8f));
+            if (b->burst_t[i] >= 0 && b->burst_t[i] < 0.45f) {      // burst on judgement
+                float k = b->burst_t[i] / 0.45f;
+                Judge j = b->hit_judge[i];
+                Vec4 c = j == J_PERFECT ? v4(1, 0.95f, 0.5f, 1) : j == J_GREAT ? v4(0.6f, 1, 0.7f, 1) : j == J_GOOD ? v4(0.7f, 0.85f, 1, 1) : v4(1, 0.35f, 0.3f, 1);
+                gfx_ui_ring(g, px, py, RING_R + 120 * ease_in_out(k), 6 * (1 - k) + 1, v4(c.x, c.y, c.z, 1 - k));
+                if (j == J_PERFECT) gfx_ui_ring(g, px, py, RING_R + 60 * k, 3, v4(1, 1, 1, 1 - k));
+            }
         }
-        text_c(g, 640, 720, 1.4f, dim, "CLICK / RMB / SPACE  deflect       SHIFT  dodge");
+        // timing bar: where the last press fell relative to the beat
+        if (b->judge_t >= 0 && b->judge_t < 1.6f && b->last_judge != J_NONE) {
+            float bx = 640, by = 545, bw = 320;
+            float alpha = 1.0f - clampf((b->judge_t - 1.0f) / 0.6f, 0, 1);
+            gfx_ui_rect(g, bx - bw * 0.5f, by - 6, bw, 12, v4(0, 0, 0, 0.6f * alpha));
+            gfx_ui_rect(g, bx - bw * 0.5f * (W_GOOD / W_GOOD), by - 6, bw, 12, v4(0.35f, 0.45f, 0.6f, 0.5f * alpha));
+            gfx_ui_rect(g, bx - bw * 0.5f * (W_GREAT / W_GOOD), by - 6, bw * (W_GREAT / W_GOOD), 12, v4(0.35f, 0.65f, 0.45f, 0.6f * alpha));
+            gfx_ui_rect(g, bx - bw * 0.5f * (W_PERFECT / W_GOOD), by - 6, bw * (W_PERFECT / W_GOOD), 12, v4(0.95f, 0.85f, 0.4f, 0.8f * alpha));
+            float off = clampf(b->last_offset / W_GOOD, -1.1f, 1.1f);
+            gfx_ui_rect(g, bx + off * bw * 0.5f - 3, by - 12, 6, 24, v4(1, 1, 1, alpha));
+            text_c(g, bx - bw * 0.5f - 44, by - 5, 1.1f, v4(0.8f, 0.8f, 0.8f, alpha), "EARLY");
+            text_c(g, bx + bw * 0.5f + 40, by - 5, 1.1f, v4(0.8f, 0.8f, 0.8f, alpha), "LATE");
+        }
+        text_c(g, 640, 740, 1.4f, dim, "CLICK / RMB / SPACE on the beat to deflect       SHIFT  dodge");
+    }
+    // Combo counter
+    if (b->combo >= 2) {
+        char cs[24]; snprintf(cs, sizeof cs, "%d COMBO", b->combo);
+        float pulse = 1.0f + 0.25f * fmaxf(0, 1.0f - b->judge_t * 3.0f);
+        gfx_ui_text_xf(g, 1100, 660, (1.8f + fminf(b->combo, 20) * 0.06f) * pulse, -0.06f, v4(1, 0.85f, 0.45f, 1), cs);
     }
 
     // Energy
@@ -622,33 +727,50 @@ void battle_draw_ui(const Battle *b, Gfx *g, Mat4 vp) {
         frame_rect(g, END_X, END_Y, END_W, END_H, 3, c);
         text_c(g, END_X + END_W * 0.5f, END_Y + 18, 1.8f, c, "END TURN");
     }
-    // Hand
+    // Hand: cards drawn in their own rotated frames, hovered card last so it sits on top
+    for (int pass = 0; pass < 2; pass++)
     for (int i = 0; i < b->nhand; i++) {
         const HandCard *h = &b->hand[i];
+        bool top = b->hovered == i;
+        if ((pass == 0) == top) continue;
         const CardDef *c = &b->cards[h->def];
-        float x, y, w, hh; card_rect(b, i, &x, &y, &w, &hh);
-        float a = 1.0f;
-        if (h->flying) { float k = h->fly_t; y -= 260 * ease_in_out(k); a = 1.0f - k; }
-        bool playable = b->state == BT_PLAYER && can_play(b, i);
+        float a = h->phase == CP_PLAYING ? 1.0f - clampf(h->phase_t / 0.45f, 0, 1) : 1.0f;
+        if (h->phase == CP_DISCARDING) a = 1.0f - clampf(h->phase_t / 0.5f, 0, 1);
+        bool playable = b->state == BT_PLAYER && h->phase == CP_HAND && can_play(b, i);
         Vec4 col = v4(c->color.x, c->color.y, c->color.z, a);
-        gfx_ui_rect(g, x + 4, y + 6, w, hh, v4(0, 0, 0, 0.5f * a));
-        gfx_ui_rect(g, x, y, w, hh, v4(0.09f, 0.08f, 0.1f, 0.96f * a));
-        gfx_ui_rect(g, x, y, w, 34, v4(col.x * 0.55f, col.y * 0.55f, col.z * 0.55f, a));
-        frame_rect(g, x, y, w, hh, 3, playable ? (b->hovered == i ? v4(1, 0.95f, 0.7f, a) : col) : v4(0.3f, 0.3f, 0.32f, a));
-        // cost
-        gfx_ui_rect(g, x + 8, y + 6, 24, 24, playable ? v4(1, 0.85f, 0.35f, a) : v4(0.35f, 0.3f, 0.2f, a));
-        { char s[8]; snprintf(s, sizeof s, "%d", c->cost); text_c(g, x + 20, y + 12, 1.5f, v4(0.1f, 0.08f, 0.05f, a), s); }
-        // name
-        { char nm[32]; snprintf(nm, sizeof nm, "%s", c->name); for (char *p = nm; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32; text_c(g, x + w * 0.5f + 12, y + 12, 1.5f, v4(1, 1, 1, a), nm); }
-        // art placeholder: a glyph block in the card colour
-        gfx_ui_rect(g, x + 16, y + 46, w - 32, 70, v4(col.x * 0.25f, col.y * 0.25f, col.z * 0.25f, a));
-        { float cx = x + w * 0.5f, cy = y + 81;
-          if (c->kind == CK_ATTACK) for (int k = 0; k < c->hits; k++) gfx_ui_rect(g, cx - 6 + (k - (c->hits - 1) * 0.5f) * 18, cy - 20, 12, 40, col);
-          else if (c->kind == CK_GUARD) frame_rect(g, cx - 18, cy - 20, 36, 40, 5, col);
-          else gfx_ui_rect(g, cx - 14, cy - 14, 28, 28, col); }
-        wrap_text(g, x + 12, y + 128, w - 24, 1.15f, v4(0.9f, 0.9f, 0.88f, a), c->desc);
-        if (!playable && b->state == BT_PLAYER) gfx_ui_rect(g, x, y, w, hh, v4(0, 0, 0, 0.45f * a));
+        float ca = cosf(h->rot), sa = sinf(h->rot), sc = h->sc;
+        #define CQ(lx, ly, lw, lh, colr) do { float _q[8]; float _c[4][2] = {{(lx), (ly)}, {(lx) + (lw), (ly)}, {(lx) + (lw), (ly) + (lh)}, {(lx), (ly) + (lh)}}; \
+            for (int _k = 0; _k < 4; _k++) { float _x = _c[_k][0] * sc, _y = _c[_k][1] * sc; _q[_k * 2] = h->x + _x * ca - _y * sa; _q[_k * 2 + 1] = h->y + _x * sa + _y * ca; } \
+            gfx_ui_quad(g, _q, (colr)); } while (0)
+        #define CT(lx, ly, tsc, colr, txt) do { float _x = (lx) * sc, _y = (ly) * sc; gfx_ui_text_xf(g, h->x + _x * ca - _y * sa, h->y + _x * sa + _y * ca, (tsc) * sc, h->rot, (colr), (txt)); } while (0)
+        float L = -CARD_W * 0.5f, T = -CARD_H * 0.5f;
+        CQ(L + 5, T + 7, CARD_W, CARD_H, v4(0, 0, 0, 0.5f * a));                                   // shadow
+        CQ(L, T, CARD_W, CARD_H, v4(0.09f, 0.08f, 0.1f, 0.96f * a));                                // body
+        CQ(L, T, CARD_W, 34, v4(col.x * 0.55f, col.y * 0.55f, col.z * 0.55f, a));                   // title band
+        Vec4 fr = playable ? (top ? v4(1, 0.95f, 0.7f, a) : col) : v4(0.3f, 0.3f, 0.32f, a);
+        CQ(L, T, CARD_W, 3, fr); CQ(L, T + CARD_H - 3, CARD_W, 3, fr); CQ(L, T, 3, CARD_H, fr); CQ(L + CARD_W - 3, T, 3, CARD_H, fr);
+        CQ(L + 8, T + 6, 24, 24, playable ? v4(1, 0.85f, 0.35f, a) : v4(0.35f, 0.3f, 0.2f, a));    // cost
+        { char s[8]; snprintf(s, sizeof s, "%d", c->cost); CT(L + 20, T + 18, 1.5f, v4(0.1f, 0.08f, 0.05f, a), s); }
+        { char nm[32]; snprintf(nm, sizeof nm, "%s", c->name); for (char *p = nm; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32; CT(12, T + 18, 1.5f, v4(1, 1, 1, a), nm); }
+        CQ(L + 16, T + 46, CARD_W - 32, 70, v4(col.x * 0.25f, col.y * 0.25f, col.z * 0.25f, a));   // art well
+        if (c->kind == CK_ATTACK) for (int k = 0; k < c->hits; k++) CQ(-6 + (k - (c->hits - 1) * 0.5f) * 18, T + 61, 12, 40, col);
+        else if (c->kind == CK_GUARD) { CQ(-18, T + 61, 36, 5, col); CQ(-18, T + 96, 36, 5, col); CQ(-18, T + 61, 5, 40, col); CQ(13, T + 61, 5, 40, col); }
+        else CQ(-14, T + 67, 28, 28, col);
+        // description, wrapped into up to three lines
+        { char line[4][40] = {{0}}; int nl = 0; char word[40]; const char *p = c->desc; char cur[40] = "";
+          while (*p && nl < 4) { int wl = 0; while (*p && *p != ' ' && wl < 39) word[wl++] = *p++; word[wl] = 0; while (*p == ' ') p++;
+              char test[80]; snprintf(test, sizeof test, "%s%s%s", cur, cur[0] ? " " : "", word);
+              if (gfx_ui_text_width(1.15f, test) > CARD_W - 24 && cur[0]) { snprintf(line[nl++], 40, "%s", cur); snprintf(cur, sizeof cur, "%s", word); }
+              else snprintf(cur, sizeof cur, "%s", test); }
+          if (cur[0] && nl < 4) snprintf(line[nl++], 40, "%s", cur);
+          for (int k = 0; k < nl; k++) CT(0, T + 134 + k * 14, 1.15f, v4(0.9f, 0.9f, 0.88f, a), line[k]); }
+        if (!playable && b->state == BT_PLAYER && h->phase == CP_HAND) CQ(L, T, CARD_W, CARD_H, v4(0, 0, 0, 0.45f * a));
+        #undef CQ
+        #undef CT
     }
+    // Deck and discard piles
+    { char s[16]; gfx_ui_rect(g, 1180, 690, 70, 96, v4(0.12f, 0.1f, 0.12f, 0.9f)); frame_rect(g, 1180, 690, 70, 96, 3, v4(0.5f, 0.45f, 0.35f, 1));
+      snprintf(s, sizeof s, "%d", b->ndraw); text_c(g, 1215, 730, 2.2f, white, s); text_c(g, 1215, 758, 1.0f, dim, "DRAW"); }
     // Outcome
     if (b->state == BT_WIN) {
         float k = clampf(b->t / 0.6f, 0, 1);
@@ -665,16 +787,17 @@ void battle_draw_ui(const Battle *b, Gfx *g, Mat4 vp) {
 
 void battle_bot(const Battle *b, const CharModel *bm, Input *in, float *mx, float *my, unsigned tick) {
     in->click = in->rclick = in->parry = in->dodge = in->skip = false;
+
     if (b->state == BT_PLAYER) {
         int pick = -1;
-        for (int i = 0; i < b->nhand; i++) if (!b->hand[i].flying && can_play(b, i)) { pick = i; break; }
+        for (int i = 0; i < b->nhand; i++) if (b->hand[i].phase == CP_HAND && can_play(b, i)) { pick = i; break; }
         if (pick >= 0) {
-            float x, y, w, h; card_rect(b, pick, &x, &y, &w, &h);
-            *mx = x + w * 0.5f; *my = y + h * 0.5f;
+            *mx = b->hand[pick].x; *my = b->hand[pick].y;
             if (tick % 12 == 0 && b->hovered == pick) in->click = true;   // hover first, then click
         } else {
-            *mx = END_X + END_W * 0.5f; *my = END_Y + END_H * 0.5f;
-            if (tick % 12 == 0 && b->end_hover) in->click = true;
+            bool dealing = false;
+            for (int i = 0; i < b->nhand; i++) if (b->hand[i].phase == CP_DRAWING || b->hand[i].phase == CP_PLAYING) dealing = true;
+            if (!dealing) { *mx = END_X + END_W * 0.5f; *my = END_Y + END_H * 0.5f; if (tick % 12 == 0 && b->end_hover) in->click = true; }
         }
     } else if (b->state == BT_ENEMY_ATTACK) {
         const EnemyAttack *a = &b->enemy.attacks[b->cur_attack];

@@ -1,19 +1,19 @@
 # glade.txt -- forest path, graveyard clearing and ruined shrine arena.
-# Ori-in-3D-at-night mood: deep blue-black dark, warm lantern/candle glow,
+# Dusk in a forest glade: violet sky over an orange horizon, warm lanterns,
 # mist on the ground, fireflies in the air. Player spawns at the origin
 # facing +Z; the level runs along +Z from the forest path (z 0) through a
 # graveyard clearing (z ~40-50) into the ruined shrine arena (z 50-74).
 # See README.md for the file format.
 
 # --- look ---
-sun      0.4 -0.7 0.3   0.45   0.6 0.7 1.0
-ambient  0.12 0.16 0.28   0.03 0.03 0.05
-fogv     0.04 0.06 0.11   0.045   0.0  0.25  0.4  3
-sky      0.01 0.02 0.06   0.10 0.09 0.18   0.01 0.01 0.02   0.5  1.5  0.7
+sun      0.55 -0.35 0.3   0.9   1.0 0.62 0.38
+ambient  0.16 0.15 0.30   0.06 0.05 0.06
+fogv     0.16 0.10 0.18   0.022   0.0  0.20  0.7  5
+sky      0.03 0.05 0.16   0.85 0.40 0.22   0.06 0.04 0.06   0.8  0.7  0.55
 toon     0.10 0.12 3.0
-grade    1.15 1.2 1.05 0.5 0.9
-lift     0.01 0.015 0.04
-gain     1.0 0.98 0.95
+grade    1.05 1.2 1.12 0.4 0.95
+lift     0.01 0.005 0.02
+gain     1.05 0.98 0.92
 
 scene intro glade_intro.txt
 scene boss glade_boss.txt
@@ -54,7 +54,7 @@ prop models/kaykit/halloween/path_A.gltf -0.10 0.02 46.60 4.0 1.05
 
 # --- dense forest either side of the path, z 0-40 ---
 prop models/kaykit/hex/trees_B_medium.gltf -4.18 0 9.99 126.3 2.75 tint 0.68 0.68 0.72
-prop models/kaykit/halloween/tree_dead_large.gltf 4.29 0 0.96 148.2 3.47 tint 0.9 0.82 0.72 collide 0.6
+prop models/kaykit/hex/trees_A_large.gltf 4.29 0 0.96 148.2 4.09 tint 0.9 0.82 0.72 collide 0.6
 prop models/kaykit/hex/trees_B_large.gltf -6.81 0 34.36 96.3 2.91 tint 0.68 0.68 0.72
 prop models/kaykit/hex/trees_A_large.gltf 12.18 0 3.69 178.2 3.17 tint 0.45 0.50 0.65
 prop models/kaykit/hex/trees_A_large.gltf 1.52 0 32.87 308.3 1.74 tint 0.9 0.82 0.72 collide 0.6
@@ -64,22 +64,22 @@ prop models/kaykit/hex/tree_single_B.gltf -3.76 0 6.76 190.7 2.43 tint 0.68 0.68
 prop models/kaykit/hex/trees_A_medium.gltf 9.38 0 18.46 199.9 2.64 tint 0.45 0.50 0.65
 prop models/kaykit/hex/trees_A_large.gltf 4.88 0 20.59 274.0 1.58 tint 0.68 0.68 0.72
 prop models/kaykit/hex/trees_A_medium.gltf 5.53 0 2.30 154.3 2.72 tint 0.68 0.68 0.72
-prop models/kaykit/halloween/tree_dead_small.gltf -6.70 0 10.34 252.2 2.63 tint 0.45 0.50 0.65
+prop models/kaykit/hex/tree_single_B.gltf -6.70 0 10.34 252.2 3.10 tint 0.45 0.50 0.65
 prop models/kaykit/hex/trees_B_medium.gltf 9.08 0 5.41 8.3 1.58 tint 0.68 0.68 0.72
-prop models/kaykit/halloween/tree_dead_small.gltf 4.95 0 17.21 211.2 3.00 tint 0.9 0.82 0.72 collide 0.6
-prop models/kaykit/halloween/tree_dead_medium.gltf -8.16 0 34.48 20.8 1.50 tint 0.68 0.68 0.72
+prop models/kaykit/hex/trees_B_large.gltf 4.95 0 17.21 211.2 3.53 tint 0.9 0.82 0.72 collide 0.6
+prop models/kaykit/hex/tree_single_A.gltf -8.16 0 34.48 20.8 2.85 tint 0.68 0.68 0.72
 prop models/kaykit/hex/trees_B_medium.gltf 12.29 0 17.85 155.5 2.83 tint 0.45 0.50 0.65
-prop models/kaykit/halloween/tree_dead_small.gltf -2.86 0 1.93 212.0 3.20 tint 0.9 0.82 0.72 collide 0.6
+prop models/kaykit/hex/tree_single_A.gltf -2.86 0 1.93 212.0 3.77 tint 0.9 0.82 0.72 collide 0.6
 prop models/kaykit/hex/trees_A_small.gltf -13.14 0 33.77 65.0 1.90 tint 0.45 0.50 0.65
 prop models/kaykit/hex/tree_single_A.gltf 5.78 0 22.54 249.3 1.87 tint 0.68 0.68 0.72
-prop models/kaykit/hex/tree_single_B.gltf -7.86 0 38.02 244.0 3.34 tint 0.68 0.68 0.72
-prop models/kaykit/hex/trees_A_small.gltf -3.96 0 18.96 75.8 3.26 tint 0.68 0.68 0.72
-prop models/kaykit/hex/tree_single_B.gltf 7.43 0 12.63 299.6 3.50 tint 0.68 0.68 0.72
-prop models/kaykit/hex/trees_A_large.gltf 6.25 0 1.18 103.6 3.30 tint 0.68 0.68 0.72
-prop models/kaykit/halloween/tree_dead_medium.gltf 12.55 0 2.24 255.6 1.64 tint 0.45 0.50 0.65
-prop models/kaykit/halloween/tree_dead_medium.gltf -5.22 0 20.61 142.5 3.04 tint 0.68 0.68 0.72
+prop models/kaykit/hex/tree_single_B.gltf -7.86 0 38.02 244.0 2.07 tint 0.68 0.68 0.72
+prop models/kaykit/hex/trees_A_small.gltf -3.96 0 18.96 75.8 2.02 tint 0.68 0.68 0.72
+prop models/kaykit/hex/tree_single_B.gltf 7.43 0 12.63 299.6 2.17 tint 0.68 0.68 0.72
+prop models/kaykit/hex/trees_A_large.gltf 6.25 0 1.18 103.6 2.05 tint 0.68 0.68 0.72
+prop models/kaykit/hex/tree_single_A.gltf 12.55 0 2.24 255.6 3.12 tint 0.45 0.50 0.65
+prop models/kaykit/hex/trees_A_large.gltf -5.22 0 20.61 142.5 3.58 tint 0.68 0.68 0.72
 prop models/kaykit/hex/trees_B_large.gltf -9.75 0 9.62 16.2 2.81 tint 0.45 0.50 0.65
-prop models/kaykit/hex/tree_single_B.gltf 7.69 0 24.68 230.3 3.44 tint 0.45 0.50 0.65
+prop models/kaykit/hex/tree_single_B.gltf 7.69 0 24.68 230.3 2.13 tint 0.45 0.50 0.65
 prop models/kaykit/hex/trees_A_large.gltf -6.51 0 15.40 7.7 1.85 tint 0.68 0.68 0.72
 prop models/kaykit/hex/trees_B_small.gltf 5.38 0 28.75 244.8 2.58 tint 0.68 0.68 0.72
 prop models/kaykit/hex/trees_B_large.gltf -2.13 0 9.28 204.1 2.11 tint 0.9 0.82 0.72 collide 0.6
@@ -87,8 +87,8 @@ prop models/kaykit/hex/trees_B_small.gltf 11.81 0 17.27 232.6 1.95 tint 0.45 0.5
 prop models/kaykit/hex/trees_B_large.gltf 8.93 0 19.12 81.5 2.52 tint 0.45 0.50 0.65
 prop models/kaykit/hex/trees_A_small.gltf -1.26 0 9.15 345.6 2.53 tint 0.9 0.82 0.72 collide 0.6
 prop models/kaykit/hex/trees_B_medium.gltf -2.60 0 6.37 197.2 1.94 tint 0.9 0.82 0.72 collide 0.6
-prop models/kaykit/hex/trees_A_small.gltf 5.25 0 4.80 41.7 3.32 tint 0.9 0.82 0.72 collide 0.6
-prop models/kaykit/halloween/tree_dead_small.gltf 13.17 0 5.69 267.2 1.63 tint 0.45 0.50 0.65
+prop models/kaykit/hex/trees_A_small.gltf 5.25 0 4.80 41.7 2.06 tint 0.9 0.82 0.72 collide 0.6
+prop models/kaykit/hex/tree_single_A.gltf 13.17 0 5.69 267.2 3.10 tint 0.45 0.50 0.65
 prop models/kaykit/hex/trees_B_medium.gltf 6.78 0 37.85 136.7 1.69 tint 0.68 0.68 0.72
 prop models/kaykit/hex/trees_B_small.gltf 4.11 0 17.93 91.1 2.38 tint 0.9 0.82 0.72 collide 0.6
 prop models/kaykit/hex/trees_A_medium.gltf -5.18 0 22.79 80.7 3.04 tint 0.68 0.68 0.72
@@ -99,18 +99,18 @@ prop models/kaykit/hex/trees_A_large.gltf 2.78 0 23.95 239.6 3.19 tint 0.9 0.82 
 prop models/kaykit/hex/trees_B_medium.gltf 8.28 0 14.46 25.0 2.27 tint 0.68 0.68 0.72
 prop models/kaykit/hex/trees_A_large.gltf 8.85 0 14.62 302.4 1.56 tint 0.68 0.68 0.72
 prop models/kaykit/hex/trees_B_large.gltf -2.27 0 3.98 297.0 2.99 tint 0.9 0.82 0.72 collide 0.6
-prop models/kaykit/halloween/tree_dead_small.gltf 9.01 0 35.15 142.1 3.45 tint 0.45 0.50 0.65
-prop models/kaykit/halloween/tree_dead_large.gltf -10.53 0 32.70 71.3 2.85 tint 0.45 0.50 0.65
+prop models/kaykit/hex/tree_single_B.gltf 9.01 0 35.15 142.1 4.06 tint 0.45 0.50 0.65
+prop models/kaykit/hex/tree_single_A.gltf -10.53 0 32.70 71.3 3.36 tint 0.45 0.50 0.65
 prop models/kaykit/hex/trees_A_medium.gltf 7.96 0 30.09 225.0 2.12 tint 0.45 0.50 0.65
 prop models/kaykit/hex/trees_A_medium.gltf 10.74 0 25.31 123.1 3.02 tint 0.45 0.50 0.65
-prop models/kaykit/hex/trees_B_small.gltf -9.67 0 4.62 126.8 3.45 tint 0.45 0.50 0.65
-prop models/kaykit/halloween/tree_dead_small.gltf -10.17 0 5.04 340.7 3.15 tint 0.45 0.50 0.65
-prop models/kaykit/halloween/tree_dead_medium.gltf -7.67 0 14.95 190.8 3.09 tint 0.45 0.50 0.65
-prop models/kaykit/hex/trees_B_large.gltf 9.36 0 6.11 204.6 3.45 tint 0.68 0.68 0.72
-prop models/kaykit/halloween/tree_dead_small.gltf -10.71 0 36.63 127.1 2.12 tint 0.45 0.50 0.65
+prop models/kaykit/hex/trees_B_small.gltf -9.67 0 4.62 126.8 2.14 tint 0.45 0.50 0.65
+prop models/kaykit/hex/tree_single_A.gltf -10.17 0 5.04 340.7 3.71 tint 0.45 0.50 0.65
+prop models/kaykit/hex/trees_B_large.gltf -7.67 0 14.95 190.8 3.64 tint 0.45 0.50 0.65
+prop models/kaykit/hex/trees_B_large.gltf 9.36 0 6.11 204.6 2.14 tint 0.68 0.68 0.72
+prop models/kaykit/hex/trees_B_large.gltf -10.71 0 36.63 127.1 2.50 tint 0.45 0.50 0.65
 prop models/kaykit/hex/trees_A_large.gltf -11.24 0 1.37 300.3 1.58 tint 0.45 0.50 0.65
 prop models/kaykit/hex/trees_A_medium.gltf -8.37 0 4.31 92.3 2.44 tint 0.45 0.50 0.65
-prop models/kaykit/halloween/tree_dead_large.gltf 4.34 0 18.65 25.9 3.46 tint 0.9 0.82 0.72 collide 0.6
+prop models/kaykit/hex/tree_single_A.gltf 4.34 0 18.65 25.9 4.07 tint 0.9 0.82 0.72 collide 0.6
 
 # --- rocks scattered along the path ---
 prop models/kaykit/hex/rock_single_B.gltf -5.06 0 31.17 112.8 3.46 tint 0.55 0.56 0.6
@@ -161,30 +161,16 @@ emitter mist 0 0.3 20   6 0.3 20   2   0.35 0.45 0.6   2.5   10
 emitter leaf 0 6 20   14 3 20   0.8   0.3 0.28 0.18   0.18   9
 
 # --- graveyard clearing, z 40-50: the path opens among the graves ---
-prop models/kaykit/halloween/gravemarker_A.gltf -6 0 41 100.8 1.1 tint 0.55 0.55 0.58
-prop models/kaykit/halloween/gravemarker_B.gltf 6 0 41.5 16.0 1.1 tint 0.55 0.55 0.58
-prop models/kaykit/halloween/grave_A.gltf -4 0 43 356.2 1.1 tint 0.55 0.55 0.58
-prop models/kaykit/halloween/gravemarker_A.gltf 5 0 43.5 212.8 1.1 tint 0.55 0.55 0.58
-prop models/kaykit/halloween/gravemarker_A.gltf -8 0 45 142.6 1.1 tint 0.55 0.55 0.58
-prop models/kaykit/halloween/grave_B.gltf 8 0 44.5 326.1 1.1 tint 0.55 0.55 0.58
-prop models/kaykit/halloween/grave_B.gltf -3 0 46.5 220.6 1.1 tint 0.55 0.55 0.58
-prop models/kaykit/halloween/gravemarker_B.gltf 4 0 47 111.2 1.1 tint 0.55 0.55 0.58
-prop models/kaykit/halloween/gravemarker_B.gltf -7 0 47.5 142.2 1.1 tint 0.55 0.55 0.58
-prop models/kaykit/halloween/gravemarker_A.gltf 7 0 42 155.5 1.1 tint 0.55 0.55 0.58
 
 # --- crypt off to one side ---
-prop models/kaykit/halloween/crypt.gltf -10 0 45 90 1.1 tint 0.4 0.4 0.46
 
 # --- jack-o-lanterns flanking the path, warm orange glow ---
-prop models/kaykit/halloween/pumpkin_orange_jackolantern.gltf -2.6 0 44 0 1.0
-light -2.6 0.9 44   1.0 0.5 0.15   7 3.0 flicker 0.35
+light -2.6 0.9 44   1.0 0.8 0.5   7 3.0 flicker 0.35
 emitter ember -2.6 0.9 44   0.1 0.1 0.1   2.5   1.0 0.55 0.15   0.06   1.0
-prop models/kaykit/halloween/pumpkin_orange_jackolantern.gltf 2.6 0 44.6 0 1.0
-light 2.6 0.9 44.6   1.0 0.5 0.15   7 3.0 flicker 0.35
+light 2.6 0.9 44.6   1.0 0.8 0.5   7 3.0 flicker 0.35
 emitter ember 2.6 0.9 44.6   0.1 0.1 0.1   2.5   1.0 0.55 0.15   0.06   1.0
 
 # --- the arch: threshold from graveyard into the shrine arena ---
-prop models/kaykit/halloween/arch_gate.gltf 0 0 48 0 1.15 tint 0.5 0.48 0.5
 
 # --- ruined shrine arena floor, z 50-74, x -12..12 ---
 block 0 0.1 62   24 0.3 24   stone   0.35 0.34 0.38   3   solid
@@ -249,10 +235,8 @@ light 9 1.3 72.5   1.0 0.7 0.35   8 3.0 flicker 0.35
 emitter ember 9 1.1 72.5   0.08 0.1 0.08   3.0   1.0 0.65 0.25   0.06   1.1
 
 # --- shrine candles near the far end ---
-prop models/kaykit/halloween/shrine_candles.gltf -2 0 71.5 0 1.2
 light -2 1.2 71.5   1.0 0.65 0.3   6 2.5 flicker 0.3
 emitter ember -2 1.1 71.5   0.06 0.08 0.06   2.5   1.0 0.6 0.2   0.05   1.0
-prop models/kaykit/halloween/shrine_candles.gltf 2 0 71.5 0 1.2
 light 2 1.2 71.5   1.0 0.65 0.3   6 2.5 flicker 0.3
 emitter ember 2 1.1 71.5   0.06 0.08 0.06   2.5   1.0 0.6 0.2   0.05   1.0
 

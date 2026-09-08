@@ -567,3 +567,17 @@ void game_render(Game *g, Platform *pf, float alpha) {
                       .lift = lk->lift, .gain = lk->gain, .bloom_threshold = lk->bloom_threshold, .bloom_knee = 0.5f };
     gfx_end(x, pf, &pp, g->time);
 }
+
+bool game_shot_moment(Game *g, const char *when) {
+    const Battle *b = &g->battle;
+    if (g->state != GS_BATTLE) return false;
+    if (!strcmp(when, "ring")) {
+        if (b->state != BT_ENEMY_ATTACK) return false;
+        for (int i = 0; i < HITS_MAX; i++) { float r = b->hit_t[i] - b->t; if (!b->hit_done[i] && r > 0.05f && r < 0.14f) return true; }
+        return false;
+    }
+    if (!strcmp(when, "judge")) { for (int i = 0; i < HITS_MAX; i++) if (b->burst_t[i] > 0.08f && b->burst_t[i] < 0.16f) return true; return false; }
+    if (!strcmp(when, "play")) { for (int i = 0; i < b->nhand; i++) if (b->hand[i].phase == CP_PLAYING && b->hand[i].phase_t > 0.12f && b->hand[i].phase_t < 0.2f) return true; return false; }
+    if (!strcmp(when, "hover")) return b->hovered >= 0 && b->hand[b->hovered].hover > 0.9f;
+    return false;
+}

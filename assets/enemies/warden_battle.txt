@@ -1,4 +1,4 @@
-# The Warden in card battle. Attacks are clips with parry windows at their contact frames.
+# The Warden (a barbarian guardian) in card battle. Attacks are clips with parry windows at their contact frames.
 #   attack NAME clip CLIP damage N hits N contact F [F ...] parry yes|no tell r g b [lead S] [tail S]
 #     contact: fraction of the clip where each hit lands (one per hit)
 #     lead: seconds from the start of the clip to the first contact (the telegraph you can read)
