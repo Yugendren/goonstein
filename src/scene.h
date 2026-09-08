@@ -27,6 +27,7 @@ typedef struct SceneCmd {
     SceneCmdType type;
     char actor[32];
     char text[SCENE_TEXT_MAX];
+    char emote[16];              // SC_SAY: emotion name for the portrait (happy angry sad surprise ...)
     Vec3 pos, target;
     float fov, dur, a, b;
 } SceneCmd;
@@ -50,6 +51,7 @@ typedef struct Scene {
     // outputs, valid while playing (and after, until scene_start is called again)
     bool  cam_valid; Vec3 cam_eye, cam_target; float cam_fov;
     char  subtitle[SCENE_TEXT_MAX]; char speaker[32]; float subtitle_until;
+    char  emote[16]; float say_start;        // emotion of the current line and when it began (scene time)
     float letterbox;                         // 0..1 target (game animates toward it)
     float fade;                              // 0 = black, 1 = visible
     float shake;                             // current shake amount

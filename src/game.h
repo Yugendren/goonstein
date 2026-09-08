@@ -26,6 +26,9 @@ typedef struct Game {
     CharModel player_model, boss_model;
     PropCache props; Particles particles; Battle battle; Uifx fx; bool battle_loaded;
     Editor editor; bool editor_open;
+    struct { char name[32]; Texture tex; } portraits[16]; int nportraits;
+    Texture emotes[31];                       // pack emote bubbles by number, 1..30
+    float dlg_shown_chars; float dlg_blip_t; char dlg_last_line[200];
     char hero_config[128];        // override for assets/characters/<name>.txt
     GState   state, after_scene; float state_t;
     float    hitstop, letterbox, fade, fight_intensity;

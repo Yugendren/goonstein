@@ -43,6 +43,7 @@ The game is meant to be edited without touching C:
 |-----------------------|------------------------------|----------------------------|
 | Level geometry, cameras, triggers | `assets/levels/*.txt` | `assets/levels/README.md`  |
 | Cutscenes             | `assets/scenes/*.txt`        | `assets/scenes/README.md`  |
+| Dialogue portraits    | `assets/portraits.txt`       | speaker name and image     |
 | Boss move sets        | `assets/enemies/*.txt`       | comments in `warden.txt`   |
 | Character bindings (sprite or model) | `assets/characters/*.txt` | comments in `src/charmodel.h` |
 | Sprite sheets and frame animations | `assets/sprites/*.txt` | comments in `src/sprite.h` |

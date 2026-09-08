@@ -1,0 +1,3 @@
+# Speaker name (quote it if it has spaces) and portrait image, relative to assets/
+Ninja        sprites/ninja/Actor/Character/NinjaGreen/Faceset.png
+"The Warden" sprites/ninja/Actor/Boss/GiantRedSamurai/Faceset.png

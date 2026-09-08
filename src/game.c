@@ -51,6 +51,45 @@ static void setup_level_content(Game *g) {
     particles_prewarm(&g->particles, 8.0f);
 }
 
+static void load_portraits(Game *g) {
+    size_t n; char *text = SDL_LoadFile(ASSET("portraits.txt"), &n);
+    if (!text) return;
+    char *cur = text;
+    while (*cur) {
+        char *line = cur; char *nl = strchr(cur, '\n'); if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
+        char *hash = strchr(line, '#'); if (hash) *hash = 0;
+        // NAME may be quoted to allow spaces: "The Warden" path
+        char *p = line; while (*p == ' ' || *p == '\t') p++;
+        if (!*p) continue;
+        char name[32]; char *path;
+        if (*p == '"') { p++; char *q = strchr(p, '"'); if (!q) continue; *q = 0; snprintf(name, sizeof name, "%s", p); path = q + 1; }
+        else { char *sp = p; while (*sp && *sp != ' ' && *sp != '\t') sp++; if (!*sp) continue; *sp = 0; snprintf(name, sizeof name, "%s", p); path = sp + 1; }
+        while (*path == ' ' || *path == '\t') path++;
+        char *end = path + strlen(path); while (end > path && (end[-1] == ' ' || end[-1] == '\r' || end[-1] == '\t')) *--end = 0;
+        if (g->nportraits >= 16) break;
+        char full[640]; snprintf(full, sizeof full, "%s/%s", HOLLOW_ASSET_DIR, path);
+        snprintf(g->portraits[g->nportraits].name, 32, "%s", name);
+        g->portraits[g->nportraits].tex = gfx_texture_load_exact(&g->gfx, full);
+        g->nportraits++;
+    }
+    SDL_free(text);
+    for (int i = 1; i <= 30; i++) { char full[640]; snprintf(full, sizeof full, "%s/sprites/ninja/Ui/Emote/emote%d.png", HOLLOW_ASSET_DIR, i); g->emotes[i] = gfx_texture_load_exact(&g->gfx, full); }
+}
+
+static const Texture *portrait_for(Game *g, const char *speaker) {
+    for (int i = 0; i < g->nportraits; i++) if (!strcmp(g->portraits[i].name, speaker)) return &g->portraits[i].tex;
+    return NULL;
+}
+
+static int emote_number(const char *e) {
+    static const struct { const char *name; int n; } T[] = {
+        {"shout", 1}, {"laugh", 2}, {"dead", 3}, {"squint", 4}, {"bored", 5}, {"happy", 6}, {"smug", 7}, {"wink", 8}, {"sly", 9}, {"annoyed", 10},
+        {"smile", 11}, {"nervous", 12}, {"sad", 13}, {"neutral", 14}, {"shock", 15}, {"cry", 16}, {"frown", 17}, {"down", 18}, {"cheeky", 19}, {"grit", 20},
+        {"surprise", 21}, {"alert", 22}, {"question", 23}, {"think", 24}, {"confused", 25}, {"heartbreak", 26}, {"love", 27}, {"sleep", 28}, {"furious", 29}, {"angry", 30} };
+    for (size_t i = 0; i < sizeof T / sizeof *T; i++) if (!strcmp(T[i].name, e)) return T[i].n;
+    return 0;
+}
+
 static bool load_defs(Game *g) {
     bool ok = true;
     ok &= level_load(&g->level, g->level_path[0] ? g->level_path : ASSET("levels/glade.txt"));
@@ -116,6 +155,7 @@ bool game_init_gfx(Game *g, Platform *pf) {
     charmodel_load(&g->gfx, &g->boss_model, ASSET("characters/warden.txt"));
     particles_init(&g->particles);
     uifx_init(&g->fx);
+    load_portraits(g);
     g->battle_loaded = battle_load(&g->battle, ASSET("cards/cards.txt"), ASSET("decks/knight.txt"), ASSET("enemies/warden_battle.txt"));
     if (!g->battle_loaded) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "battle data failed to load; boss door falls back to real-time fight");
     battle_load_fx(&g->battle, &g->gfx, ASSET("sprites/fx.txt"));
@@ -264,6 +304,15 @@ static void tick_scene(Game *g, const Input *in, float dt) {
     if (g->scene.shake > 0) camera_add_shake(&g->cam, g->scene.shake);
     g->fade = g->scene.fade;
     g->letterbox = damp(g->letterbox, g->scene.letterbox, 6, dt);
+    if (g->scene.subtitle[0] && g->scene.speaker[0]) {
+        float t = g->scene.time - g->scene.say_start; int total = (int)strlen(g->scene.subtitle);
+        int shown = (int)(t * 42.0f); if (shown > total) shown = total;
+        if (shown / 3 != (int)g->dlg_shown_chars / 3 && shown < total) {
+            bool is_player = !strcmp(g->scene.speaker, "Ninja") || !strcmp(g->scene.speaker, "player");
+            audio_play(SND_BLIP, 0.25f, is_player ? 1.6f : 0.7f);
+        }
+        g->dlg_shown_chars = (float)shown;
+    } else g->dlg_shown_chars = 0;
     audio_set_drone(0.5f);
     if (g->scene.done) {
         g->player.state = PS_FREE; character_set_anim(&g->player.c, ANIM_IDLE);
@@ -460,9 +509,55 @@ static void draw_hud(Game *g, Platform *pf) {
         gfx_ui_rect(x, 0, 0, W, lb, v4(0, 0, 0, 1));
         gfx_ui_rect(x, 0, H - lb, W, lb, v4(0, 0, 0, 1));
     }
-    if (g->state == GS_SCENE && g->scene.subtitle[0]) {
-        if (g->scene.speaker[0]) text_center(x, W * 0.5f, H - 78, 1.0f, v4(0.8f, 0.6f, 0.5f, 1), g->scene.speaker);
-        text_center(x, W * 0.5f, H - 64, 1.4f, white, g->scene.subtitle);
+    if (g->state == GS_SCENE && g->scene.subtitle[0] && !g->scene.speaker[0]) {
+        text_center(x, W * 0.5f, H - 64, 1.4f, white, g->scene.subtitle);   // narration
+    } else if (g->state == GS_SCENE && g->scene.subtitle[0]) {
+        // Dialogue: JRPG box with the speaker's portrait, emotion bubble and typed text
+        float t = g->scene.time - g->scene.say_start;
+        const char *e = g->scene.emote; int en = emote_number(e);
+        bool is_player = !strcmp(g->scene.speaker, "Ninja") || !strcmp(g->scene.speaker, "player");
+        float bw = 900, bh = 150, bx = (W - bw) * 0.5f, by = H - bh - 60;
+        // portrait motion by emotion
+        float ox = 0, oy = 0, sc = 1.0f;
+        if (!strcmp(e, "angry") || !strcmp(e, "furious") || !strcmp(e, "shout")) { float k = fmaxf(0, 1 - t * 1.5f); ox = sinf(t * 70) * 5 * (0.3f + k); oy = cosf(t * 90) * 2 * k; }
+        else if (!strcmp(e, "happy") || !strcmp(e, "laugh") || !strcmp(e, "wink") || !strcmp(e, "love") || !strcmp(e, "cheeky") || !strcmp(e, "smile")) { oy = -fabsf(sinf(t * 6.0f)) * 8; }
+        else if (!strcmp(e, "sad") || !strcmp(e, "cry") || !strcmp(e, "heartbreak") || !strcmp(e, "down")) { oy = 6 + sinf(t * 1.5f) * 2; }
+        else if (!strcmp(e, "surprise") || !strcmp(e, "alert") || !strcmp(e, "shock") || !strcmp(e, "question") || !strcmp(e, "confused")) { float k = clampf(t / 0.25f, 0, 1); sc = 1.0f + 0.25f * (1 - k) * (1 - k) + 0.04f * sinf(t * 4); }
+        else if (!strcmp(e, "nervous")) { ox = sinf(t * 30) * 2; }
+        else { sc = 1.0f + 0.015f * sinf(t * 2.5f); }
+        // box
+        gfx_ui_rect(x, bx + 6, by + 8, bw, bh, v4(0, 0, 0, 0.55f));
+        gfx_ui_rect(x, bx, by, bw, bh, v4(0.08f, 0.07f, 0.1f, 0.94f));
+        Vec4 frame = is_player ? v4(0.55f, 0.8f, 0.55f, 1) : v4(0.85f, 0.45f, 0.35f, 1);
+        gfx_ui_rect(x, bx, by, bw, 3, frame); gfx_ui_rect(x, bx, by + bh - 3, bw, 3, frame); gfx_ui_rect(x, bx, by, 3, bh, frame); gfx_ui_rect(x, bx + bw - 3, by, 3, bh, frame);
+        // portrait (player on the left, others on the right)
+        const Texture *pt = portrait_for(g, g->scene.speaker);
+        float ps = 128 * sc, px = is_player ? bx + 20 : bx + bw - 20 - 128, py = by + 11;
+        float pcx = px + 64 + ox, pcy = py + 64 + oy;
+        gfx_ui_rect(x, pcx - 68, pcy - 68, 136, 136, v4(0.14f, 0.12f, 0.16f, 1));
+        if (pt) gfx_ui_image(x, pt, pcx - ps * 0.5f, pcy - ps * 0.5f, ps, ps, NULL, v4(1, 1, 1, 1));
+        else gfx_ui_rect(x, pcx - 40, pcy - 40, 80, 80, frame);
+        // emote bubble pops in above the portrait
+        if (en > 0 && g->emotes[en].tex) {
+            float k = clampf(t / 0.25f, 0, 1), bs = (1.2f - 0.2f * k) * 56, bob = sinf(t * 5.0f) * 3;
+            gfx_ui_image(x, &g->emotes[en], pcx + 40 - bs * 0.5f, pcy - 68 - bs + 6 + bob, bs, bs * 13.0f / 14.0f, NULL, v4(1, 1, 1, k));
+        }
+        // name plate
+        float nx = is_player ? bx + 170 : bx + 24;
+        gfx_ui_rect(x, nx - 8, by - 16, gfx_ui_text_width(1.5f, g->scene.speaker) + 16, 24, v4(0.08f, 0.07f, 0.1f, 0.94f));
+        gfx_ui_text(x, nx, by - 10, 1.5f, frame, g->scene.speaker);
+        // typed text, wrapped
+        int total = (int)strlen(g->scene.subtitle);
+        int shown = (int)(t * 42.0f); if (shown > total) shown = total;
+        char buf[200]; snprintf(buf, sizeof buf, "%.*s", shown, g->scene.subtitle);
+        float tx = is_player ? bx + 170 : bx + 24, maxw = bw - 200;
+        { char line[200] = ""; char word[64]; const char *p = buf; float ly = by + 30;
+          while (*p) { int wl = 0; while (*p && *p != ' ' && wl < 63) word[wl++] = *p++; word[wl] = 0; while (*p == ' ') p++;
+              char test[200]; snprintf(test, sizeof test, "%s%s%s", line, line[0] ? " " : "", word);
+              if (gfx_ui_text_width(1.7f, test) > maxw && line[0]) { gfx_ui_text(x, tx, ly, 1.7f, white, line); ly += 26; snprintf(line, sizeof line, "%s", word); }
+              else snprintf(line, sizeof line, "%s", test); }
+          if (line[0]) gfx_ui_text(x, tx, ly, 1.7f, white, line); }
+        if (shown >= total && fmodf(t, 0.8f) < 0.4f) gfx_ui_text(x, bx + bw - 30, by + bh - 22, 1.3f, dim, "v");
     }
     if (g->msg_t > 0) gfx_ui_text(x, 12, H - 16, 1.0f, v4(0.9f, 0.8f, 0.4f, 1), g->msg);
     if (g->hint_t > 0 && g->state == GS_EXPLORE) {

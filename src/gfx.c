@@ -297,7 +297,7 @@ static void push_material(Gfx *g, Vec4 tint) {
 }
 
 void gfx_begin(Gfx *g, Platform *pf, const FrameParams *fp) {
-    g->frame = *fp; g->ui_count = 0; g->p_add_count = g->p_alpha_count = 0; g->draw_calls = 0;
+    g->frame = *fp; g->ui_count = 0; g->ui_nbatches = 0; g->p_add_count = g->p_alpha_count = 0; g->draw_calls = 0;
     g->bound_tex = NULL; g->bound_pipe = NULL; g->pass = NULL; g->cmd = pf->cmd;
     g->material = material_default();
     g->cam_right = fp->cam_right; g->cam_up = fp->cam_up;
@@ -461,17 +461,28 @@ void gfx_ground_quad(Gfx *g, Vec3 c, float radius, Vec4 color, bool additive) {
 
 // ---------------------------------------------------------------- ui
 
+static void ui_batch(Gfx *g, const Texture *t) {
+    // Extend the current batch if it uses the same texture, else start a new one
+    if (g->ui_nbatches > 0 && g->ui_batches[g->ui_nbatches - 1].tex == t) return;
+    if (g->ui_nbatches >= 64) return;
+    g->ui_batches[g->ui_nbatches].tex = t; g->ui_batches[g->ui_nbatches].start = g->ui_count; g->ui_batches[g->ui_nbatches].count = 0;
+    g->ui_nbatches++;
+}
 static void ui_push(Gfx *g, float x, float y, float u, float v, Vec4 c) {
     if (g->ui_count >= UI_MAX_VERTS) return;
+    if (g->ui_nbatches == 0) ui_batch(g, &g->white);
+    g->ui_batches[g->ui_nbatches - 1].count++;
     UIVertex *o = &g->ui_verts[g->ui_count++];
     o->pos[0] = x; o->pos[1] = y; o->uv[0] = u; o->uv[1] = v;
     o->color[0] = c.x; o->color[1] = c.y; o->color[2] = c.z; o->color[3] = c.w;
 }
 void gfx_ui_rect(Gfx *g, float x, float y, float w, float h, Vec4 c) {
+    ui_batch(g, &g->white);
     ui_push(g, x, y, 0, 0, c); ui_push(g, x + w, y, 1, 0, c); ui_push(g, x + w, y + h, 1, 1, c);
     ui_push(g, x, y, 0, 0, c); ui_push(g, x + w, y + h, 1, 1, c); ui_push(g, x, y + h, 0, 1, c);
 }
 void gfx_ui_text(Gfx *g, float x, float y, float scale, Vec4 c, const char *text) {
+    ui_batch(g, &g->white);
     static char buf[64 * 1024];
     int quads = stb_easy_font_print(0, 0, (char *)text, NULL, buf, sizeof buf);
     const float *q = (const float *)buf;
@@ -485,11 +496,13 @@ void gfx_ui_text(Gfx *g, float x, float y, float scale, Vec4 c, const char *text
 float gfx_ui_text_width(float scale, const char *text) { return stb_easy_font_width((char *)text) * scale; }
 
 void gfx_ui_quad(Gfx *g, const float *q, Vec4 c) {
+    ui_batch(g, &g->white);
     ui_push(g, q[0], q[1], 0, 0, c); ui_push(g, q[2], q[3], 1, 0, c); ui_push(g, q[4], q[5], 1, 1, c);
     ui_push(g, q[0], q[1], 0, 0, c); ui_push(g, q[4], q[5], 1, 1, c); ui_push(g, q[6], q[7], 0, 1, c);
 }
 
 void gfx_ui_text_xf(Gfx *g, float cx, float cy, float scale, float angle, Vec4 c, const char *text) {
+    ui_batch(g, &g->white);
     static char buf[64 * 1024];
     int quads = stb_easy_font_print(0, 0, (char *)text, NULL, buf, sizeof buf);
     const float *q = (const float *)buf;
@@ -507,6 +520,7 @@ void gfx_ui_text_xf(Gfx *g, float cx, float cy, float scale, float angle, Vec4 c
 }
 
 void gfx_ui_ring(Gfx *g, float cx, float cy, float r, float th, Vec4 c) {
+    ui_batch(g, &g->white);
     int n = r > 80 ? 48 : 32;
     float r0 = r - th * 0.5f, r1 = r + th * 0.5f;
     for (int i = 0; i < n; i++) {
@@ -518,11 +532,19 @@ void gfx_ui_ring(Gfx *g, float cx, float cy, float r, float th, Vec4 c) {
 }
 
 void gfx_ui_disc(Gfx *g, float cx, float cy, float r, Vec4 c) {
+    ui_batch(g, &g->white);
     int n = 32;
     for (int i = 0; i < n; i++) {
         float a0 = (float)i / n * 2 * PI, a1 = (float)(i + 1) / n * 2 * PI;
         ui_push(g, cx, cy, 0, 0, c); ui_push(g, cx + cosf(a0) * r, cy + sinf(a0) * r, 0, 0, c); ui_push(g, cx + cosf(a1) * r, cy + sinf(a1) * r, 0, 0, c);
     }
+}
+
+void gfx_ui_image(Gfx *g, const Texture *t, float x, float y, float w, float h, const float *uv, Vec4 c) {
+    float u0 = uv ? uv[0] : 0, v0 = uv ? uv[1] : 0, u1 = uv ? uv[2] : 1, v1 = uv ? uv[3] : 1;
+    ui_batch(g, t);
+    ui_push(g, x, y, u0, v0, c); ui_push(g, x + w, y, u1, v0, c); ui_push(g, x + w, y + h, u1, v1, c);
+    ui_push(g, x, y, u0, v0, c); ui_push(g, x + w, y + h, u1, v1, c); ui_push(g, x, y + h, u0, v1, c);
 }
 
 // ---------------------------------------------------------------- end of frame
@@ -617,9 +639,12 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
         SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(pf->cmd, &ct, 1, NULL);
         SDL_BindGPUGraphicsPipeline(pass, g->pipe_ui);
         SDL_PushGPUVertexUniformData(pf->cmd, 0, &(Vec4){ (float)g->iw, (float)g->ih, 0, 0 }, sizeof(Vec4));
-        SDL_BindGPUFragmentSamplers(pass, 0, &(SDL_GPUTextureSamplerBinding){ .texture = g->white.tex, .sampler = g->samp_nearest }, 1);
         SDL_BindGPUVertexBuffers(pass, 0, &(SDL_GPUBufferBinding){ .buffer = g->ui_vb }, 1);
-        SDL_DrawGPUPrimitives(pass, g->ui_count, 1, 0, 0);
+        for (int i = 0; i < g->ui_nbatches; i++) {
+            if (g->ui_batches[i].count == 0) continue;
+            SDL_BindGPUFragmentSamplers(pass, 0, &(SDL_GPUTextureSamplerBinding){ .texture = g->ui_batches[i].tex->tex, .sampler = g->samp_nearest }, 1);
+            SDL_DrawGPUPrimitives(pass, g->ui_batches[i].count, 1, g->ui_batches[i].start, 0);
+        }
         SDL_EndGPURenderPass(pass);
     }
     // Blit to the swapchain, letterboxed

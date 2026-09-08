@@ -102,12 +102,15 @@ bool scene_load(Scene *sc, const char *path) {
             c.fov = (float)SDL_atof(toks[8]);
             c.a = (nt >= 10 && strcmp(toks[9], "cut") == 0) ? 1.0f : 0.0f;
         } else if (strcmp(cmd, "say") == 0) {
-            // T say "text" dur [speaker]
+            // T say "text" dur [speaker] [emote NAME]
             if (nt < 4) { SDL_Log("scene_load: '%s' line %d: say needs text and dur", path, line_no); continue; }
             c.type = SC_SAY;
             set_text(&c, toks[2]);
             c.dur = (float)SDL_atof(toks[3]);
-            if (nt >= 5) set_actor(&c, toks[4]);
+            for (int k = 4; k < nt; k++) {
+                if (strcmp(toks[k], "emote") == 0 && k + 1 < nt) { SDL_strlcpy(c.emote, toks[k + 1], sizeof c.emote); k++; }
+                else set_actor(&c, toks[k]);
+            }
         } else if (strcmp(cmd, "actor") == 0) {
             // T actor NAME move|face|anim|teleport ...
             if (nt < 4) { SDL_Log("scene_load: '%s' line %d: actor needs a name and sub-command", path, line_no); continue; }
@@ -281,7 +284,9 @@ static void fire(Scene *sc, const SceneCmd *c, const SceneHost *host) {
     case SC_SAY:
         SDL_strlcpy(sc->subtitle, c->text, sizeof sc->subtitle);
         SDL_strlcpy(sc->speaker, c->actor, sizeof sc->speaker);
+        SDL_strlcpy(sc->emote, c->emote, sizeof sc->emote);
         sc->subtitle_until = c->t + c->dur;
+        sc->say_start = c->t;
         break;
     case SC_ACTOR_MOVE:
         if (host && host->actor_move) host->actor_move(host->ud, c->actor, c->pos, c->dur);
@@ -331,6 +336,7 @@ void scene_update(Scene *sc, float dt, const SceneHost *host) {
     if (sc->subtitle[0] && sc->time > sc->subtitle_until) {
         sc->subtitle[0] = 0;
         sc->speaker[0] = 0;
+        sc->emote[0] = 0;
     }
 }
 
