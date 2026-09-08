@@ -119,7 +119,7 @@ void game_start_at(Game *g, const char *where) {
         play_scene(g, g->level.scene_boss, GS_FIGHT);
     } else if (!strcmp(where, "victory")) {
         restart_fight(g);
-        g->player.c.pos = v3(0.8f, 0, 35.0f);
+        g->player.c.pos = v3_add(g->level.boss_spawn, v3(0.9f, 0, -1.6f));
         g->boss.c.hp = 0; g->boss.state = BS_DEAD; character_set_anim(&g->boss.c, ANIM_DEAD);
         play_scene(g, g->level.scene_victory, GS_END);
     }
@@ -181,13 +181,13 @@ static void apply_events(Game *g, const CombatEvents *ev) {
     if (ev->parried) {
         audio_play(SND_PARRY, 1.0f, 1.0f); g->parries++; readout(g, "PARRY", 0.7f);
         particles_burst(&g->particles, PT_SPARK, ev->contact, v3(0, 0.6f, 0), 40, 7.0f, v3(3.0f, 2.4f, 1.2f), 0.07f, 0.5f);
-        screen_flash(g, v3(1, 1, 0.9f), 0.42f);
+        screen_flash(g, v3(1, 1, 0.9f), 0.22f);
     }
     if (ev->parry_whiff) audio_play(SND_WHIFF, 0.6f, 1.0f);
     if (ev->player_hit) {
         g->hits_taken++;
         particles_burst(&g->particles, PT_SPARK, ev->contact, v3(0, 0.4f, 0), 16, 4.0f, v3(2.5f, 0.3f, 0.2f), 0.08f, 0.6f);
-        screen_flash(g, v3(0.6f, 0.0f, 0.0f), 0.45f);
+        screen_flash(g, v3(0.6f, 0.0f, 0.0f), 0.3f);
         if (ev->parry_early) { audio_play(SND_FAIL, 1.0f, 1.0f); audio_play(SND_HURT, 0.7f, 1.0f); readout(g, "TOO EARLY", 0.8f); }
         else if (ev->parry_unblockable) { audio_play(SND_FAIL, 1.0f, 0.7f); audio_play(SND_HURT, 0.7f, 1.0f); readout(g, "UNBLOCKABLE - DODGE", 1.0f); }
         else audio_play(SND_HURT, 0.9f, 1.0f);
@@ -460,7 +460,7 @@ void game_render(Game *g, Platform *pf, float alpha) {
         fp.lights[fp.nlights++] = (PointLight){ .pos = v3(bc->pos.x, bc->pos.y + bc->height * 0.6f, bc->pos.z), .radius = 6.0f,
                                                 .color = bc->tell_color, .intensity = 2.5f * bc->tell * bc->tell };
     if (g->flash > 0 && fp.nlights < GFX_MAX_LIGHTS)
-        fp.lights[fp.nlights++] = (PointLight){ .pos = v3(pc->pos.x, pc->pos.y + 1.2f, pc->pos.z), .radius = 7.0f, .color = g->flash_color, .intensity = 6.0f * g->flash };
+        fp.lights[fp.nlights++] = (PointLight){ .pos = v3(pc->pos.x, pc->pos.y + 1.2f, pc->pos.z), .radius = 7.0f, .color = g->flash_color, .intensity = 2.5f * g->flash };
 
     Gfx *x = &g->gfx;
     gfx_begin(x, pf, &fp);
