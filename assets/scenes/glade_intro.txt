@@ -1,0 +1,14 @@
+# glade_intro.txt - a small knight enters the glade at night. ~12s.
+0.0 letterbox on
+0.0 fade 0 1 2.5
+0.0 cam 5 9 -6   0 1.2 6   44 cut
+0.0 actor player anim idle
+2.0 say "Right. Forest. Lanterns lit for nobody." 3.5
+2.0 sound blip
+3.0 actor player anim walk
+3.0 actor player move 0 0 5.5 6.0
+6.5 say "Someone keeps count of the lanterns. I'd like a word." 4.0
+6.5 sound blip
+7.0 cam 2.2 4.5 -1   0 1.1 9   40
+11.0 letterbox off
+12.0 end

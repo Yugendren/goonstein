@@ -325,6 +325,8 @@ static float move_axis(const Level *lv, float primary, float secondary, float y0
         for (int i = 0; i < lv->nblocks; i++) {
             const Block *b = &lv->blocks[i];
             if (!b->solid || !y_overlaps(b, y0, y1)) continue;
+            // Thin floors and low steps are walked over, not collided with.
+            if (b->center.y + b->size.y * 0.5f <= y0 + 0.35f) continue;
 
             float pmin, pmax, smin, smax;
             if (axis == 0) {
@@ -346,6 +348,9 @@ static float move_axis(const Level *lv, float primary, float secondary, float y0
             float reach = sqrtf(fmaxf(radius * radius - ds * ds, 0.0f));
             float touch_lo = pmin - reach;
             float touch_hi = pmax + reach;
+            // Already overlapping before the move (spawned inside, or pushed in by
+            // something else): never eject, just let the motion continue.
+            if (primary > touch_lo && primary < touch_hi) continue;
             if (next > touch_lo && next < touch_hi) {
                 next = (step > 0.0f) ? fminf(next, touch_lo) : fmaxf(next, touch_hi);
                 hit = true;

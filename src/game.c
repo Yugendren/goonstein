@@ -52,7 +52,7 @@ static void setup_level_content(Game *g) {
 
 static bool load_defs(Game *g) {
     bool ok = true;
-    ok &= level_load(&g->level, g->level_path[0] ? g->level_path : ASSET("levels/corridor.txt"));
+    ok &= level_load(&g->level, g->level_path[0] ? g->level_path : ASSET("levels/glade.txt"));
     ok &= player_def_load(&g->player_def, ASSET("player.txt"));
     ok &= boss_def_load(&g->boss_def, ASSET("enemies/warden.txt"));
     return ok;

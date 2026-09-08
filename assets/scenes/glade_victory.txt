@@ -1,0 +1,9 @@
+# glade_victory.txt - the Warden falls; an orbit around the aftermath. ~10s.
+0.0 actor boss anim dead
+0.0 actor player anim kneel
+0.0 cam 5 2 70   0 1.2 66   50 cut
+2.0 say "One lantern out. Somewhere, a number went down." 4.0
+4.0 cam 0 2.2 71   0 1.2 66   46
+7.0 cam -5 2 70   0 1.2 66   50
+7.0 fade 1 0 3.0
+10.0 end

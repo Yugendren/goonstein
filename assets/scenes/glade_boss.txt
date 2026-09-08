@@ -1,0 +1,15 @@
+# glade_boss.txt - the Warden revealed in the ruined shrine. ~14s.
+0.0 letterbox on
+0.0 cam 0 5 48   0 2.2 66   58 cut
+0.3 actor boss teleport 0 0 66 180
+0.5 actor boss anim idle
+8.0 cam -1 1.5 55   0 2.0 64   40
+9.5 say "You brought the count with you." 3 "The Warden"
+11.0 actor boss anim roar
+11.0 sound roar
+11.0 shake 0.5 1.0
+12.0 cam -3 1.6 60   0 1.6 66   40 cut
+12.2 actor player face 0 0 66
+12.5 say "I brought a sword. The count can wait." 2.5
+13.5 letterbox off
+14.0 end
