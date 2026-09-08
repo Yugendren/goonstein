@@ -77,8 +77,11 @@ so a bug report is: press F8 when it happens, paste.
 
 ## Editors (second window, live in the game)
 
-`F6` opens the environment editor, `F7` the sprite editor, `\` the debugger; each takes over
-the tool window, and pressing the same key closes it. Command line: `--tool 2` / `--tool 3`.
+`Ctrl+E` (or F6) opens the environment editor, `Ctrl+P` (or F7) the sprite editor, `\` the
+debugger; each takes over the tool window, and pressing the same key closes it. On a Mac, Cmd
+works in place of Ctrl, and the function keys need Fn unless you change the keyboard setting.
+Also `Ctrl+D` wireframes (F1), `Ctrl+R` reload data (F5), `Ctrl+G` snapshot (F8).
+Command line: `--tool 2` / `--tool 3`.
 
 **Environment editor.** The game window becomes a fly camera (WASD and Q/E, hold the right
 mouse button to look, wheel changes speed). The tool window has the kit palette (trees, rocks,
