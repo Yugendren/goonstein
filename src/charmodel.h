@@ -12,6 +12,7 @@
 #pragma once
 #include "model.h"
 #include "sprite.h"
+#include "pixio.h"
 #include "combat.h"
 
 typedef struct AnimBinding { int clip; bool loop, hold; float contact, rate; } AnimBinding;
@@ -37,3 +38,5 @@ void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint);
 void charmodel_sprite_play(CharModel *cm, const char *anim, float lead, bool restart);
 float charmodel_sprite_contact(const CharModel *cm, const char *anim, int i, float lead);
 void charmodel_sprite_settle(CharModel *cm);   // finished one-shots return to idle
+// Live link from the sprite editor: rebuild this character's sheets and animations from a document.
+void charmodel_refresh_from_doc(CharModel *cm, Gfx *g, const PixDoc *doc);

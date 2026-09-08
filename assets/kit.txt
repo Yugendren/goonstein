@@ -1,0 +1,108 @@
+# Environment kit for the level editor palette. One piece per line:
+#   piece CATEGORY NAME FILE scale collide glow_r glow_g glow_b [light r g b radius intensity flicker]
+# FILE is relative to assets/. collide is the invisible cylinder radius (0 = walk through).
+# glow is emissive colour (0 0 0 = none). The optional light places a point light with the piece.
+# (filled in by the kit curation task)
+
+# Trees
+piece trees tree_singleA models/kaykit/hex/tree_single_A.gltf 2 0.6 0 0 0
+piece trees tree_singleB models/kaykit/hex/tree_single_B.gltf 2 0.6 0 0 0
+piece trees tree_largeA models/kaykit/hex/trees_A_large.gltf 2 0.6 0 0 0
+piece trees tree_mediumA models/kaykit/hex/trees_A_medium.gltf 2 0.6 0 0 0
+piece trees tree_smallA models/kaykit/hex/trees_A_small.gltf 2 0.6 0 0 0
+piece trees tree_largeB models/kaykit/hex/trees_B_large.gltf 2 0.6 0 0 0
+piece trees tree_mediumB models/kaykit/hex/trees_B_medium.gltf 2 0.6 0 0 0
+piece trees tree_smallB models/kaykit/hex/trees_B_small.gltf 2 0.6 0 0 0
+
+# Rocks
+piece rocks rock_singleA models/kaykit/hex/rock_single_A.gltf 1 0 0 0 0
+piece rocks rock_singleB models/kaykit/hex/rock_single_B.gltf 1 0 0 0 0
+piece rocks rock_singleC models/kaykit/hex/rock_single_C.gltf 1 0 0 0 0
+piece rocks rock_singleD models/kaykit/hex/rock_single_D.gltf 1 0 0 0 0
+piece rocks rock_singleE models/kaykit/hex/rock_single_E.gltf 1 0 0 0 0
+piece rocks hill_singleA models/kaykit/hex/hill_single_A.gltf 1 0 0 0 0
+piece rocks hill_singleB models/kaykit/hex/hill_single_B.gltf 1 0 0 0 0
+piece rocks hill_singleC models/kaykit/hex/hill_single_C.gltf 1 0 0 0 0
+piece rocks hills_A_trees models/kaykit/hex/hills_A_trees.gltf 1 0 0 0 0
+piece rocks mountain_A models/kaykit/hex/mountain_A.gltf 1 0 0 0 0
+piece rocks mountain_A_grass models/kaykit/hex/mountain_A_grass.gltf 1 0 0 0 0
+piece rocks mountain_B models/kaykit/hex/mountain_B.gltf 1 0 0 0 0
+
+# Ground
+piece ground hex_grass models/kaykit/hex/hex_grass.gltf 1 0 0 0 0
+piece ground hex_grass_sloped models/kaykit/hex/hex_grass_sloped_high.gltf 1 0 0 0 0
+piece ground hex_water models/kaykit/hex/hex_water.gltf 1 0 0 0 0
+piece ground hex_riverA models/kaykit/hex/hex_river_A.gltf 1 0 0 0 0
+piece ground hex_riverB models/kaykit/hex/hex_river_B.gltf 1 0 0 0 0
+piece ground path_A models/kaykit/halloween/path_A.gltf 1 0 0 0 0
+piece ground path_B models/kaykit/halloween/path_B.gltf 1 0 0 0 0
+piece ground floor_dirt models/kaykit/halloween/floor_dirt.gltf 1 0 0 0 0
+piece ground floor_dirt_grave models/kaykit/halloween/floor_dirt_grave.gltf 1 0 0 0 0
+
+# Walls
+piece walls wall_straight models/kaykit/dungeon/wall.gltf.glb 1 0 0 0 0
+piece walls wall_arched models/kaykit/dungeon/wall_arched.gltf.glb 1 0 0 0 0
+piece walls wall_corner models/kaykit/dungeon/wall_corner.gltf.glb 1 0 0 0 0
+piece walls wall_doorway models/kaykit/dungeon/wall_doorway.glb 1 0 0 0 0
+piece walls wall_gated models/kaykit/dungeon/wall_gated.gltf.glb 1 0 0 0 0
+piece walls wall_half models/kaykit/dungeon/wall_half.gltf.glb 1 0 0 0 0
+piece walls wall_window models/kaykit/dungeon/wall_window_open.gltf.glb 1 0 0 0 0
+piece walls pillar models/kaykit/dungeon/pillar.gltf.glb 1 0.6 0 0 0
+piece walls pillar_decorated models/kaykit/dungeon/pillar_decorated.gltf.glb 1 0.6 0 0 0
+piece walls column models/kaykit/dungeon/column.gltf.glb 1 0.6 0 0 0
+piece walls stairs models/kaykit/dungeon/stairs.gltf.glb 1 0 0 0 0
+piece walls stairs_narrow models/kaykit/dungeon/stairs_narrow.gltf.glb 1 0 0 0 0
+piece walls stairs_wide models/kaykit/dungeon/stairs_wide.gltf.glb 1 0 0 0 0
+piece walls stairs_wood models/kaykit/dungeon/stairs_wood.gltf.glb 1 0 0 0 0
+
+# Props
+piece props banner_blue models/kaykit/dungeon/banner_blue.gltf.glb 1 0 0 0 0
+piece props banner_shield models/kaykit/dungeon/banner_shield_red.gltf.glb 1 0 0 0 0
+piece props banner_triple models/kaykit/dungeon/banner_triple_green.gltf.glb 1 0 0 0 0
+piece props barrel_large models/kaykit/dungeon/barrel_large.gltf.glb 1 0.4 0 0 0
+piece props barrel_large_deco models/kaykit/dungeon/barrel_large_decorated.gltf.glb 1 0.4 0 0 0
+piece props barrel_small models/kaykit/dungeon/barrel_small.gltf.glb 1 0.4 0 0 0
+piece props box_large models/kaykit/dungeon/box_large.gltf.glb 1 0.4 0 0 0
+piece props box_small models/kaykit/dungeon/box_small.gltf.glb 1 0.4 0 0 0
+piece props box_stacked models/kaykit/dungeon/box_stacked.gltf.glb 1 0.4 0 0 0
+piece props chest models/kaykit/dungeon/chest.glb 1 0.4 0 0 0
+piece props chest_gold models/kaykit/dungeon/chest_gold.glb 1 0.4 0 0 0
+piece props crates_stacked models/kaykit/dungeon/crates_stacked.gltf.glb 1 0.4 0 0 0
+piece props floor_tile_large models/kaykit/dungeon/floor_tile_large.gltf.glb 1 0 0 0 0
+piece props floor_tile_small models/kaykit/dungeon/floor_tile_small.gltf.glb 1 0 0 0 0
+piece props floor_wood_large models/kaykit/dungeon/floor_wood_large.gltf.glb 1 0 0 0 0
+piece props floor_dirt_large models/kaykit/dungeon/floor_dirt_large.gltf.glb 1 0 0 0 0
+piece props floor_dirt_rocky models/kaykit/dungeon/floor_dirt_large_rocky.gltf.glb 1 0 0 0 0
+piece props rubble_half models/kaykit/dungeon/rubble_half.gltf.glb 1 0 0 0 0
+piece props rubble_large models/kaykit/dungeon/rubble_large.gltf.glb 1 0 0 0 0
+piece props arch models/kaykit/halloween/arch.gltf 1 0 0 0 0
+piece props arch_gate models/kaykit/halloween/arch_gate.gltf 1 0 0 0 0
+piece props coffin models/kaykit/halloween/coffin.gltf 1 0 0 0 0
+piece props crypt models/kaykit/halloween/crypt.gltf 1 0 0 0 0
+piece props fence models/kaykit/halloween/fence.gltf 1 0 0 0 0
+piece props fence_broken models/kaykit/halloween/fence_broken.gltf 1 0 0 0 0
+piece props fence_gate models/kaykit/halloween/fence_gate.gltf 1 0 0 0 0
+piece props grave_A models/kaykit/halloween/grave_A.gltf 1 0 0 0 0
+piece props grave_B models/kaykit/halloween/grave_B.gltf 1 0 0 0 0
+piece props gravemarker_A models/kaykit/halloween/gravemarker_A.gltf 1 0 0 0 0
+piece props gravemarker_B models/kaykit/halloween/gravemarker_B.gltf 1 0 0 0 0
+piece props gravestone models/kaykit/halloween/gravestone.gltf 1 0 0 0 0
+piece props ribcage models/kaykit/halloween/ribcage.gltf 1 0 0 0 0
+piece props skull models/kaykit/halloween/skull.gltf 1 0 0 0 0
+piece props tree_dead_large models/kaykit/halloween/tree_dead_large.gltf 2 0.6 0 0 0
+piece props tree_dead_medium models/kaykit/halloween/tree_dead_medium.gltf 2 0.6 0 0 0
+piece props tree_dead_small models/kaykit/halloween/tree_dead_small.gltf 2 0.6 0 0 0
+
+# Lights
+piece lights torch models/kaykit/dungeon/torch.gltf.glb 1 0.3 1.0 0.6 0.25 light 1.0 0.6 0.25 7 3 0.3
+piece lights torch_lit models/kaykit/dungeon/torch_lit.gltf.glb 1 0.3 1.0 0.6 0.25 light 1.0 0.6 0.25 7 3 0.3
+piece lights torch_mounted models/kaykit/dungeon/torch_mounted.gltf.glb 1 0.3 1.0 0.6 0.25 light 1.0 0.6 0.25 7 3 0.3
+piece lights candle models/kaykit/dungeon/candle.gltf.glb 1 0.3 1.0 0.6 0.25 light 1.0 0.6 0.25 4 1.5 0.3
+piece lights candle_lit models/kaykit/dungeon/candle_lit.gltf.glb 1 0.3 1.0 0.6 0.25 light 1.0 0.6 0.25 4 1.5 0.3
+piece lights candle_triple models/kaykit/dungeon/candle_triple.gltf.glb 1 0.3 1.0 0.6 0.25 light 1.0 0.6 0.25 4 1.5 0.3
+piece lights shelf_candles models/kaykit/dungeon/shelf_small_candles.gltf.glb 1 0 1.0 0.6 0.25 light 1.0 0.6 0.25 4 1.5 0.3
+piece lights lantern_hanging models/kaykit/halloween/lantern_hanging.gltf 1 0.3 1.0 0.8 0.5 light 1.0 0.8 0.5 7 3 0.3
+piece lights lantern_standing models/kaykit/halloween/lantern_standing.gltf 1 0.3 1.0 0.8 0.5 light 1.0 0.8 0.5 7 3 0.3
+piece lights post_lantern models/kaykit/halloween/post_lantern.gltf 1 0.3 1.0 0.8 0.5 light 1.0 0.8 0.5 7 3 0.3
+piece lights pumpkin_jackolantern_o models/kaykit/halloween/pumpkin_orange_jackolantern.gltf 1 0 1.0 0.55 0.2 light 1.0 0.55 0.2 7 3 0.3
+piece lights pumpkin_jackolantern_y models/kaykit/halloween/pumpkin_yellow_jackolantern.gltf 1 0 1.0 0.55 0.2 light 1.0 0.55 0.2 7 3 0.3

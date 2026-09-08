@@ -12,6 +12,8 @@
 #include "particles.h"
 #include "battle.h"
 #include "editor.h"
+#include "leveled.h"
+#include "widgets.h"
 
 #define INTERNAL_W 1280
 #define INTERNAL_H 800
@@ -26,6 +28,9 @@ typedef struct Game {
     CharModel player_model, boss_model;
     PropCache props; Particles particles; Battle battle; Uifx fx; bool battle_loaded;
     Editor editor; bool editor_open;
+    LevelEd leveled; bool leveled_ready;
+    Ui ui; int tool_mode;            // 0 none, 1 debugger, 2 environment editor, 3 sprite editor
+    float sprite_refresh_t;
     struct { char name[32]; Texture tex; } portraits[16]; int nportraits;
     Texture emotes[31];                       // pack emote bubbles by number, 1..30
     float dlg_shown_chars; float dlg_blip_t; char dlg_last_line[200];
@@ -58,3 +63,5 @@ void game_start_at(Game *g, const char *where);
 bool game_shot_moment(Game *g, const char *when);
 // Open the sprite editor on a character (creates it if missing).
 void game_open_editor(Game *g, const char *name, int frame_size);
+// Switch the tool window: 0 closes, 1 debugger, 2 environment editor, 3 sprite editor.
+void game_set_tool(Game *g, int mode);

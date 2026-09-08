@@ -88,7 +88,7 @@ bool pix_anim_delete_frame(PixAnim *a, int at) {
 }
 
 // Compose a `ndirs*fw` x `nframes*fh` RGBA8 sheet (column = direction, row = frame). Caller frees.
-static uint8_t *compose_sheet(const PixAnim *a, int *out_w, int *out_h) {
+uint8_t *pix_compose_sheet(const PixAnim *a, int *out_w, int *out_h) {
     int w = a->ndirs * a->fw, h = a->nframes * a->fh;
     uint8_t *buf = calloc((size_t)w * (size_t)h, 4);
     if (!buf) return NULL;
@@ -130,7 +130,7 @@ bool pix_doc_save(const PixDoc *d, const char *asset_dir) {
     for (int i = 0; i < d->nanims; i++) {
         const PixAnim *a = &d->anims[i];
         int w, h;
-        uint8_t *buf = compose_sheet(a, &w, &h);
+        uint8_t *buf = pix_compose_sheet(a, &w, &h);
         if (!buf) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pixio: out of memory composing %s", a->name); return false; }
         char path[768];
         snprintf(path, sizeof path, "%s/sprites/own/%s_%s.png", asset_dir, d->name, a->name);

@@ -24,6 +24,8 @@ typedef struct Input {
     // Generic keys for tools: edge-triggered presses and held state by scancode
     bool  key_down[512], key_held[512];
     bool  ctrl, shift_held;
+    // Mouse in the tool window (editor / debugger), in that window's points
+    float tool_mx, tool_my; bool tool_down, tool_pressed, tool_released; float tool_wheel;
 } Input;
 
 typedef struct Platform {
@@ -37,13 +39,17 @@ typedef struct Platform {
     bool want_quit;
     bool debug;
     bool console;    // the \ debugger
-    SDL_Window *console_win; SDL_GPUTexture *console_swap; Uint32 console_w, console_h;   // separate debugger window
+    bool editing;    // an editor owns the game window: Esc deselects instead of quitting
+    SDL_Window *console_win; SDL_GPUTexture *console_swap; Uint32 console_w, console_h;   // separate tool window (debugger, editors)
+    int tool_w, tool_h;   // its logical size in points (the UI coordinate space)
 } Platform;
 
 bool platform_init(Platform *pf, const char *title, int w, int h);
 bool platform_poll(Platform *pf);       // returns false on quit. Edge inputs accumulate until platform_clear_edges.
 void platform_clear_edges(Platform *pf); // call after a simulation tick has consumed the input
-void platform_console_window(Platform *pf, bool open);   // open or close the separate debugger window
+void platform_console_window(Platform *pf, bool open);   // open or close the tool window at its current size
+// Open (or resize) the tool window with a logical size and title.
+void platform_tool_window(Platform *pf, bool open, int w, int h, const char *title);
 void platform_begin_frame(Platform *pf);
 void platform_end_frame(Platform *pf);
 void platform_shutdown(Platform *pf);

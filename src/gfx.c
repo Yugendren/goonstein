@@ -692,7 +692,7 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
         pass = SDL_BeginGPURenderPass(pf->cmd, &ct, 1, NULL);
         if (g->ui2_count > 0) {
             SDL_BindGPUGraphicsPipeline(pass, g->pipe_ui_swap);
-            SDL_PushGPUVertexUniformData(pf->cmd, 0, &(Vec4){ 720, 820, 0, 0 }, sizeof(Vec4));
+            SDL_PushGPUVertexUniformData(pf->cmd, 0, &(Vec4){ (float)(pf->tool_w > 0 ? pf->tool_w : 720), (float)(pf->tool_h > 0 ? pf->tool_h : 820), 0, 0 }, sizeof(Vec4));
             SDL_BindGPUVertexBuffers(pass, 0, &(SDL_GPUBufferBinding){ .buffer = g->ui2_vb }, 1);
             for (int i = 0; i < g->ui2_nbatches; i++) {
                 if (g->ui2_batches[i].count == 0) continue;

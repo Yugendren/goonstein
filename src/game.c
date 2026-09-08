@@ -179,6 +179,7 @@ bool game_init_gfx(Game *g, Platform *pf) {
     particles_init(&g->particles);
     uifx_init(&g->fx);
     load_portraits(g);
+    g->leveled_ready = leveled_init(&g->leveled, ASSET("kit.txt"));
     g->battle_loaded = battle_load(&g->battle, ASSET("cards/cards.txt"), ASSET("decks/knight.txt"), ASSET("enemies/warden_battle.txt"));
     if (!g->battle_loaded) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "battle data failed to load; boss door falls back to real-time fight");
     battle_load_fx(&g->battle, &g->gfx, ASSET("sprites/fx.txt"));
@@ -188,6 +189,7 @@ bool game_init_gfx(Game *g, Platform *pf) {
 }
 
 void game_shutdown(Game *g) {
+    leveled_shutdown(&g->leveled);
     dbg_shutdown();
     if (g->editor_open) editor_shutdown(&g->editor);
     props_clear(&g->gfx, &g->props);
@@ -442,6 +444,26 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
 
     dbg_set_time(g->time);
     if (in->key_down[SDL_SCANCODE_F8]) debug_snapshot(g);
+    if (in->key_down[SDL_SCANCODE_BACKSLASH] || in->key_down[SDL_SCANCODE_GRAVE]) game_set_tool(g, 1);
+    if (in->key_down[SDL_SCANCODE_F6]) game_set_tool(g, 2);
+    if (in->key_down[SDL_SCANCODE_F7]) game_set_tool(g, 3);
+    if (g->tool_mode == 3 && g->editor_open) {
+        // sprite editor runs in the tool window with that window's mouse; keys are shared
+        Input ein = *in; ein.click = in->tool_pressed; ein.mouse_held = in->tool_down; ein.rmouse_held = false; ein.wheel = in->tool_wheel;
+        float sx = g->pf->tool_w > 0 ? 1280.0f / (float)g->pf->tool_w : 1, sy = g->pf->tool_h > 0 ? 800.0f / (float)g->pf->tool_h : 1;
+        editor_tick(&g->editor, &ein, in->tool_mx * sx, in->tool_my * sy, dt);
+        g->sprite_refresh_t += dt;
+        if (g->editor.dirty && g->sprite_refresh_t > 0.12f) { charmodel_refresh_from_doc(&g->player_model, &g->gfx, &g->editor.doc); g->sprite_refresh_t = 0; }
+    }
+    if (g->tool_mode == 2 && g->leveled.open && g->state != GS_BATTLE && g->state != GS_SCENE) {
+        float mx, my; platform_mouse_ui(g->pf, INTERNAL_W, INTERNAL_H, &mx, &my);
+        leveled_tick(&g->leveled, &g->level, &g->cam, in, mx, my, dt, &g->gfx, &g->props);
+        props_load_level(&g->gfx, &g->props, &g->level);
+        charmodel_drive_player(&g->player_model, &g->player, dt);
+        uifx_update(&g->fx, dt); update_particles(g, dt);
+        g->fade = 1; g->letterbox = 0; g->hint_t = 0;
+        return;
+    }
     { static GState last = (GState)-1; if (g->state != last) { dbg_log("state -> %s", GS_NAMES[g->state]); last = g->state; } }
     if (in->pause_toggle) { g->paused = !g->paused; say(g, g->paused ? "paused (F3 steps one tick)" : "resumed"); }
     if (in->step) g->step_once = true;
@@ -503,7 +525,7 @@ static void sprite_line(char *out, size_t n, const char *who, const CharModel *c
 }
 
 static void draw_console(Game *g, Platform *pf) {
-    if (!pf->console) return;
+    if (!pf->console || g->tool_mode != 1) return;
     Gfx *x = &g->gfx;
     const Battle *b = &g->battle;
     bool windowed = pf->console_win != NULL;
@@ -560,9 +582,33 @@ static void draw_console(Game *g, Platform *pf) {
     gfx_ui_target(x, 0);
 }
 
+static void draw_tool_window(Game *g, Platform *pf) {
+    Gfx *x = &g->gfx;
+    bool windowed = pf->console_win != NULL;
+    if (g->tool_mode == 1) { draw_console(g, pf); return; }
+    if (g->tool_mode == 2) {
+        float w = windowed ? (float)pf->tool_w : 720, h = windowed ? (float)pf->tool_h : 800;
+        gfx_ui_target(x, windowed ? 1 : 0);
+        if (!windowed) gfx_ui_rect(x, 560, 0, 720, 800, v4(0.03f, 0.03f, 0.05f, 0.92f));
+        UiInput uin = { .mx = windowed ? pf->input.tool_mx : 0, .my = windowed ? pf->input.tool_my : 0, .down = pf->input.tool_down, .pressed = pf->input.tool_pressed, .released = pf->input.tool_released, .wheel = pf->input.tool_wheel };
+        if (!windowed) { float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my); uin.mx = mx - 560; uin.my = my; uin.down = pf->input.mouse_held; uin.pressed = pf->input.click; uin.released = false; uin.wheel = pf->input.wheel; }
+        ui_begin(&g->ui, x, uin);
+        if (!windowed) { /* draw at an offset by shifting coordinates through a translated call */ }
+        leveled_panel(&g->leveled, &g->level, &g->ui, w, h);
+        ui_end(&g->ui);
+        gfx_ui_target(x, 0);
+        return;
+    }
+    if (g->tool_mode == 3 && g->editor_open) {
+        gfx_ui_target(x, windowed ? 1 : 0);
+        editor_draw(&g->editor, x);
+        gfx_ui_target(x, 0);
+    }
+}
+
 static void draw_debug_overlay(Game *g, Platform *pf) {
     Gfx *x = &g->gfx;
-    draw_console(g, pf);
+    draw_tool_window(g, pf);
     if (!pf->debug) return;
     {
         static const char *GS[] = { "EXPLORE", "SCENE", "FIGHT", "DEAD", "END", "BATTLE" };
@@ -596,6 +642,7 @@ static void draw_debug_overlay(Game *g, Platform *pf) {
 
 static void draw_hud(Game *g, Platform *pf) {
     Gfx *x = &g->gfx;
+    if (g->tool_mode == 2 && g->leveled.open) { if (g->leveled.msg_t > 0) gfx_ui_text(x, 12, INTERNAL_H - 16, 1.1f, v4(1, 0.85f, 0.4f, 1), g->leveled.msg); draw_debug_overlay(g, pf); return; }
     if (g->state == GS_BATTLE) {
         battle_draw_ui(&g->battle, x, camera_view_proj(&g->cam, (float)INTERNAL_W / INTERNAL_H));
         uifx_draw(&g->fx, x);
@@ -777,6 +824,7 @@ void game_render(Game *g, Platform *pf, float alpha) {
         if (!SDL_getenv("HOLLOW_NOBLOB")) { draw_blob_shadow(x, pc->pos, pc->radius * 2.2f, 0.55f); draw_blob_shadow(x, bc->pos, bc->radius * 2.2f, 0.6f); }
     }
     if (g->state == GS_BATTLE) battle_draw_world(&g->battle, x);
+    if (g->tool_mode == 2 && g->leveled.open) leveled_draw_world(&g->leveled, &g->level, x, &g->props);
     if (!SDL_getenv("HOLLOW_NOPART")) particles_draw(&g->particles, x);
 
     if (pf->debug) {
@@ -827,6 +875,28 @@ void game_open_editor(Game *g, const char *name, int frame_size) {
     if (g->editor_open) editor_shutdown(&g->editor);
     editor_init(&g->editor, name, frame_size);
     g->editor_open = true;
-    g->state = GS_EDITOR; g->state_t = 0;
+    snprintf(g->hero_config, sizeof g->hero_config, "%s", name);
+    charmodel_refresh_from_doc(&g->player_model, &g->gfx, &g->editor.doc);
+    platform_tool_window(g->pf, true, 1280, 800, "hollow sprite editor");
+    if (g->pf->console_win) { g->tool_mode = 3; return; }
+    g->state = GS_EDITOR; g->state_t = 0;   // no second window: edit inline
     audio_music_stop(0.5f);
+}
+
+void game_set_tool(Game *g, int mode) {
+    if (mode == g->tool_mode) mode = 0;
+    g->tool_mode = mode;
+    g->pf->editing = mode == 2;
+    if (mode == 0) { platform_tool_window(g->pf, false, 720, 820, ""); g->leveled.open = false; return; }
+    if (mode == 1) platform_tool_window(g->pf, true, 720, 820, "hollow debugger");
+    if (mode == 2) {
+        platform_tool_window(g->pf, true, 720, 820, "hollow environment editor");
+        if (g->leveled_ready) leveled_open(&g->leveled, &g->level, &g->cam);
+        if (g->state == GS_BATTLE || g->state == GS_SCENE) say(g, "editor works best in the overworld");
+    }
+    if (mode == 3) {
+        platform_tool_window(g->pf, true, 1280, 800, "hollow sprite editor");
+        if (!g->editor_open) { editor_init(&g->editor, g->hero_config[0] ? g->hero_config : "hero_own", 32); g->editor_open = true; }
+        charmodel_refresh_from_doc(&g->player_model, &g->gfx, &g->editor.doc);
+    }
 }

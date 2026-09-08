@@ -81,6 +81,9 @@ typedef struct Level {
 
 // Parse a level file. Returns false and logs on error; on error *lv is left untouched.
 bool level_load(Level *lv, const char *path);
+// Write the level back to disk in the text format level_load reads. Comments in the original file
+// are not preserved. Returns false and logs on failure.
+bool level_save(const Level *lv, const char *path);
 // Reload if the file changed on disk. Returns true if it was reloaded.
 bool level_reload_if_changed(Level *lv);
 // Move a capsule-ish character (xz circle of radius r, y extent 0..height above pos.y)

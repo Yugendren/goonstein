@@ -44,6 +44,7 @@ void platform_clear_edges(Platform *pf) {
     in->attack = in->parry = in->dodge = in->interact = in->debug_toggle = false;
     in->pause_toggle = in->step = in->reload = in->skip = in->lockon = false;
     in->click = in->rclick = false; in->wheel = 0;
+    in->tool_pressed = in->tool_released = false; in->tool_wheel = 0;
     memset(in->key_down, 0, sizeof in->key_down);
     in->look_x = in->look_y = 0.0f;
 }
@@ -65,9 +66,8 @@ bool platform_poll(Platform *pf) {
             if (e.key.scancode < 512) in->key_down[e.key.scancode] = true;   // repeats count for nudging
             if (e.key.repeat) break;
             dbg_log("[in] key %s", SDL_GetScancodeName(e.key.scancode));
-            if (e.key.scancode == SDL_SCANCODE_BACKSLASH || e.key.scancode == SDL_SCANCODE_GRAVE) { platform_console_window(pf, !pf->console); break; }
             switch (e.key.scancode) {
-            case SDL_SCANCODE_ESCAPE: pf->want_quit = true; break;
+            case SDL_SCANCODE_ESCAPE: if (!pf->editing) pf->want_quit = true; break;
             case SDL_SCANCODE_F1: in->debug_toggle = true; pf->debug = !pf->debug; break;
             case SDL_SCANCODE_F2: in->pause_toggle = true; break;
             case SDL_SCANCODE_F3: in->step = true; break;
@@ -83,19 +83,32 @@ bool platform_poll(Platform *pf) {
             }
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            if (pf->console_win && e.button.windowID == SDL_GetWindowID(pf->console_win)) {
+                in->tool_mx = e.button.x; in->tool_my = e.button.y;
+                if (e.button.button == SDL_BUTTON_LEFT) { in->tool_pressed = true; in->tool_down = true; }
+                break;
+            }
             dbg_log("[in] mouse %s down at %.0f %.0f", e.button.button == SDL_BUTTON_LEFT ? "left" : e.button.button == SDL_BUTTON_RIGHT ? "right" : "middle", e.button.x, e.button.y);
             if (e.button.button == SDL_BUTTON_LEFT) { in->attack = true; in->click = true; in->mouse_held = true; }
             else if (e.button.button == SDL_BUTTON_RIGHT) { in->parry = true; in->rclick = true; in->rmouse_held = true; }
             else if (e.button.button == SDL_BUTTON_MIDDLE) in->lockon = true;
             in->mouse_x = e.button.x; in->mouse_y = e.button.y;
             break;
-        case SDL_EVENT_MOUSE_WHEEL: in->wheel += e.wheel.y; break;
+        case SDL_EVENT_MOUSE_WHEEL:
+            if (pf->console_win && e.wheel.windowID == SDL_GetWindowID(pf->console_win)) in->tool_wheel += e.wheel.y; else in->wheel += e.wheel.y;
+            break;
         case SDL_EVENT_MOUSE_BUTTON_UP:
+            if (pf->console_win && e.button.windowID == SDL_GetWindowID(pf->console_win)) {
+                in->tool_mx = e.button.x; in->tool_my = e.button.y;
+                if (e.button.button == SDL_BUTTON_LEFT) { in->tool_released = true; in->tool_down = false; }
+                break;
+            }
             dbg_log("[in] mouse %s up at %.0f %.0f", e.button.button == SDL_BUTTON_LEFT ? "left" : e.button.button == SDL_BUTTON_RIGHT ? "right" : "middle", e.button.x, e.button.y);
             if (e.button.button == SDL_BUTTON_LEFT) in->mouse_held = false;
             else if (e.button.button == SDL_BUTTON_RIGHT) in->rmouse_held = false;
             break;
         case SDL_EVENT_MOUSE_MOTION:
+            if (pf->console_win && e.motion.windowID == SDL_GetWindowID(pf->console_win)) { in->tool_mx = e.motion.x; in->tool_my = e.motion.y; break; }
             in->look_x += e.motion.xrel;
             in->look_y += e.motion.yrel;
             in->mouse_x = e.motion.x; in->mouse_y = e.motion.y;
@@ -165,12 +178,19 @@ void platform_end_frame(Platform *pf) {
     pf->swapchain = NULL;
 }
 
-void platform_console_window(Platform *pf, bool open) {
+void platform_tool_window(Platform *pf, bool open, int w, int h, const char *title) {
+    if (open && pf->console_win) {
+        if (pf->tool_w != w || pf->tool_h != h) SDL_SetWindowSize(pf->console_win, w, h);
+        SDL_SetWindowTitle(pf->console_win, title);
+        pf->tool_w = w; pf->tool_h = h; pf->console = true;
+        return;
+    }
+    pf->tool_w = w; pf->tool_h = h;
     if (open && !pf->console_win && !SDL_getenv("HOLLOW_CONSOLE_INLINE")) {
-        pf->console_win = SDL_CreateWindow("hollow debugger", 720, 820, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+        pf->console_win = SDL_CreateWindow(title, w, h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
         if (pf->console_win && !SDL_ClaimWindowForGPUDevice(pf->gpu, pf->console_win)) { SDL_DestroyWindow(pf->console_win); pf->console_win = NULL; }
         if (pf->console_win) SDL_SetGPUSwapchainParameters(pf->gpu, pf->console_win, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
-        if (!pf->console_win) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "debugger window failed: %s (falling back to in-game panel)", SDL_GetError());
+        if (!pf->console_win) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "tool window failed: %s (falling back to in-game panel)", SDL_GetError());
         SDL_RaiseWindow(pf->window);
     } else if (!open && pf->console_win) {
         SDL_WaitForGPUIdle(pf->gpu);
@@ -179,6 +199,8 @@ void platform_console_window(Platform *pf, bool open) {
     }
     pf->console = open;
 }
+
+void platform_console_window(Platform *pf, bool open) { platform_tool_window(pf, open, pf->tool_w > 0 ? pf->tool_w : 720, pf->tool_h > 0 ? pf->tool_h : 820, "hollow debugger"); }
 
 void platform_shutdown(Platform *pf) {
     if (pf->console_win) platform_console_window(pf, false);

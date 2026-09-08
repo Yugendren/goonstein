@@ -37,6 +37,9 @@ PixFrame *pix_frame(PixAnim *a, int dir, int frame);
 bool pix_anim_insert_frame(PixAnim *a, int at, bool duplicate_previous);   // in every direction
 bool pix_anim_delete_frame(PixAnim *a, int at);
 
+// Compose an anim into an RGBA8 sheet (columns = directions, rows = frames). malloc'd; caller frees.
+uint8_t *pix_compose_sheet(const PixAnim *a, int *out_w, int *out_h);
+
 // Save: writes assets/sprites/own/NAME_<anim>.png for every anim and assets/sprites/own/NAME.txt,
 // plus assets/characters/NAME.txt binding every anim by name. `asset_dir` is HOLLOW_ASSET_DIR.
 bool pix_doc_save(const PixDoc *d, const char *asset_dir);

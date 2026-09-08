@@ -180,3 +180,51 @@ void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint) {
     Mat4 world = m4_trs(c->pos, c->yaw + cm->yaw_offset, v3(cm->scale, cm->scale, cm->scale));
     model_draw(g, &cm->model, &cm->pose, world, tint);
 }
+
+static void bind_by_names(CharModel *cm) {
+    // Standard names, with the same fallbacks the editor writes into character files
+    static const struct { Anim a; const char *names[3]; } T[] = {
+        { ANIM_IDLE, {"idle", NULL} }, { ANIM_WALK, {"walk", NULL} }, { ANIM_RUN, {"run", "walk", NULL} },
+        { ANIM_ATTACK, {"attack", NULL} }, { ANIM_ATTACK2, {"attack2", "attack", NULL} }, { ANIM_ATTACK3, {"attack3", "attack", NULL} },
+        { ANIM_PARRY, {"parry", "hit", NULL} }, { ANIM_PARRY_HIT, {"parry_hit", "hit", NULL} }, { ANIM_DODGE, {"dodge", "roll", NULL} },
+        { ANIM_HURT, {"hurt", "hit", NULL} }, { ANIM_KNEEL, {"kneel", "dead", NULL} }, { ANIM_DEAD, {"dead", NULL} },
+        { ANIM_ROAR, {"roar", "cheer", NULL} }, { ANIM_STAGGER, {"stagger", "hit", NULL} }, { ANIM_WINDUP, {"windup", "attack", NULL} }, { ANIM_STRIKE, {"strike", "attack", NULL} } };
+    for (int i = 0; i < ANIM_COUNT; i++) cm->bind[i].clip = -1;
+    for (size_t t = 0; t < sizeof T / sizeof *T; t++) {
+        AnimBinding b = { .clip = -1, .contact = -1, .rate = 1 };
+        for (int k = 0; k < 3 && T[t].names[k]; k++) { int a = sprite_find_anim(&cm->sdef, T[t].names[k]); if (a >= 0) { b.clip = a; break; } }
+        if (b.clip >= 0) { const SpriteAnim *sa = &cm->sdef.anims[b.clip]; b.loop = sa->loop; b.hold = !sa->loop; if (sa->ncontact > 0) b.contact = 0; }
+        cm->bind[T[t].a] = b;
+    }
+}
+
+void charmodel_refresh_from_doc(CharModel *cm, Gfx *g, const PixDoc *doc) {
+    if (cm->loaded && cm->is_sprite) sprite_def_destroy(g, &cm->sdef); else if (cm->loaded) model_destroy(g, &cm->model);
+    SpriteDef *d = &cm->sdef;
+    memset(d, 0, sizeof *d);
+    d->size = doc->size; d->frame_w = doc->nanims ? doc->anims[0].fw : 32; d->frame_h = doc->nanims ? doc->anims[0].fh : 32;
+    for (int i = 0; i < doc->nanims && d->nsheets < SPRITE_MAX_SHEETS && d->nanims < SPRITE_MAX_ANIMS; i++) {
+        const PixAnim *a = &doc->anims[i];
+        int w, h; uint8_t *px = pix_compose_sheet(a, &w, &h);
+        if (!px) continue;
+        SpriteSheet *sh = &d->sheets[d->nsheets];
+        memset(sh, 0, sizeof *sh);
+        snprintf(sh->name, sizeof sh->name, "%s", a->name);
+        sh->tex = gfx_texture_create(g, px, w, h); free(px);
+        sh->cols = a->ndirs; sh->rows = a->nframes; sh->fw = a->fw; sh->fh = a->fh;
+        SpriteAnim *an = &d->anims[d->nanims];
+        memset(an, 0, sizeof *an);
+        snprintf(an->name, sizeof an->name, "%s", a->name);
+        an->sheet = d->nsheets; an->sheet_right = -1; an->fps = a->fps; an->loop = a->loop; an->directional = true; an->dir_cols = true; an->row = -1; an->first = 0; an->last = a->nframes - 1;
+        for (int c = 0; c < a->ncontact && an->ncontact < SPRITE_MAX_CONTACT; c++) an->contact[an->ncontact++] = a->contact[c];
+        d->nsheets++; d->nanims++;
+    }
+    int keep_anim = cm->sprite.anim; float keep_t = cm->sprite.time; Facing keep_f = cm->sprite.facing;
+    sprite_actor_init(&cm->sprite, d);
+    cm->is_sprite = true; cm->loaded = d->nanims > 0; cm->scale = cm->scale > 0 ? cm->scale : 1;
+    bind_by_names(cm);
+    if (keep_anim >= 0 && keep_anim < d->nanims) { cm->sprite.anim = keep_anim; cm->sprite.time = keep_t; }
+    else if (cm->bind[ANIM_IDLE].clip >= 0) sprite_play(&cm->sprite, cm->bind[ANIM_IDLE].clip, 1, true);
+    cm->sprite.facing = keep_f;
+    cm->last_anim = ANIM_COUNT;
+}

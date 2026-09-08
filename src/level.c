@@ -1,6 +1,7 @@
 // Level file parser, hot reload and collision. See level.h and assets/levels/README.md.
 #include "level.h"
 #include <SDL3/SDL.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -292,6 +293,124 @@ bool level_reload_if_changed(Level *lv) {
     char path[512];
     SDL_strlcpy(path, lv->path, sizeof path);
     return level_load(lv, path);
+}
+
+// True if `b` is an invisible collider block auto-generated from a prop's `collide R` option
+// (see the "prop" case in parse_level). Such blocks aren't written out on their own; they're
+// re-created from the prop line when the file is reloaded.
+static bool is_auto_prop_collider(const Level *lv, const Block *b) {
+    for (int i = 0; i < lv->nprops; i++) {
+        const Prop *pr = &lv->props[i];
+        if (pr->collide <= 0.0f) continue;
+        if (fabsf(b->center.x - pr->pos.x) < 1e-3f && fabsf(b->center.z - pr->pos.z) < 1e-3f &&
+            fabsf(b->size.x - pr->collide * 2.0f) < 1e-3f)
+            return true;
+    }
+    return false;
+}
+
+bool level_save(const Level *lv, const char *path) {
+    FILE *f = fopen(path, "wb");
+    if (!f) { SDL_Log("level_save: could not write '%s'", path); return false; }
+
+    fprintf(f, "# written by the level editor\n");
+
+    const Look *lk = &lv->look;
+    fprintf(f, "sun      %.3f %.3f %.3f   %.3f   %.3f %.3f %.3f\n",
+            lk->sun_dir.x, lk->sun_dir.y, lk->sun_dir.z, lk->sun_intensity,
+            lk->sun_color.x, lk->sun_color.y, lk->sun_color.z);
+    fprintf(f, "ambient  %.3f %.3f %.3f   %.3f %.3f %.3f\n",
+            lk->sky_ambient.x, lk->sky_ambient.y, lk->sky_ambient.z,
+            lk->ground_ambient.x, lk->ground_ambient.y, lk->ground_ambient.z);
+    fprintf(f, "fogv     %.3f %.3f %.3f   %.3f   %.3f  %.3f  %.3f  %.3f\n",
+            lk->fog_color.x, lk->fog_color.y, lk->fog_color.z, lk->fog_density,
+            lk->fog_base, lk->fog_falloff, lk->fog_scatter, lk->fog_start);
+    fprintf(f, "sky      %.3f %.3f %.3f   %.3f %.3f %.3f   %.3f %.3f %.3f   %.3f  %.3f  %.3f\n",
+            lk->sky_zenith.x, lk->sky_zenith.y, lk->sky_zenith.z,
+            lk->sky_horizon.x, lk->sky_horizon.y, lk->sky_horizon.z,
+            lk->sky_ground.x, lk->sky_ground.y, lk->sky_ground.z,
+            lk->sun_glow, lk->stars, lk->sky_fog_blend);
+    fprintf(f, "toon     %.3f %.3f %.3f\n", lk->toon_softness, lk->shadow_floor, lk->rim_power);
+    fprintf(f, "grade    %.3f %.3f %.3f %.3f %.3f\n",
+            lk->exposure, lk->saturation, lk->contrast, lk->bloom, lk->bloom_threshold);
+    fprintf(f, "lift     %.3f %.3f %.3f\n", lk->lift.x, lk->lift.y, lk->lift.z);
+    fprintf(f, "gain     %.3f %.3f %.3f\n", lk->gain.x, lk->gain.y, lk->gain.z);
+
+    if (lv->scene_intro[0])   fprintf(f, "scene intro %s\n", lv->scene_intro);
+    if (lv->scene_boss[0])    fprintf(f, "scene boss %s\n", lv->scene_boss);
+    if (lv->scene_victory[0]) fprintf(f, "scene victory %s\n", lv->scene_victory);
+
+    fprintf(f, "spawn %.3f %.3f %.3f %.3f\n",
+            lv->spawn.x, lv->spawn.y, lv->spawn.z, lv->spawn_yaw * (180.0f / PI));
+    fprintf(f, "boss  %.3f %.3f %.3f %.3f\n",
+            lv->boss_spawn.x, lv->boss_spawn.y, lv->boss_spawn.z, lv->boss_yaw * (180.0f / PI));
+    fprintf(f, "arena %.3f %.3f %.3f %.3f %.3f %.3f\n",
+            lv->arena_min.x, lv->arena_min.y, lv->arena_min.z,
+            lv->arena_max.x, lv->arena_max.y, lv->arena_max.z);
+
+    for (int i = 0; i < lv->nblocks; i++) {
+        const Block *b = &lv->blocks[i];
+        if (b->tex < 0) {
+            if (is_auto_prop_collider(lv, b)) continue; // re-created from its prop's "collide" option
+            fprintf(f, "collider %.3f %.3f %.3f %.3f %.3f %.3f\n",
+                    b->center.x, b->center.y, b->center.z, b->size.x, b->size.y, b->size.z);
+            continue;
+        }
+        fprintf(f, "block %.3f %.3f %.3f  %.3f %.3f %.3f  %s  %.3f %.3f %.3f  %.3f  %s\n",
+                b->center.x, b->center.y, b->center.z,
+                b->size.x, b->size.y, b->size.z,
+                k_tex_names[b->tex],
+                b->tint.x, b->tint.y, b->tint.z,
+                b->uv_tile,
+                b->solid ? "solid" : "pass");
+    }
+
+    for (int i = 0; i < lv->nprops; i++) {
+        const Prop *pr = &lv->props[i];
+        fprintf(f, "prop %s %.3f %.3f %.3f %.3f %.3f",
+                pr->file, pr->pos.x, pr->pos.y, pr->pos.z, pr->yaw * (180.0f / PI), pr->scale);
+        if (pr->tint.x != 1.0f || pr->tint.y != 1.0f || pr->tint.z != 1.0f)
+            fprintf(f, " tint %.3f %.3f %.3f", pr->tint.x, pr->tint.y, pr->tint.z);
+        if (pr->glow.x != 0.0f || pr->glow.y != 0.0f || pr->glow.z != 0.0f)
+            fprintf(f, " glow %.3f %.3f %.3f", pr->glow.x, pr->glow.y, pr->glow.z);
+        if (pr->collide > 0.0f)
+            fprintf(f, " collide %.3f", pr->collide);
+        fprintf(f, "\n");
+    }
+
+    for (int i = 0; i < lv->nlights; i++) {
+        const LevelLight *l = &lv->lights[i];
+        fprintf(f, "light %.3f %.3f %.3f  %.3f %.3f %.3f  %.3f %.3f",
+                l->pos.x, l->pos.y, l->pos.z, l->color.x, l->color.y, l->color.z,
+                l->radius, l->intensity);
+        if (l->flicker > 0.0f) fprintf(f, " flicker %.3f", l->flicker);
+        fprintf(f, "\n");
+    }
+
+    for (int i = 0; i < lv->nemitters; i++) {
+        const LevelEmitter *e = &lv->emitters[i];
+        fprintf(f, "emitter %s %.3f %.3f %.3f  %.3f %.3f %.3f  %.3f  %.3f %.3f %.3f  %.3f  %.3f\n",
+                e->type, e->pos.x, e->pos.y, e->pos.z, e->extent.x, e->extent.y, e->extent.z,
+                e->rate, e->color.x, e->color.y, e->color.z, e->size, e->life);
+    }
+
+    for (int i = 0; i < lv->ncams; i++) {
+        const CamVolume *c = &lv->cams[i];
+        fprintf(f, "cam %s %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n",
+                c->name, c->vmin.x, c->vmin.y, c->vmin.z, c->vmax.x, c->vmax.y, c->vmax.z,
+                c->eye.x, c->eye.y, c->eye.z, c->target.x, c->target.y, c->target.z, c->fov);
+    }
+
+    for (int i = 0; i < lv->ntriggers; i++) {
+        const Trigger *t = &lv->triggers[i];
+        fprintf(f, "trigger %s %.3f %.3f %.3f %.3f %.3f %.3f%s\n",
+                t->name, t->vmin.x, t->vmin.y, t->vmin.z, t->vmax.x, t->vmax.y, t->vmax.z,
+                t->once ? " once" : "");
+    }
+
+    bool ok = (fclose(f) == 0);
+    if (!ok) SDL_Log("level_save: error writing '%s'", path);
+    return ok;
 }
 
 // True if the Y range [y0, y1] overlaps the block's Y extent.

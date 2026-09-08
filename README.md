@@ -75,6 +75,24 @@ and a live event log. Every event also goes to `hollow.log` in the working direc
 `hollow_snapshot.txt` with the full state plus recent events and copies it to the clipboard,
 so a bug report is: press F8 when it happens, paste.
 
+## Editors (second window, live in the game)
+
+`F6` opens the environment editor, `F7` the sprite editor, `\` the debugger; each takes over
+the tool window, and pressing the same key closes it. Command line: `--tool 2` / `--tool 3`.
+
+**Environment editor.** The game window becomes a fly camera (WASD and Q/E, hold the right
+mouse button to look, wheel changes speed). The tool window has the kit palette (trees, rocks,
+ground, walls, props, lights from `assets/kit.txt`), the placement settings, and the LOOK tab
+with every lighting, fog, sky and grading value on a slider. In the game window: left click
+places the ghost, `1` select/move (drag pieces, lights and emitters), `2` piece, `3` light,
+`4` emitter, `R` rotate, `[` `]` scale, `X` delete, `G` duplicate, `F` fly to the selection,
+`Ctrl+Z` undo, `Ctrl+S` save. Saving rewrites the level file (comments are dropped) and the
+game hot-reloads it, so play, edit, play.
+
+**Sprite editor.** Draws in the tool window while the game keeps running with your character as
+the hero: every stroke updates the sprite in the world within a tenth of a second, so walk
+around or fight with it between edits. `--edit NAME` starts straight into it.
+
 ## Sprite editor
 
     ./build/bin/hollow --edit NAME [--size 32]

@@ -42,3 +42,32 @@ void props_draw(Gfx *g, PropCache *pc, const Level *lv, float time) {
     }
     gfx_set_material(g, NULL);
 }
+
+static PropModel *load_one(Gfx *g, PropCache *pc, const char *file) {
+    PropModel *pm = find(pc, file);
+    if (pm) return pm->ok ? pm : NULL;
+    if (pc->n >= PROPS_MAX_MODELS) return NULL;
+    pm = &pc->models[pc->n++];
+    memset(pm, 0, sizeof *pm);
+    snprintf(pm->file, sizeof pm->file, "%s", file);
+    char path[1024]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, file);
+    pm->ok = model_load(g, &pm->model, path, 512);
+    if (pm->ok) { AnimPlayer rest = { .clip = -1, .prev = -1 }; model_pose(&pm->model, &rest, &pm->rest); }
+    return pm->ok ? pm : NULL;
+}
+
+void props_draw_one(Gfx *g, PropCache *pc, const char *file, Vec3 pos, float yaw, float scale, Vec4 tint, Vec3 glow) {
+    PropModel *pm = load_one(g, pc, file);
+    if (!pm) return;
+    Material m = material_default(); m.emissive = glow;
+    gfx_set_material(g, &m);
+    model_draw(g, &pm->model, &pm->rest, m4_trs(pos, yaw, v3(scale, scale, scale)), tint);
+    gfx_set_material(g, NULL);
+}
+
+bool props_bounds(Gfx *g, PropCache *pc, const char *file, Vec3 *bmin, Vec3 *bmax) {
+    PropModel *pm = load_one(g, pc, file);
+    if (!pm) return false;
+    *bmin = pm->model.bmin; *bmax = pm->model.bmax;
+    return true;
+}
