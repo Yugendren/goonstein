@@ -10,6 +10,7 @@
 
 #include "platform.h"
 #include "game.h"
+#include "audio.h"
 
 #define TICK_HZ 60
 #define TICK_DT (1.0 / TICK_HZ)
@@ -20,12 +21,14 @@ int main(int argc, char **argv) {
     // --screenshot P  write the internal frame to P before exiting
     // --start S       begin in state S: explore (default), fight, end
     // --bot           let a simple bot play the fight (with --start fight)
-    int max_frames = -1; const char *shot = NULL; const char *start = NULL; bool bot = false;
+    // --volume V      master volume 0..1 (test runs use 0.1)
+    int max_frames = -1; const char *shot = NULL; const char *start = NULL; bool bot = false; float volume = 1.0f;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) shot = argv[++i];
         else if (!strcmp(argv[i], "--start") && i + 1 < argc) start = argv[++i];
         else if (!strcmp(argv[i], "--bot")) bot = true;
+        else if (!strcmp(argv[i], "--volume") && i + 1 < argc) volume = (float)atof(argv[++i]);
     }
 
     Platform pf;
@@ -42,6 +45,7 @@ int main(int argc, char **argv) {
     }
     if (start) game_start_at(&game, start);
     game.bot = bot;
+    audio_set_master(volume * 0.8f);
 
     Uint64 freq = SDL_GetPerformanceFrequency();
     Uint64 prev = SDL_GetPerformanceCounter();

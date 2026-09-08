@@ -52,7 +52,7 @@ The game is meant to be edited without touching C:
     ./build/bin/hollow --start fight --bot --frames 3600 --screenshot out.png
 
 `--frames N` exits after N rendered frames, `--screenshot P` saves the internal-resolution
-frame, `--start` jumps to `fight`, `boss_intro`, `victory` or `end`, and `--bot` lets a
+frame, `--start` jumps to `fight`, `boss_intro`, `victory` or `end`, `--volume 0.1` keeps test runs quiet, and `--bot` lets a
 simple frame-perfect bot play the fight and logs every swing, parry and hit. This is how
 the fight is checked without a controller in hand.
 
