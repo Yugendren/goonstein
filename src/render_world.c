@@ -82,7 +82,11 @@ static Texture make_texture(Gfx *g, int id) {
 }
 
 void world_textures_create(Gfx *g, WorldTextures *wt) {
-    for (int i = 0; i < TEX_COUNT; i++) wt->tex[i] = make_texture(g, i);
+    for (int i = 0; i < TEX_COUNT; i++) wt->tex[i] = i == TEX_FLAT ? g->white : make_texture(g, i);
+}
+
+void draw_blob_shadow(Gfx *g, Vec3 pos, float radius, float strength) {
+    gfx_ground_quad(g, v3(pos.x, pos.y + 0.03f, pos.z), radius, v4(0, 0, 0, strength), false);
 }
 void world_textures_destroy(Gfx *g, WorldTextures *wt) {
     for (int i = 0; i < TEX_COUNT; i++) gfx_texture_destroy(g, &wt->tex[i]);
@@ -91,7 +95,8 @@ void world_textures_destroy(Gfx *g, WorldTextures *wt) {
 void draw_level(Gfx *g, const Level *lv, const WorldTextures *wt) {
     for (int i = 0; i < lv->nblocks; i++) {
         const Block *b = &lv->blocks[i];
-        int t = (b->tex >= 0 && b->tex < TEX_COUNT) ? b->tex : TEX_PLASTER;
+        if (b->tex < 0) continue;   // invisible collider
+        int t = b->tex < TEX_COUNT ? b->tex : TEX_FLAT;
         gfx_draw_box(g, &wt->tex[t], b->center, b->size, 0, b->tint, b->uv_tile);
     }
 }

@@ -90,7 +90,8 @@ void charmodel_drive_player(CharModel *cm, const Player *p, float dt) {
     const PlayerDef *d = &p->def;
     if (anim_changed(cm, &p->c)) {
         switch (p->c.anim) {
-        case ANIM_ATTACK:    play_binding(cm, ANIM_ATTACK, d->attack_windup, d->attack_active + d->attack_recovery, 0.05f); break;
+        case ANIM_ATTACK: case ANIM_ATTACK2: case ANIM_ATTACK3:
+            play_binding(cm, p->c.anim, d->attack_windup, d->attack_active + d->attack_recovery, 0.05f); break;
         case ANIM_PARRY:     play_binding(cm, ANIM_PARRY, d->parry_window * 0.5f, d->parry_window * 0.5f + d->parry_recovery, 0.03f); break;
         case ANIM_PARRY_HIT: play_binding(cm, ANIM_PARRY_HIT, 0.04f, d->parry_recovery, 0.0f); break;
         case ANIM_DODGE:     play_binding(cm, ANIM_DODGE, 0, d->dodge_time, 0.05f); break;

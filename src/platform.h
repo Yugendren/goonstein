@@ -15,6 +15,7 @@ typedef struct Input {
     float look_x, look_y;
     // Actions, edge-triggered this frame
     bool attack, parry, dodge, interact, lockon;
+    bool sprint;   // held
 } Input;
 
 typedef struct Platform {

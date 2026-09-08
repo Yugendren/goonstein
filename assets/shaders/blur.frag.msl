@@ -1,0 +1,79 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct _39
+{
+    float4 _m0;
+};
+
+constant spvUnsafeArray<float, 5> _60 = spvUnsafeArray<float, 5>({ 0.227026998996734619140625, 0.19459460675716400146484375, 0.121621601283550262451171875, 0.054053999483585357666015625, 0.01621600054204463958740234375 });
+
+struct main0_out
+{
+    float4 m_91 [[color(0)]];
+};
+
+struct main0_in
+{
+    float2 m_17 [[user(locn0)]];
+};
+
+fragment main0_out main0(main0_in in [[stage_in]], constant _39& _41 [[buffer(0)]], texture2d<float> _13 [[texture(0)]], sampler _13Smplr [[sampler(0)]])
+{
+    main0_out out = {};
+    float3 _99;
+    _99 = _13.sample(_13Smplr, in.m_17).xyz * 0.227026998996734619140625;
+    for (int _98 = 1; _98 < 5; )
+    {
+        float2 _49 = _41._m0.xy * float(_98);
+        _99 = (_99 + (_13.sample(_13Smplr, (in.m_17 + _49)).xyz * _60[_98])) + (_13.sample(_13Smplr, (in.m_17 - _49)).xyz * _60[_98]);
+        _98++;
+        continue;
+    }
+    out.m_91 = float4(_99, 1.0);
+    return out;
+}
+

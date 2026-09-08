@@ -8,10 +8,6 @@ struct _11
     float4x4 _m0;
     float4x4 _m1;
     float4 _m2;
-    float4 _m3;
-    float4 _m4;
-    float4 _m5;
-    float4 _m6;
 };
 
 struct _29
@@ -21,17 +17,18 @@ struct _29
 
 struct main0_out
 {
-    float2 m_182 [[user(locn0)]];
-    float4 m_195 [[user(locn1)]];
-    float m_209 [[user(locn2)]];
+    float3 m_121 [[user(locn0)]];
+    float3 m_124 [[user(locn1)]];
+    float2 m_148 [[user(locn2)]];
+    float4 m_153 [[user(locn3)]];
     float4 gl_Position [[position]];
 };
 
 struct main0_in
 {
     float3 m_112 [[attribute(0)]];
-    float3 m_145 [[attribute(1)]];
-    float2 m_184 [[attribute(2)]];
+    float3 m_143 [[attribute(1)]];
+    float2 m_150 [[attribute(2)]];
     uint4 m_35 [[attribute(3)]];
     float4 m_21 [[attribute(4)]];
 };
@@ -46,11 +43,12 @@ vertex main0_out main0(main0_in in [[stage_in]], constant _11& _13 [[buffer(0)]]
     float4 _94 = ((_41[0] + _49[0]) + _70[0]) + _91[0];
     float4 _97 = ((_41[1] + _49[1]) + _70[1]) + _91[1];
     float4 _100 = ((_41[2] + _49[2]) + _70[2]) + _91[2];
-    float4 _124 = _13._m0 * ((_13._m1 * float4x4(_94, _97, _100, ((_41[3] + _49[3]) + _70[3]) + _91[3])) * float4(in.m_112, 1.0));
-    out.gl_Position = _124;
-    out.m_182 = (in.m_184 * _13._m6.xy) + _13._m6.zw;
-    out.m_195 = float4(_13._m2.xyz * ((_13._m5.xyz * fast::clamp(dot(fast::normalize((float3x3(_13._m1[0].xyz, _13._m1[1].xyz, _13._m1[2].xyz) * float3x3(_94.xyz, _97.xyz, _100.xyz)) * in.m_145), -_13._m4.xyz), 0.0, 1.0)) + float3(_13._m4.w)), _13._m2.w);
-    out.m_209 = fast::clamp((_124.w - _13._m3.x) / (_13._m3.y - _13._m3.x), 0.0, 1.0);
+    float4 _119 = (_13._m1 * float4x4(_94, _97, _100, ((_41[3] + _49[3]) + _70[3]) + _91[3])) * float4(in.m_112, 1.0);
+    out.m_121 = _119.xyz;
+    out.m_124 = (float3x3(_13._m1[0].xyz, _13._m1[1].xyz, _13._m1[2].xyz) * float3x3(_94.xyz, _97.xyz, _100.xyz)) * in.m_143;
+    out.m_148 = in.m_150;
+    out.m_153 = float4(1.0);
+    out.gl_Position = _13._m0 * _119;
     return out;
 }
 

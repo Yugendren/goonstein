@@ -5,8 +5,11 @@ texture_size 256
 yaw_offset 0
 hide Badge_Shield Rectangle_Shield Spike_Shield 1H_Sword_Offhand 2H_Sword
 anim idle       Idle loop
-anim walk       Running_A loop
+anim walk       Walking_A loop
+anim run        Running_A loop
 anim attack     1H_Melee_Attack_Slice_Horizontal contact 0.42
+anim attack2    1H_Melee_Attack_Slice_Diagonal contact 0.42
+anim attack3    1H_Melee_Attack_Chop contact 0.45
 anim parry      Block contact 0.25
 anim parry_hit  Block_Hit contact 0.15
 anim dodge      Dodge_Backward

@@ -1,0 +1,31 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct _37
+{
+    float4 _m0;
+};
+
+struct main0_out
+{
+    float4 m_77 [[color(0)]];
+};
+
+struct main0_in
+{
+    float2 m_17 [[user(locn0)]];
+};
+
+fragment main0_out main0(main0_in in [[stage_in]], constant _37& _39 [[buffer(0)]], texture2d<float> _13 [[texture(0)]], sampler _13Smplr [[sampler(0)]])
+{
+    main0_out out = {};
+    float4 _20 = _13.sample(_13Smplr, in.m_17);
+    float _35 = fast::max(fast::max(_20.x, _20.y), _20.z);
+    float _49 = _35 - _39._m0.x;
+    float _56 = fast::clamp(_49 + _39._m0.y, 0.0, 2.0 * _39._m0.y);
+    out.m_77 = float4(_20.xyz * (fast::max((_56 * _56) / ((4.0 * _39._m0.y) + 9.9999997473787516355514526367188e-05), _49) / fast::max(_35, 9.9999997473787516355514526367188e-05)), 1.0);
+    return out;
+}
+

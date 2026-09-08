@@ -7,7 +7,7 @@
 
 typedef enum Anim {
     ANIM_IDLE, ANIM_WALK, ANIM_ATTACK, ANIM_PARRY, ANIM_PARRY_HIT, ANIM_DODGE, ANIM_HURT,
-    ANIM_KNEEL, ANIM_DEAD, ANIM_ROAR, ANIM_STAGGER, ANIM_WINDUP, ANIM_STRIKE, ANIM_COUNT
+    ANIM_KNEEL, ANIM_DEAD, ANIM_ROAR, ANIM_STAGGER, ANIM_WINDUP, ANIM_STRIKE, ANIM_RUN, ANIM_ATTACK2, ANIM_ATTACK3, ANIM_COUNT
 } Anim;
 const char *anim_name(Anim a);
 Anim anim_from_name(const char *s);   // ANIM_IDLE if unknown
@@ -52,7 +52,7 @@ typedef struct BossDef {
 } BossDef;
 
 typedef struct PlayerDef {
-    float hp, speed, turn_speed;
+    float hp, speed, sprint_mult, turn_speed;
     float attack_windup, attack_active, attack_recovery, attack_damage, attack_range, attack_posture;
     float parry_window, parry_recovery, parry_hitstop;
     float dodge_time, dodge_iframes, dodge_dist;
@@ -69,6 +69,8 @@ typedef struct Player {
     Vec3  dodge_dir;
     bool  hit_applied;               // attack has already connected this swing
     float step_timer;                // footstep cadence
+    int   combo;                     // 0..2, which swing of the chain
+    float sprint_t;                  // seconds sprint has been held (dodge on tap, sprint on hold)
 } Player;
 
 typedef struct Boss {

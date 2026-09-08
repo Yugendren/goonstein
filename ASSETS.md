@@ -12,3 +12,6 @@ requiring attribution we cannot satisfy in-game.
 | assets/models/kaykit/Knight.glb, Barbarian.glb | https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0 | CC0 | rigged, 76 animations |
 | assets/models/kaykit/Skeleton_Warrior.glb | https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0 | CC0 | rigged, 95 animations, same rig family |
 | src/vendor/cgltf.h | https://github.com/jkuhlmann/cgltf | MIT | glTF parser |
+| assets/models/kaykit/dungeon/*.glb | https://github.com/KayKit-Game-Assets/KayKit-Dungeon-Remastered-1.0 | CC0 | 40 static props (floors, walls, pillars, stairs, torches/candles, banners, barrels, crates, chest, rubble, arch/gate); embedded textures; see assets/models/kaykit/CATALOG.md |
+| assets/models/kaykit/halloween/*.gltf, *.bin | https://github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0 | CC0 | 29 static props (dead trees, lanterns, fences, gravestones, pumpkins, crypt, paths, arch/gate, skull/bone/coffin decor); shared external texture halloweenbits_texture.png; see assets/models/kaykit/CATALOG.md |
+| assets/models/kaykit/hex/*.gltf, *.bin | https://github.com/KayKit-Game-Assets/KayKit-Medieval-Hexagon-Pack-1.0 | CC0 | 25 static props (trees, rocks, hills, mountains, hex grass/water/river tiles); shared external texture hexagons_medieval.png; see assets/models/kaykit/CATALOG.md |

@@ -23,11 +23,14 @@ int main(int argc, char **argv) {
     // --bot           let a simple bot play the fight (with --start fight)
     // --volume V      master volume 0..1 (test runs use 0.1)
     int max_frames = -1; const char *shot = NULL; const char *start = NULL; bool bot = false; float volume = 1.0f;
+    static Game game;   // large; static keeps it off the stack
+    game_init(&game);
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) shot = argv[++i];
         else if (!strcmp(argv[i], "--start") && i + 1 < argc) start = argv[++i];
         else if (!strcmp(argv[i], "--bot")) bot = true;
+        else if (!strcmp(argv[i], "--level") && i + 1 < argc) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, argv[++i]);
         else if (!strcmp(argv[i], "--volume") && i + 1 < argc) volume = (float)atof(argv[++i]);
     }
 
@@ -37,8 +40,6 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    Game game;
-    game_init(&game);
     if (!game_init_gfx(&game, &pf)) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "gfx init failed: %s", SDL_GetError());
         return 1;

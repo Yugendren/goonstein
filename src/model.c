@@ -66,6 +66,12 @@ bool model_load(Gfx *g, Model *m, const char *path, int max_tex_size) {
         if (tex && tex->image && tex->image->buffer_view) {
             const cgltf_buffer_view *bv = tex->image->buffer_view;
             m->textures[m->ntextures++] = texture_from_memory(g, (const unsigned char *)bv->buffer->data + bv->offset, bv->size, max_tex_size);
+        } else if (tex && tex->image && tex->image->uri && strncmp(tex->image->uri, "data:", 5) != 0) {
+            // External file next to the model
+            char dir[512]; snprintf(dir, sizeof dir, "%s", path);
+            char *slash = strrchr(dir, '/'); if (slash) slash[1] = 0; else dir[0] = 0;
+            char ipath[1024]; snprintf(ipath, sizeof ipath, "%s%s", dir, tex->image->uri);
+            m->textures[m->ntextures++] = gfx_texture_load(g, ipath, max_tex_size);
         } else {
             // Untextured material: a flat colour texture from the base colour factor.
             const float *c = mat->pbr_metallic_roughness.base_color_factor;

@@ -4,7 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-static const char *k_tex_names[TEX_COUNT] = { "stone", "tile", "wood", "metal", "flesh", "plaster" };
+static const char *k_tex_names[TEX_COUNT] = { "stone", "tile", "wood", "metal", "flesh", "plaster", "flat" };
 
 int level_tex_from_name(const char *name) {
     for (int i = 0; i < TEX_COUNT; i++)
@@ -37,6 +37,17 @@ static bool parse_level(Level *out, const char *path) {
     out->fog_color = v3(0, 0, 0);
     out->light_color = v3(1, 1, 1);
     out->ambient = 0.2f;
+    SDL_strlcpy(out->scene_intro, "intro.txt", sizeof out->scene_intro);
+    SDL_strlcpy(out->scene_boss, "boss_intro.txt", sizeof out->scene_boss);
+    SDL_strlcpy(out->scene_victory, "victory.txt", sizeof out->scene_victory);
+    out->look = (Look){
+        .sun_dir = v3(0.3f, -0.8f, 0.5f), .sun_intensity = 1.0f, .sun_color = v3(1, 0.95f, 0.85f),
+        .sky_ambient = v3(0.25f, 0.3f, 0.45f), .ground_ambient = v3(0.08f, 0.07f, 0.06f),
+        .fog_color = v3(0.05f, 0.06f, 0.1f), .fog_density = 0.03f, .fog_base = 0.0f, .fog_falloff = 0.15f, .fog_scatter = 0.5f, .fog_start = 4.0f,
+        .sky_zenith = v3(0.02f, 0.03f, 0.08f), .sky_horizon = v3(0.15f, 0.12f, 0.2f), .sky_ground = v3(0.02f, 0.02f, 0.03f), .sun_glow = 0.6f, .stars = 1.0f, .sky_fog_blend = 0.6f,
+        .toon_softness = 0.08f, .shadow_floor = 0.15f, .rim_power = 3.0f,
+        .exposure = 1.0f, .saturation = 1.1f, .contrast = 1.05f, .bloom = 0.35f, .bloom_threshold = 1.0f,
+        .lift = v3(0.01f, 0.01f, 0.03f), .gain = v3(1, 1, 1) };
 
     size_t size = 0;
     void *data = SDL_LoadFile(path, &size);
@@ -75,9 +86,9 @@ static bool parse_level(Level *out, const char *path) {
             out->fog_near = f[3];
             out->fog_far = f[4];
 
-        } else if (strcmp(cmd, "light") == 0) {
+        } else if (strcmp(cmd, "light") == 0 && n == 8) {
             float f[7];
-            if (n != 8 || !parse_floats(tok, 1, 7, f)) { SDL_Log("level_load:%d: bad light line", line_no); continue; }
+            if (!parse_floats(tok, 1, 7, f)) { SDL_Log("level_load:%d: bad light line", line_no); continue; }
             out->light_dir = v3(f[0], f[1], f[2]);
             out->ambient = f[3];
             out->light_color = v3(f[4], f[5], f[6]);
@@ -127,6 +138,93 @@ static bool parse_level(Level *out, const char *path) {
             b->uv_tile = tile;
             b->solid = solid;
 
+        } else if (strcmp(cmd, "scene") == 0) {
+            // scene intro|boss|victory FILE   (FILE under assets/scenes/, e.g. glade_intro.txt)
+            if (n != 3) { SDL_Log("level_load:%d: bad scene line", line_no); continue; }
+            if (strcmp(tok[1], "intro") == 0) SDL_strlcpy(out->scene_intro, tok[2], sizeof out->scene_intro);
+            else if (strcmp(tok[1], "boss") == 0) SDL_strlcpy(out->scene_boss, tok[2], sizeof out->scene_boss);
+            else if (strcmp(tok[1], "victory") == 0) SDL_strlcpy(out->scene_victory, tok[2], sizeof out->scene_victory);
+            else SDL_Log("level_load:%d: unknown scene slot '%s'", line_no, tok[1]);
+        } else if (strcmp(cmd, "sun") == 0) {
+            float f[7];
+            if (n != 8 || !parse_floats(tok, 1, 7, f)) { SDL_Log("level_load:%d: bad sun line", line_no); continue; }
+            out->look.sun_dir = v3(f[0], f[1], f[2]); out->look.sun_intensity = f[3]; out->look.sun_color = v3(f[4], f[5], f[6]);
+        } else if (strcmp(cmd, "ambient") == 0) {
+            float f[6];
+            if (n != 7 || !parse_floats(tok, 1, 6, f)) { SDL_Log("level_load:%d: bad ambient line", line_no); continue; }
+            out->look.sky_ambient = v3(f[0], f[1], f[2]); out->look.ground_ambient = v3(f[3], f[4], f[5]);
+        } else if (strcmp(cmd, "fogv") == 0) {
+            float f[8];
+            if (n != 9 || !parse_floats(tok, 1, 8, f)) { SDL_Log("level_load:%d: bad fogv line", line_no); continue; }
+            out->look.fog_color = v3(f[0], f[1], f[2]); out->look.fog_density = f[3]; out->look.fog_base = f[4];
+            out->look.fog_falloff = f[5]; out->look.fog_scatter = f[6]; out->look.fog_start = f[7];
+            out->fog_color = out->look.fog_color;
+        } else if (strcmp(cmd, "sky") == 0) {
+            float f[12];
+            if (n != 13 || !parse_floats(tok, 1, 12, f)) { SDL_Log("level_load:%d: bad sky line", line_no); continue; }
+            out->look.sky_zenith = v3(f[0], f[1], f[2]); out->look.sky_horizon = v3(f[3], f[4], f[5]); out->look.sky_ground = v3(f[6], f[7], f[8]);
+            out->look.sun_glow = f[9]; out->look.stars = f[10]; out->look.sky_fog_blend = f[11];
+        } else if (strcmp(cmd, "toon") == 0) {
+            float f[3];
+            if (n != 4 || !parse_floats(tok, 1, 3, f)) { SDL_Log("level_load:%d: bad toon line", line_no); continue; }
+            out->look.toon_softness = f[0]; out->look.shadow_floor = f[1]; out->look.rim_power = f[2];
+        } else if (strcmp(cmd, "grade") == 0) {
+            float f[5];
+            if (n != 6 || !parse_floats(tok, 1, 5, f)) { SDL_Log("level_load:%d: bad grade line", line_no); continue; }
+            out->look.exposure = f[0]; out->look.saturation = f[1]; out->look.contrast = f[2]; out->look.bloom = f[3]; out->look.bloom_threshold = f[4];
+        } else if (strcmp(cmd, "lift") == 0 || strcmp(cmd, "gain") == 0) {
+            float f[3];
+            if (n != 4 || !parse_floats(tok, 1, 3, f)) { SDL_Log("level_load:%d: bad %s line", line_no, cmd); continue; }
+            if (cmd[0] == 'l') out->look.lift = v3(f[0], f[1], f[2]); else out->look.gain = v3(f[0], f[1], f[2]);
+        } else if (strcmp(cmd, "prop") == 0) {
+            // prop FILE x y z yaw scale [tint r g b] [glow r g b] [collide R]
+            float f[5];
+            if (n < 7 || !parse_floats(tok, 2, 5, f)) { SDL_Log("level_load:%d: bad prop line", line_no); continue; }
+            if (out->nprops >= LEVEL_MAX_PROPS) { SDL_Log("level_load:%d: too many props", line_no); continue; }
+            Prop *pr = &out->props[out->nprops++];
+            memset(pr, 0, sizeof *pr);
+            SDL_strlcpy(pr->file, tok[1], sizeof pr->file);
+            pr->pos = v3(f[0], f[1], f[2]); pr->yaw = f[3] * DEG2RAD; pr->scale = f[4]; pr->tint = v4(1, 1, 1, 1);
+            int i = 7;
+            while (i < n) {
+                float g3[3];
+                if (strcmp(tok[i], "tint") == 0 && i + 3 < n && parse_floats(tok, i + 1, 3, g3)) { pr->tint = v4(g3[0], g3[1], g3[2], 1); i += 4; }
+                else if (strcmp(tok[i], "glow") == 0 && i + 3 < n && parse_floats(tok, i + 1, 3, g3)) { pr->glow = v3(g3[0], g3[1], g3[2]); i += 4; }
+                else if (strcmp(tok[i], "collide") == 0 && i + 1 < n && parse_floats(tok, i + 1, 1, g3)) { pr->collide = g3[0]; i += 2; }
+                else { SDL_Log("level_load:%d: bad prop option '%s'", line_no, tok[i]); break; }
+            }
+            if (pr->collide > 0 && out->nblocks < LEVEL_MAX_BLOCKS) {
+                // Invisible solid box for the trunk / body of the prop
+                Block *b = &out->blocks[out->nblocks++];
+                memset(b, 0, sizeof *b);
+                b->center = v3(pr->pos.x, pr->pos.y + 1.5f, pr->pos.z); b->size = v3(pr->collide * 2, 3.0f, pr->collide * 2);
+                b->tex = -1; b->solid = true; b->tint = v4(1, 1, 1, 0);
+            }
+        } else if (strcmp(cmd, "light") == 0 && n >= 9 && n != 8) {
+            // light x y z r g b radius intensity [flicker F]
+            float f[8];
+            if (!parse_floats(tok, 1, 8, f)) { SDL_Log("level_load:%d: bad light line", line_no); continue; }
+            if (out->nlights >= LEVEL_MAX_LIGHTS) { SDL_Log("level_load:%d: too many lights", line_no); continue; }
+            LevelLight *l = &out->lights[out->nlights++];
+            memset(l, 0, sizeof *l);
+            l->pos = v3(f[0], f[1], f[2]); l->color = v3(f[3], f[4], f[5]); l->radius = f[6]; l->intensity = f[7];
+            if (n >= 11 && strcmp(tok[9], "flicker") == 0) l->flicker = (float)SDL_strtod(tok[10], NULL);
+        } else if (strcmp(cmd, "collider") == 0) {
+            float f[6];
+            if (n != 7 || !parse_floats(tok, 1, 6, f)) { SDL_Log("level_load:%d: bad collider line", line_no); continue; }
+            if (out->nblocks >= LEVEL_MAX_BLOCKS) { SDL_Log("level_load:%d: too many blocks", line_no); continue; }
+            Block *b = &out->blocks[out->nblocks++];
+            memset(b, 0, sizeof *b);
+            b->center = v3(f[0], f[1], f[2]); b->size = v3(f[3], f[4], f[5]); b->tex = -1; b->solid = true; b->tint = v4(1, 1, 1, 0);
+        } else if (strcmp(cmd, "emitter") == 0) {
+            // emitter TYPE x y z ex ey ez rate r g b size life
+            float f[12];
+            if (n != 14 || !parse_floats(tok, 2, 12, f)) { SDL_Log("level_load:%d: bad emitter line", line_no); continue; }
+            if (out->nemitters >= LEVEL_MAX_EMITTERS) { SDL_Log("level_load:%d: too many emitters", line_no); continue; }
+            LevelEmitter *e = &out->emitters[out->nemitters++];
+            memset(e, 0, sizeof *e);
+            SDL_strlcpy(e->type, tok[1], sizeof e->type);
+            e->pos = v3(f[0], f[1], f[2]); e->extent = v3(f[3], f[4], f[5]); e->rate = f[6]; e->color = v3(f[7], f[8], f[9]); e->size = f[10]; e->life = f[11];
         } else if (strcmp(cmd, "cam") == 0) {
             // cam name minx miny minz maxx maxy maxz eyex eyey eyez tx ty tz fov
             if (n != 15) { SDL_Log("level_load:%d: bad cam line", line_no); continue; }

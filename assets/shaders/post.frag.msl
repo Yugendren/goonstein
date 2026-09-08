@@ -1,40 +1,36 @@
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using namespace metal;
 
-// Implementation of the GLSL mod() function, which is slightly different than Metal fmod()
-template<typename Tx, typename Ty>
-inline Tx mod(Tx x, Ty y)
-{
-    return x - y * floor(x / y);
-}
-
-struct _40
+struct _74
 {
     float4 _m0;
     float4 _m1;
     float4 _m2;
+    float4 _m3;
+    float4 _m4;
+    float4 _m5;
 };
 
 struct main0_out
 {
-    float4 m_115 [[color(0)]];
+    float4 m_191 [[color(0)]];
 };
 
 struct main0_in
 {
-    float2 m_33 [[user(locn0)]];
+    float2 m_64 [[user(locn0)]];
 };
 
-fragment main0_out main0(main0_in in [[stage_in]], constant _40& _42 [[buffer(0)]], texture2d<float> _30 [[texture(0)]], sampler _30Smplr [[sampler(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant _74& _76 [[buffer(0)]], texture2d<float> _61 [[texture(0)]], texture2d<float> _69 [[texture(1)]], sampler _61Smplr [[sampler(0)]], sampler _69Smplr [[sampler(1)]])
 {
     main0_out out = {};
-    float2 _50 = floor(in.m_33 * _42._m1.xy);
-    float2 _87 = in.m_33 - float2(0.5);
-    out.m_115 = float4(mix(((_30.sample(_30Smplr, in.m_33).xyz + float3((fract(sin(dot(_50 + float2(_42._m0.x * 7.309999942779541015625), float2(12.98980045318603515625, 78.233001708984375))) * 43758.546875) - 0.5) * _42._m0.y)) * (1.0 - (0.0599999986588954925537109375 * mod(_50.y, 2.0)))) * (1.0 - ((_42._m0.z * dot(_87, _87)) * 1.60000002384185791015625)), _42._m2.xyz, float3(_42._m2.w)) * _42._m0.w, 1.0);
+    float3 _90 = (_61.sample(_61Smplr, in.m_64).xyz + (_69.sample(_69Smplr, in.m_64).xyz * _76._m3.w)) * _76._m3.x;
+    float _98 = dot(_90, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+    float3 _135 = fast::max(((((mix(float3(_98), _90, float3(_76._m3.y)) * _76._m5.xyz) + (_76._m4.xyz * (1.0 - fast::clamp(_98, 0.0, 1.0)))) - float3(0.5)) * _76._m3.z) + float3(0.5), float3(0.0));
+    float2 _142 = in.m_64 - float2(0.5);
+    out.m_191 = float4(powr(fast::max(mix((fast::clamp((_135 * ((_135 * 2.5099999904632568359375) + float3(0.02999999932944774627685546875))) / ((_135 * ((_135 * 2.4300000667572021484375) + float3(0.589999973773956298828125))) + float3(0.14000000059604644775390625)), float3(0.0), float3(1.0)) * (1.0 - ((_76._m0.z * dot(_142, _142)) * 1.39999997615814208984375))) + float3((fract(sin(dot(floor(in.m_64 * _76._m1.xy) + float2(_76._m0.x * 7.309999942779541015625), float2(12.98980045318603515625, 78.233001708984375))) * 43758.546875) - 0.5) * _76._m0.y), _76._m2.xyz, float3(_76._m2.w)) * _76._m0.w, float3(0.0)), float3(0.4545454680919647216796875)), 1.0);
     return out;
 }
 

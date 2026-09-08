@@ -1,0 +1,61 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct _29
+{
+    float4x4 _m0;
+    float4 _m1;
+    float4 _m2;
+    float4 _m3;
+    float4 _m4;
+    float4 _m5;
+    float4 _m6;
+    float4 _m7;
+    float4 _m8;
+};
+
+struct main0_out
+{
+    float4 m_229 [[color(0)]];
+};
+
+struct main0_in
+{
+    float2 m_39 [[user(locn0)]];
+};
+
+fragment main0_out main0(main0_in in [[stage_in]], constant _29& _31 [[buffer(0)]])
+{
+    main0_out out = {};
+    float _48 = -in.m_39.y;
+    float4 _51 = _31._m0 * float4(in.m_39.x, _48, 1.0, 1.0);
+    float4 _62 = _31._m0 * float4(in.m_39.x, _48, 0.0, 1.0);
+    float3 _79 = fast::normalize((_51.xyz / float3(_51.w)) - (_62.xyz / float3(_62.w)));
+    float _82 = _79.y;
+    float3 _245;
+    if (_82 >= 0.0)
+    {
+        _245 = mix(_31._m5.xyz, _31._m4.xyz, float3(powr(fast::clamp(_82, 0.0, 1.0), 0.60000002384185791015625)));
+    }
+    else
+    {
+        _245 = mix(_31._m5.xyz, _31._m6.xyz, float3(powr(fast::clamp(-_82, 0.0, 1.0), 0.5)));
+    }
+    float3 _246;
+    if ((_31._m7.y > 0.0) && (_82 > 0.0))
+    {
+        float3 _134 = _79 * 180.0;
+        float _241 = fract(sin(dot(floor(_134), float3(12.98980045318603515625, 78.233001708984375, 37.71900177001953125))) * 43758.546875);
+        _246 = _245 + ((float3((step(1.0 - (_31._m7.y * 0.00999999977648258209228515625), _241) * (0.5 + (0.5 * sin((_31._m7.x * 3.0) + (_241 * 40.0))))) * smoothstep(0.3499999940395355224609375, 0.0, length(fract(_134) - float3(0.5)))) * 2.5) * powr(fast::clamp(_82, 0.0, 1.0), 0.4000000059604644775390625));
+    }
+    else
+    {
+        _246 = _245;
+    }
+    float _191 = fast::clamp(dot(_79, -_31._m2.xyz), 0.0, 1.0);
+    out.m_229 = float4(mix(_246 + (_31._m3.xyz * ((powr(_191, 256.0) * 6.0) + (powr(_191, 8.0) * _31._m3.w))), _31._m8.xyz, float3(_31._m7.z * powr(1.0 - fast::clamp(abs(_82), 0.0, 1.0), 4.0))), 1.0);
+    return out;
+}
+

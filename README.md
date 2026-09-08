@@ -18,20 +18,22 @@ rebuilds are sub-second. Shaders are precompiled and committed; after editing an
 
 ## Controls
 
-| Action        | Keyboard        | Gamepad          |
-|---------------|-----------------|------------------|
-| Move          | WASD            | Left stick       |
-| Attack        | J               | X / Square       |
-| Parry         | K               | Y / Triangle     |
-| Dodge         | Space           | B / Circle       |
-| Interact      | E               | A / Cross        |
-| Skip cutscene | Enter           | Start            |
-| Debug overlay | F1              | Back / Select    |
-| Pause / step  | F2 / F3         |                  |
-| Reload data   | F5              |                  |
-| Quit          | Esc             |                  |
+| Action        | Keyboard / mouse          | Gamepad          |
+|---------------|---------------------------|------------------|
+| Move          | WASD                      | Left stick       |
+| Camera        | Mouse                     | Right stick      |
+| Attack        | Left mouse (or J)         | RB               |
+| Deflect       | Right mouse (or K)        | LB               |
+| Step dodge / sprint | Shift tap / hold (or Space) | B          |
+| Lock-on       | Middle mouse, Q or Tab    | R3               |
+| Interact      | E                         | A                |
+| Skip cutscene | Enter                     | Start            |
+| Debug overlay | F1                        | Back / Select    |
+| Pause / step  | F2 / F3                   |                  |
+| Reload data   | F5                        |                  |
+| Quit          | Esc                       |                  |
 
-Level files also hot-reload on save while the game is running.
+The layout follows Sekiro on PC. Level files also hot-reload on save while the game is running.
 
 ## Everything is a text file
 

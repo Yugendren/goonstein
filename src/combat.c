@@ -5,7 +5,7 @@
 #include <string.h>
 
 static const char *ANIM_NAMES[ANIM_COUNT] = {
-    "idle", "walk", "attack", "parry", "parry_hit", "dodge", "hurt", "kneel", "dead", "roar", "stagger", "windup", "strike" };
+    "idle", "walk", "attack", "parry", "parry_hit", "dodge", "hurt", "kneel", "dead", "roar", "stagger", "windup", "strike", "run", "attack2", "attack3" };
 const char *anim_name(Anim a) { return (a >= 0 && a < ANIM_COUNT) ? ANIM_NAMES[a] : "?"; }
 Anim anim_from_name(const char *s) {
     for (int i = 0; i < ANIM_COUNT; i++) if (!strcmp(s, ANIM_NAMES[i])) return (Anim)i;
@@ -133,7 +133,7 @@ bool boss_def_load(BossDef *d, const char *path) {
 bool player_def_load(PlayerDef *d, const char *path) {
     size_t n; char *text = SDL_LoadFile(path, &n);
     if (!text) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "player def missing: %s", path); return false; }
-    PlayerDef o = { .hp = 100, .speed = 3.2f, .turn_speed = 14, .attack_windup = 0.18f, .attack_active = 0.12f,
+    PlayerDef o = { .hp = 100, .speed = 3.2f, .sprint_mult = 1.6f, .turn_speed = 14, .attack_windup = 0.18f, .attack_active = 0.12f,
                     .attack_recovery = 0.35f, .attack_damage = 8, .attack_range = 1.9f, .attack_posture = 6,
                     .parry_window = 0.15f, .parry_recovery = 0.35f, .parry_hitstop = 0.12f,
                     .dodge_time = 0.45f, .dodge_iframes = 0.3f, .dodge_dist = 3.0f, .hurt_time = 0.45f,
@@ -143,7 +143,7 @@ bool player_def_load(PlayerDef *d, const char *path) {
         ln++;
         char *key = strtok(line, " \t"); if (!key) continue;
         if (0) {}
-        KEYF("hp", o.hp) KEYF("speed", o.speed) KEYF("turn_speed", o.turn_speed)
+        KEYF("hp", o.hp) KEYF("speed", o.speed) KEYF("sprint_mult", o.sprint_mult) KEYF("turn_speed", o.turn_speed)
         KEYF("attack_windup", o.attack_windup) KEYF("attack_active", o.attack_active) KEYF("attack_recovery", o.attack_recovery)
         KEYF("attack_damage", o.attack_damage) KEYF("attack_range", o.attack_range) KEYF("attack_posture", o.attack_posture)
         KEYF("parry_window", o.parry_window) KEYF("parry_recovery", o.parry_recovery) KEYF("parry_hitstop", o.parry_hitstop)
@@ -197,24 +197,26 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, B
     switch (p->state) {
     case PS_FREE: {
         if (in->parry)  { player_enter(p, PS_PARRY, ANIM_PARRY); break; }
-        if (in->attack) { player_enter(p, PS_ATTACK, ANIM_ATTACK); ev->player_swing = true;
+        if (in->attack) { p->combo = 0; player_enter(p, PS_ATTACK, ANIM_ATTACK); ev->player_swing = true;
                           if (boss && mlen < 0.1f) c->yaw = yaw_to(c->pos, boss->c.pos); break; }
         if (in->dodge)  { p->dodge_dir = mlen > 0.1f ? move_dir : v3_scale(forward(c->yaw), -1);
                           player_enter(p, PS_DODGE, ANIM_DODGE); ev->player_swing = false; break; }
         if (mlen > 0.05f) {
             float target_yaw = atan2f(move_dir.x, move_dir.z);
             c->yaw = angle_damp(c->yaw, target_yaw, d->turn_speed, dt);
-            Vec3 delta = v3_scale(move_dir, d->speed * dt);
+            bool sprinting = in->sprint && p->sprint_t > 0.25f;   // hold to sprint; a tap already dodged
+            p->sprint_t = in->sprint ? p->sprint_t + dt : 0;
+            Vec3 delta = v3_scale(move_dir, d->speed * (sprinting ? d->sprint_mult : 1.0f) * dt);
             Vec3 prev = c->pos;
             c->pos = level_move(lv, c->pos, c->radius, c->height, delta);
             float moved = v3_len(v3_sub(c->pos, prev));
             c->walk_phase += moved * 5.0f;
             p->step_timer += moved;
-            if (p->step_timer > 0.85f) { p->step_timer = 0; ev->footstep = true; }
-            character_set_anim(c, ANIM_WALK);
+            if (p->step_timer > (sprinting ? 1.1f : 0.85f)) { p->step_timer = 0; ev->footstep = true; }
+            character_set_anim(c, sprinting ? ANIM_RUN : ANIM_WALK);
         } else {
             character_set_anim(c, ANIM_IDLE);
-            p->step_timer = 0.5f;
+            p->step_timer = 0.5f; p->sprint_t = in->sprint ? p->sprint_t + dt : 0;
         }
     } break;
 
@@ -236,8 +238,13 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, B
         if (t < d->attack_windup + d->attack_active) c->pos = level_move(lv, c->pos, c->radius, c->height, v3_scale(forward(c->yaw), 1.2f * dt));
         if (t >= d->attack_windup + d->attack_active + d->attack_recovery) player_enter(p, PS_FREE, ANIM_IDLE);
         // buffered follow-up
-        else if (t > d->attack_windup + d->attack_active + d->attack_recovery * 0.6f) {
-            if (in->attack) { player_enter(p, PS_ATTACK, ANIM_ATTACK); ev->player_swing = true; }
+        else if (t > d->attack_windup + d->attack_active + d->attack_recovery * 0.55f) {
+            if (in->attack) {
+                p->combo = (p->combo + 1) % 3;
+                player_enter(p, PS_ATTACK, p->combo == 0 ? ANIM_ATTACK : p->combo == 1 ? ANIM_ATTACK2 : ANIM_ATTACK3);
+                ev->player_swing = true;
+                if (boss && mlen < 0.1f) c->yaw = yaw_to(c->pos, boss->c.pos);
+            }
             else if (in->parry) player_enter(p, PS_PARRY, ANIM_PARRY);
             else if (in->dodge) { p->dodge_dir = mlen > 0.1f ? move_dir : v3_scale(forward(c->yaw), -1); player_enter(p, PS_DODGE, ANIM_DODGE); }
         }

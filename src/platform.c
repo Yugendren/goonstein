@@ -58,13 +58,19 @@ bool platform_poll(Platform *pf) {
             case SDL_SCANCODE_F3: in->step = true; break;
             case SDL_SCANCODE_F5: in->reload = true; break;
             case SDL_SCANCODE_RETURN: in->skip = true; break;
-            case SDL_SCANCODE_J: in->attack = true; break;
-            case SDL_SCANCODE_K: in->parry = true; break;
-            case SDL_SCANCODE_SPACE: in->dodge = true; break;
+            // Sekiro PC layout: LMB attack, RMB deflect, Shift step/sprint, MMB or Q lock-on, E interact.
+            case SDL_SCANCODE_LSHIFT: case SDL_SCANCODE_RSHIFT: case SDL_SCANCODE_SPACE: in->dodge = true; break;
             case SDL_SCANCODE_E: in->interact = true; break;
-            case SDL_SCANCODE_TAB: case SDL_SCANCODE_Q: in->lockon = true; break;
+            case SDL_SCANCODE_Q: case SDL_SCANCODE_TAB: in->lockon = true; break;
+            case SDL_SCANCODE_J: in->attack = true; break;   // keyboard-only fallbacks
+            case SDL_SCANCODE_K: in->parry = true; break;
             default: break;
             }
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            if (e.button.button == SDL_BUTTON_LEFT) in->attack = true;
+            else if (e.button.button == SDL_BUTTON_RIGHT) in->parry = true;
+            else if (e.button.button == SDL_BUTTON_MIDDLE) in->lockon = true;
             break;
         case SDL_EVENT_MOUSE_MOTION:
             in->look_x += e.motion.xrel;
@@ -81,10 +87,11 @@ bool platform_poll(Platform *pf) {
             break;
         case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
             switch (e.gbutton.button) {
-            case SDL_GAMEPAD_BUTTON_WEST:  in->attack = true; break;   // X / Square
-            case SDL_GAMEPAD_BUTTON_NORTH: in->parry = true; break;    // Y / Triangle
-            case SDL_GAMEPAD_BUTTON_EAST:  in->dodge = true; break;    // B / Circle
-            case SDL_GAMEPAD_BUTTON_SOUTH: in->interact = true; break; // A / Cross
+            // Sekiro pad layout: RB attack, LB deflect, B step/sprint, A interact, R3 lock-on
+            case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: in->attack = true; break;
+            case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER:  in->parry = true; break;
+            case SDL_GAMEPAD_BUTTON_EAST:  in->dodge = true; break;
+            case SDL_GAMEPAD_BUTTON_SOUTH: in->interact = true; break;
             case SDL_GAMEPAD_BUTTON_START: in->skip = true; break;
             case SDL_GAMEPAD_BUTTON_RIGHT_STICK: in->lockon = true; break;
             case SDL_GAMEPAD_BUTTON_BACK:  in->debug_toggle = true; pf->debug = !pf->debug; break;
@@ -97,6 +104,8 @@ bool platform_poll(Platform *pf) {
 
     // Held movement: keyboard, overridden by stick if it's deflected.
     const bool *keys = SDL_GetKeyboardState(NULL);
+    in->sprint = keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT];
+    if (pf->gamepad && SDL_GetGamepadButton(pf->gamepad, SDL_GAMEPAD_BUTTON_EAST)) in->sprint = true;
     in->move_x = (float)(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]);
     in->move_y = (float)(keys[SDL_SCANCODE_S] - keys[SDL_SCANCODE_W]);
     if (pf->gamepad) {
