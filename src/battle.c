@@ -215,6 +215,9 @@ static void remove_from_hand(Battle *b, int i) {
     if (b->ndiscard < DECK_MAX) b->discard[b->ndiscard++] = b->hand[i].def;
     for (int k = i; k < b->nhand - 1; k++) b->hand[k] = b->hand[k + 1];
     b->nhand--;
+    // keep indices that point into the hand valid
+    if (b->dragging == i) b->dragging = -1; else if (b->dragging > i) b->dragging--;
+    if (b->hovered == i) b->hovered = -1; else if (b->hovered > i) b->hovered--;
 }
 
 // ---------------------------------------------------------------- start
