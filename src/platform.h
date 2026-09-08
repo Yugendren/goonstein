@@ -23,6 +23,7 @@ typedef struct Input {
     float wheel;                     // scroll this frame
     // Generic keys for tools: edge-triggered presses and held state by scancode
     bool  key_down[512], key_held[512];
+    bool  tool_key_down[512];         // key presses that landed in the tool window (its editor gets these, the game does not)
     bool  ctrl, shift_held;
     // Mouse in the tool window (editor / debugger), in that window's points
     float tool_mx, tool_my; bool tool_down, tool_pressed, tool_released; float tool_wheel;
@@ -43,6 +44,7 @@ typedef struct Platform {
     bool editing;    // an editor owns the game window: Esc deselects instead of quitting
     SDL_Window *console_win; SDL_GPUTexture *console_swap; Uint32 console_w, console_h;   // separate tool window (debugger, editors)
     int tool_w, tool_h;   // its logical size in points (the UI coordinate space)
+    bool tool_focus;      // the tool window has keyboard focus: held keys and movement do not reach the game
 } Platform;
 
 bool platform_init(Platform *pf, const char *title, int w, int h);

@@ -46,6 +46,7 @@ void platform_clear_edges(Platform *pf) {
     in->click = in->rclick = false; in->wheel = 0;
     in->tool_pressed = in->tool_released = in->tool_rpressed = false; in->tool_wheel = 0;
     memset(in->key_down, 0, sizeof in->key_down);
+    memset(in->tool_key_down, 0, sizeof in->tool_key_down);
     in->look_x = in->look_y = 0.0f;
 }
 
@@ -62,7 +63,17 @@ bool platform_poll(Platform *pf) {
             if (pf->console_win && e.window.windowID == SDL_GetWindowID(pf->console_win)) platform_console_window(pf, false);
             else if (e.window.windowID == SDL_GetWindowID(pf->window)) return false;
             break;
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+        case SDL_EVENT_WINDOW_FOCUS_LOST:
+            pf->tool_focus = pf->console_win && e.window.windowID == SDL_GetWindowID(pf->console_win) && e.type == SDL_EVENT_WINDOW_FOCUS_GAINED;
+            break;
         case SDL_EVENT_KEY_DOWN:
+            if (pf->console_win && e.key.windowID == SDL_GetWindowID(pf->console_win)) {
+                // typed into the tool window: only that tool sees it
+                if (e.key.scancode < 512) in->tool_key_down[e.key.scancode] = true;
+                if (!e.key.repeat) dbg_log("[in] tool key %s", SDL_GetScancodeName(e.key.scancode));
+                break;
+            }
             if (e.key.scancode < 512) in->key_down[e.key.scancode] = true;   // repeats count for nudging
             if (e.key.repeat) break;
             dbg_log("[in] key %s", SDL_GetScancodeName(e.key.scancode));
@@ -148,9 +159,10 @@ bool platform_poll(Platform *pf) {
     for (int i = 0; i < 512; i++) in->key_held[i] = keys[i];
     in->ctrl = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL] || keys[SDL_SCANCODE_LGUI] || keys[SDL_SCANCODE_RGUI];
     in->shift_held = in->sprint;
+    if (pf->tool_focus) { memset(in->key_held, 0, sizeof in->key_held); in->sprint = false; }   // held keys belong to the focused window
     if (pf->gamepad && SDL_GetGamepadButton(pf->gamepad, SDL_GAMEPAD_BUTTON_EAST)) in->sprint = true;
-    in->move_x = (float)(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]);
-    in->move_y = (float)(keys[SDL_SCANCODE_S] - keys[SDL_SCANCODE_W]);
+    in->move_x = pf->tool_focus ? 0 : (float)(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]);
+    in->move_y = pf->tool_focus ? 0 : (float)(keys[SDL_SCANCODE_S] - keys[SDL_SCANCODE_W]);
     if (pf->gamepad) {
         float sx = dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_LEFTX) / 32767.0f);
         float sy = dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_LEFTY) / 32767.0f);

@@ -469,14 +469,16 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
 
     dbg_set_time(g->time);
     if (in->key_down[SDL_SCANCODE_F8]) debug_snapshot(g);
-    if (in->key_down[SDL_SCANCODE_BACKSLASH] || in->key_down[SDL_SCANCODE_GRAVE]) game_set_tool(g, 1);
-    // [ environment editor, ] sprite editor, \ debugger. The brackets only open (inside the editors
-    // they mean scale / frame); Esc closes the open tool when nothing is selected in it.
-    if (g->tool_mode == 0 && in->key_down[SDL_SCANCODE_LEFTBRACKET]) game_set_tool(g, 2);
-    if (g->tool_mode == 0 && in->key_down[SDL_SCANCODE_RIGHTBRACKET]) game_set_tool(g, 3);
-    if (in->key_down[SDL_SCANCODE_F6] || (in->ctrl && in->key_down[SDL_SCANCODE_E])) game_set_tool(g, 2);
-    if (in->key_down[SDL_SCANCODE_F7] || (in->ctrl && in->key_down[SDL_SCANCODE_P])) game_set_tool(g, 3);
-    if (in->key_down[SDL_SCANCODE_ESCAPE] && g->tool_mode != 0) {
+    // Keys typed into the game window open the tools: [ environment editor, ] sprite editor,
+    // \ debugger. Keys typed into a tool window belong to that tool (tool_key_down), except \ and
+    // Esc which close it. Inside the environment editor the brackets scale the piece instead.
+    bool tool_esc = in->tool_key_down[SDL_SCANCODE_ESCAPE], tool_bs = in->tool_key_down[SDL_SCANCODE_BACKSLASH] || in->tool_key_down[SDL_SCANCODE_GRAVE];
+    if (in->key_down[SDL_SCANCODE_BACKSLASH] || in->key_down[SDL_SCANCODE_GRAVE] || tool_bs) game_set_tool(g, 1);
+    if (g->tool_mode != 2 && in->key_down[SDL_SCANCODE_LEFTBRACKET]) game_set_tool(g, 2);
+    if (g->tool_mode != 2 && in->key_down[SDL_SCANCODE_RIGHTBRACKET]) game_set_tool(g, 3);
+    if (in->key_down[SDL_SCANCODE_F6] || (in->ctrl && (in->key_down[SDL_SCANCODE_E] || in->tool_key_down[SDL_SCANCODE_E]))) game_set_tool(g, 2);
+    if (in->key_down[SDL_SCANCODE_F7] || (in->ctrl && (in->key_down[SDL_SCANCODE_P] || in->tool_key_down[SDL_SCANCODE_P]))) game_set_tool(g, 3);
+    if ((in->key_down[SDL_SCANCODE_ESCAPE] || tool_esc) && g->tool_mode != 0) {
         bool selected = g->tool_mode == 2 && (g->leveled.sel_prop >= 0 || g->leveled.sel_light >= 0 || g->leveled.sel_emitter >= 0);
         if (!selected) game_set_tool(g, g->tool_mode);   // same mode again closes it
     }
@@ -485,6 +487,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     if (g->tool_mode == 3 && g->editor_open) {
         // sprite editor runs in the tool window with that window's mouse; keys are shared
         Input ein = *in; ein.click = in->tool_pressed; ein.mouse_held = in->tool_down; ein.rclick = in->tool_rpressed; ein.rmouse_held = in->tool_rdown; ein.wheel = in->tool_wheel;
+        memcpy(ein.key_down, in->tool_key_down, sizeof ein.key_down);   // only keys typed into the editor window
         float sx = g->pf->tool_w > 0 ? 1280.0f / (float)g->pf->tool_w : 1, sy = g->pf->tool_h > 0 ? 800.0f / (float)g->pf->tool_h : 1;
         editor_tick(&g->editor, &ein, in->tool_mx * sx, in->tool_my * sy, dt);
         g->sprite_refresh_t += dt;
@@ -955,12 +958,15 @@ void game_set_tool(Game *g, int mode) {
     if (mode == g->tool_mode) mode = 0;
     g->tool_mode = mode;
     g->pf->editing = mode == 2;
-    if (mode == 0) { platform_tool_window(g->pf, false, 720, 820, ""); g->leveled.open = false; return; }
+    g->leveled.open = false;
+    if (mode == 0) { platform_tool_window(g->pf, false, 720, 820, ""); return; }
     if (mode == 1) platform_tool_window(g->pf, true, 720, 820, "hollow debugger");
     if (mode == 2) {
         platform_tool_window(g->pf, true, 720, 820, "hollow environment editor");
-        if (g->leveled_ready) leveled_open(&g->leveled, &g->level, &g->cam);
-        if (g->state == GS_BATTLE || g->state == GS_SCENE) say(g, "editor works best in the overworld");
+        if (!g->leveled_ready) { say(g, "environment editor unavailable: assets/kit.txt failed to load (see hollow.log)"); return; }
+        if (g->state == GS_SCENE) { SceneHost host = HOST_TEMPLATE; host.ud = g; scene_skip(&g->scene, &host); }   // the editor needs the overworld
+        leveled_open(&g->leveled, &g->level, &g->cam);
+        if (g->state == GS_BATTLE) say(g, "editor works in the overworld; finish the battle first");
     }
     if (mode == 3) {
         platform_tool_window(g->pf, true, 1280, 800, "hollow sprite editor");
