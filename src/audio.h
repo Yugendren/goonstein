@@ -16,6 +16,8 @@ typedef enum SoundId {
     SND_HEART,      // single heartbeat thump
     SND_DOOR,       // heavy door, ~1 s
     SND_STING,      // horror sting: dissonant swell, ~1.5 s
+    SND_WHIFF,      // parry raised but nothing came: soft leather creak / air, ~0.2 s
+    SND_FAIL,       // parry failed: dull low clunk, clearly not the ping, ~0.3 s
     SND_COUNT
 } SoundId;
 

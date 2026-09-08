@@ -14,7 +14,7 @@ typedef struct Input {
     // Camera stick / mouse delta
     float look_x, look_y;
     // Actions, edge-triggered this frame
-    bool attack, parry, dodge, interact;
+    bool attack, parry, dodge, interact, lockon;
 } Input;
 
 typedef struct Platform {

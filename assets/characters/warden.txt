@@ -1,6 +1,6 @@
 # Boss: KayKit Skeleton Warrior, scaled up. CC0. Same rig family as the knight.
 model models/kaykit/Skeleton_Warrior.glb
-scale 1.5
+scale 1.35
 texture_size 256
 yaw_offset 0
 anim idle       Idle_Combat loop

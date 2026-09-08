@@ -208,7 +208,8 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
             .color_blend_op = SDL_GPU_BLENDOP_ADD,
             .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE, .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
             .alpha_blend_op = SDL_GPU_BLENDOP_ADD } };
-    SDL_GPUColorTargetDescription swap_ct = { .format = SDL_GetGPUSwapchainTextureFormat(g->dev, pf->window) };
+    g->swap_format = SDL_GetGPUSwapchainTextureFormat(g->dev, pf->window);
+    SDL_GPUColorTargetDescription swap_ct = { .format = g->swap_format };
 
     SDL_GPUVertexAttribute world_attrs[] = {
         { .location = 0, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, .offset = 0 },
@@ -417,6 +418,7 @@ float gfx_ui_text_width(float scale, const char *text) { return stb_easy_font_wi
 // ---------------------------------------------------------------- end of frame
 
 void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
+    g->last_post = *pp; g->last_time = time;
     if (!pf->cmd) return;
     if (g->pass) { SDL_EndGPURenderPass(g->pass); g->pass = NULL; }
 
@@ -451,7 +453,7 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
         if (vh > sh) { vh = sh; vw = sh * target_aspect; }
         SDL_SetGPUViewport(pass, &(SDL_GPUViewport){ .x = (sw - vw) * 0.5f, .y = (sh - vh) * 0.5f, .w = vw, .h = vh, .min_depth = 0, .max_depth = 1 });
         SDL_BindGPUGraphicsPipeline(pass, g->pipe_post);
-        struct { Vec4 params, res; } u = { v4((float)time, pp->grain, pp->vignette, pp->fade), v4((float)g->iw, (float)g->ih, 0, 0) };
+        struct { Vec4 params, res, flash; } u = { v4((float)time, pp->grain, pp->vignette, pp->fade), v4((float)g->iw, (float)g->ih, 0, 0), v4(pp->flash_color.x, pp->flash_color.y, pp->flash_color.z, pp->flash) };
         SDL_PushGPUFragmentUniformData(pf->cmd, 0, &u, sizeof u);
         SDL_BindGPUFragmentSamplers(pass, 0, &(SDL_GPUTextureSamplerBinding){ .texture = g->color, .sampler = g->samp_nearest }, 1);
         SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
@@ -463,17 +465,35 @@ bool gfx_screenshot(Gfx *g, const char *path) {
     Uint32 size = (Uint32)(g->iw * g->ih * 4);
     SDL_GPUTransferBuffer *xfer = SDL_CreateGPUTransferBuffer(g->dev,
         &(SDL_GPUTransferBufferCreateInfo){ .usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, .size = size });
+    // Run the post pass into a temporary texture so the capture matches the screen.
+    SDL_GPUTexture *final = SDL_CreateGPUTexture(g->dev, &(SDL_GPUTextureCreateInfo){
+        .type = SDL_GPU_TEXTURETYPE_2D, .format = g->swap_format,
+        .usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET, .width = g->iw, .height = g->ih, .layer_count_or_depth = 1, .num_levels = 1 });
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(g->dev);
+    {
+        SDL_GPUColorTargetInfo ct = { .texture = final, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE };
+        SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(cmd, &ct, 1, NULL);
+        SDL_BindGPUGraphicsPipeline(pass, g->pipe_post);
+        const PostParams *pp = &g->last_post;
+        struct { Vec4 params, res, flash; } u = { v4((float)g->last_time, pp->grain, pp->vignette, pp->fade), v4((float)g->iw, (float)g->ih, 0, 0), v4(pp->flash_color.x, pp->flash_color.y, pp->flash_color.z, pp->flash) };
+        SDL_PushGPUFragmentUniformData(cmd, 0, &u, sizeof u);
+        SDL_BindGPUFragmentSamplers(pass, 0, &(SDL_GPUTextureSamplerBinding){ .texture = g->color, .sampler = g->samp_nearest }, 1);
+        SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+        SDL_EndGPURenderPass(pass);
+    }
     SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
-    SDL_DownloadFromGPUTexture(cp, &(SDL_GPUTextureRegion){ .texture = g->color, .w = g->iw, .h = g->ih, .d = 1 },
+    SDL_DownloadFromGPUTexture(cp, &(SDL_GPUTextureRegion){ .texture = final, .w = g->iw, .h = g->ih, .d = 1 },
                                &(SDL_GPUTextureTransferInfo){ .transfer_buffer = xfer });
     SDL_EndGPUCopyPass(cp);
     SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
     SDL_WaitForGPUFences(g->dev, true, &fence, 1);
     SDL_ReleaseGPUFence(g->dev, fence);
-    void *map = SDL_MapGPUTransferBuffer(g->dev, xfer, false);
+    unsigned char *map = SDL_MapGPUTransferBuffer(g->dev, xfer, false);
+    if (g->swap_format == SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM || g->swap_format == SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM_SRGB)
+        for (Uint32 i = 0; i < size; i += 4) { unsigned char t = map[i]; map[i] = map[i + 2]; map[i + 2] = t; }
     int ok = stbi_write_png(path, g->iw, g->ih, 4, map, g->iw * 4);
     SDL_UnmapGPUTransferBuffer(g->dev, xfer);
     SDL_ReleaseGPUTransferBuffer(g->dev, xfer);
+    SDL_ReleaseGPUTexture(g->dev, final);
     return ok != 0;
 }

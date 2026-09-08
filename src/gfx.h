@@ -19,7 +19,7 @@ typedef struct FrameParams {
     Vec3  light_color;
 } FrameParams;
 
-typedef struct PostParams { float grain, vignette, fade; } PostParams;
+typedef struct PostParams { float grain, vignette, fade; Vec3 flash_color; float flash; } PostParams;
 
 #define UI_MAX_VERTS 65536
 
@@ -40,6 +40,8 @@ typedef struct Gfx {
     FrameParams frame;
     const Texture *bound_tex;
     unsigned draw_calls;
+    PostParams last_post; double last_time;
+    SDL_GPUTextureFormat swap_format;   // for screenshots, which re-run the post pass
 } Gfx;
 
 bool gfx_init(Gfx *g, Platform *pf, int internal_w, int internal_h);

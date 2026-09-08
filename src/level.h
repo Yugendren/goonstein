@@ -58,5 +58,7 @@ const CamVolume *level_camera_at(const Level *lv, Vec3 p);
 Trigger *level_trigger_at(Level *lv, Vec3 p);
 // Reset all triggers (used on restart).
 void level_reset_triggers(Level *lv);
+// Fraction [0,1] along a->b where the segment first enters a solid block grown by margin; 1 if clear.
+float level_ray_solid(const Level *lv, Vec3 a, Vec3 b, float margin);
 // Lookup helpers
 int level_tex_from_name(const char *name);  // -1 if unknown

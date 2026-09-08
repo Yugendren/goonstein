@@ -6,7 +6,7 @@ fog   0.03 0.025 0.04 6 22
 light 0.3 -0.8 0.5 0.22 0.85 0.8 0.75
 
 spawn 0 0 1.5 0
-boss  0 0 37 180
+boss  0 0 38.5 180
 arena -6.5 0 24.5 6.5 6 41.5
 
 # --- corridor shell: floor, two walls, ceiling. interior x -2..2, y 0..3.5, z 0..24 ---
@@ -45,6 +45,6 @@ cam corridor_c  -2 0 16   2 3.5 24.5   -1.6 3.0 17.5   1.5 0.8 26   62
 cam arena_door  -4 0 24.5 4 6 27        0 5.2 33        0 1.2 24.5  60
 
 # --- triggers ---
-trigger intro     -2 0 0    2 3.5 2    once
+trigger intro     -2 0 4    2 3.5 5.5  once
 trigger boss_door  -2 0 23   2 6 25    once
 trigger arena      -7 0 26   7 6 28    once

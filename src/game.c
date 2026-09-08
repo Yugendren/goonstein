@@ -1,6 +1,7 @@
 #include "game.h"
 #include "audio.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define ASSET(rel) (HOLLOW_ASSET_DIR "/" rel)
@@ -20,7 +21,7 @@ static void host_anim(void *ud, const char *a, const char *anim) { Character *c 
 static void host_teleport(void *ud, const char *a, Vec3 pos, float yaw) { Character *c = actor(ud, a); if (c) { c->pos = pos; c->yaw = yaw * DEG2RAD; c->scripted_moving = false; } }
 static void host_sound(void *ud, const char *name) {
     (void)ud;
-    static const char *names[SND_COUNT] = { "footstep", "swing", "hit", "parry", "hurt", "stagger", "roar", "death", "blip", "heart", "door", "sting" };
+    static const char *names[SND_COUNT] = { "footstep", "swing", "hit", "parry", "hurt", "stagger", "roar", "death", "blip", "heart", "door", "sting", "whiff", "fail" };
     for (int i = 0; i < SND_COUNT; i++) if (!strcmp(name, names[i])) { audio_play((SoundId)i, 0.9f, 1.0f); return; }
     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "scene: unknown sound %s", name);
 }
@@ -32,7 +33,6 @@ static void play_scene(Game *g, const char *path, GState after) {
     g->state = GS_SCENE; g->after_scene = after; g->state_t = 0;
     g->player.state = PS_SCRIPTED; character_set_anim(&g->player.c, ANIM_IDLE);
     g->boss.state = BS_SCRIPTED;
-    g->cam.mode = CAM_SCENE;
 }
 
 // ---------------------------------------------------------------- setup and resets
@@ -53,17 +53,18 @@ static void reset_to_start(Game *g) {
     g->state = GS_EXPLORE; g->state_t = 0;
     g->fade = 0; g->letterbox = 0; g->hitstop = 0; g->fight_intensity = 0;
     camera_init(&g->cam);
-    camera_set_fixed(&g->cam, &g->level, g->player.c.pos);
+    camera_snap_behind(&g->cam, g->player.c.pos, g->player.c.yaw, &g->level);
+    g->hint_t = 8.0f;
 }
 
 static void restart_fight(Game *g) {
-    Vec3 p = v3(0, 0, g->level.arena_min.z + 7.0f);
+    Vec3 p = v3(0, 0, g->level.arena_min.z + 9.0f);
     player_reset(&g->player, p, 0);
     boss_reset(&g->boss, g->level.boss_spawn, g->level.boss_yaw);
     g->state = GS_FIGHT; g->state_t = 0; g->hitstop = 0;
     g->fade = 0;
-    camera_set_follow(&g->cam, g->player.c.pos, g->player.c.yaw, g->boss.c.pos, 0, &g->level);
-    g->cam.blend = 1; g->cam.eye = g->cam.goal_eye; g->cam.target = g->cam.goal_target;
+    camera_snap_behind(&g->cam, g->player.c.pos, g->player.c.yaw, &g->level);
+    g->cam.locked = true;
 }
 
 void game_init(Game *g) {
@@ -125,7 +126,7 @@ static void bot_input(Game *g, Input *in) {
     if (p->state == PS_FREE) {
         if (dist > p->def.attack_range + b->c.radius - 0.2f) {
             // camera-relative input: convert world direction back through the camera basis
-            Vec3 f = v3_sub(g->cam.target, g->cam.eye); f.y = 0; f = v3_norm(f);
+            Vec3 f = v3(sinf(g->cam.yaw), 0, cosf(g->cam.yaw));
             Vec3 r = v3(f.z, 0, -f.x);
             Vec3 n = v3_scale(d, 1.0f / dist);
             in->move_x = v3_dot(n, r); in->move_y = -v3_dot(n, f);
@@ -134,6 +135,38 @@ static void bot_input(Game *g, Input *in) {
 }
 
 // ---------------------------------------------------------------- feedback
+
+static float frand(void) { return (float)(rand() & 0x7fff) / 32767.0f; }
+
+static void spawn_particles(Game *g, Vec3 at, Vec3 color, int count, float speed, float size, float life) {
+    for (int n = 0; n < count; n++) {
+        for (int i = 0; i < 128; i++) {
+            struct Particle *p = &g->particles[i];
+            if (p->life > 0) continue;
+            float a = frand() * 2 * PI, b = (frand() - 0.3f) * PI * 0.5f;
+            float sp = speed * (0.5f + frand());
+            p->pos = at; p->vel = v3(cosf(a) * cosf(b) * sp, sinf(b) * sp + speed * 0.4f, sinf(a) * cosf(b) * sp);
+            p->color = color; p->life = life * (0.6f + 0.4f * frand()); p->size = size;
+            break;
+        }
+    }
+}
+
+static void update_particles(Game *g, float dt) {
+    for (int i = 0; i < 128; i++) {
+        struct Particle *p = &g->particles[i];
+        if (p->life <= 0) continue;
+        p->life -= dt;
+        p->vel.y -= 14.0f * dt;
+        p->pos = v3_add(p->pos, v3_scale(p->vel, dt));
+        if (p->pos.y < 0.02f) { p->pos.y = 0.02f; p->vel.y *= -0.3f; p->vel.x *= 0.7f; p->vel.z *= 0.7f; }
+    }
+    g->flash = fmaxf(0, g->flash - dt * 6.0f);
+}
+
+static void screen_flash(Game *g, Vec3 color, float amount) { g->flash_color = color; g->flash = fmaxf(g->flash, amount); }
+
+static void readout(Game *g, const char *text, float dur) { snprintf(g->hit_text, sizeof g->hit_text, "%s", text); g->last_hit_text_t = dur; }
 
 static void apply_events(Game *g, const CombatEvents *ev) {
     if (g->bot) {
@@ -151,9 +184,22 @@ static void apply_events(Game *g, const CombatEvents *ev) {
     if (ev->player_swing) audio_play(SND_SWING, 0.6f, 1.1f);
     if (ev->boss_swing) audio_play(SND_SWING, 0.9f, 0.6f);
     if (ev->boss_hit) audio_play(SND_HIT, 0.8f, 1.0f);
-    if (ev->parried) { audio_play(SND_PARRY, 1.0f, 1.0f); g->parries++; snprintf(g->hit_text, sizeof g->hit_text, "PARRY"); g->last_hit_text_t = 0.7f; }
-    if (ev->player_hit) { audio_play(SND_HURT, 0.9f, 1.0f); g->hits_taken++; }
-    if (ev->boss_staggered) { audio_play(SND_STAGGER, 1.0f, 1.0f); snprintf(g->hit_text, sizeof g->hit_text, "POSTURE BROKEN"); g->last_hit_text_t = 1.2f; }
+    if (ev->parried) {
+        audio_play(SND_PARRY, 1.0f, 1.0f); g->parries++; readout(g, "PARRY", 0.7f);
+        spawn_particles(g, ev->contact, v3(1.0f, 0.95f, 0.6f), 22, 7.0f, 0.07f, 0.5f);
+        screen_flash(g, v3(1, 1, 0.9f), 0.42f);
+    }
+    if (ev->parry_whiff) audio_play(SND_WHIFF, 0.6f, 1.0f);
+    if (ev->player_hit) {
+        g->hits_taken++;
+        spawn_particles(g, ev->contact, v3(0.8f, 0.1f, 0.1f), 12, 4.0f, 0.08f, 0.6f);
+        screen_flash(g, v3(0.6f, 0.0f, 0.0f), 0.45f);
+        if (ev->parry_early) { audio_play(SND_FAIL, 1.0f, 1.0f); audio_play(SND_HURT, 0.7f, 1.0f); readout(g, "TOO EARLY", 0.8f); }
+        else if (ev->parry_unblockable) { audio_play(SND_FAIL, 1.0f, 0.7f); audio_play(SND_HURT, 0.7f, 1.0f); readout(g, "UNBLOCKABLE - DODGE", 1.0f); }
+        else audio_play(SND_HURT, 0.9f, 1.0f);
+    }
+    if (ev->boss_hit) spawn_particles(g, ev->contact, v3(0.9f, 0.85f, 0.7f), 6, 3.0f, 0.05f, 0.35f);
+    if (ev->boss_staggered) { audio_play(SND_STAGGER, 1.0f, 1.0f); readout(g, "POSTURE BROKEN", 1.2f); screen_flash(g, v3(1, 0.8f, 0.4f), 0.5f); }
     if (ev->phase2) { audio_play(SND_ROAR, 1.0f, 0.85f); audio_play(SND_STING, 0.7f, 1.0f); camera_add_shake(&g->cam, 0.5f); }
     if (ev->boss_died) { audio_play(SND_DEATH, 1.0f, 0.7f); audio_play(SND_STAGGER, 0.8f, 0.6f); }
     if (ev->player_died) { audio_play(SND_DEATH, 1.0f, 1.0f); g->deaths++; }
@@ -168,7 +214,7 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     Vec3 dir = camera_move_dir(&g->cam, in->move_x, in->move_y);
     player_update(&g->player, in, dir, &g->level, NULL, dt, &ev);
     apply_events(g, &ev);
-    camera_set_fixed(&g->cam, &g->level, g->player.c.pos);
+    camera_orbit(&g->cam, g->player.c.pos, in->look_x, in->look_y, false, v3(0, 0, 0), &g->level, dt);
     Trigger *t = level_trigger_at(&g->level, g->player.c.pos);
     if (t) {
         if (!strcmp(t->name, "intro")) play_scene(g, ASSET("scenes/intro.txt"), GS_EXPLORE);
@@ -197,13 +243,14 @@ static void tick_scene(Game *g, const Input *in, float dt) {
             g->boss.state = BS_IDLE; g->boss.think = 1.2f;
             character_set_anim(&g->boss.c, ANIM_IDLE);
             g->state = GS_FIGHT;
-            camera_set_follow(&g->cam, g->player.c.pos, g->player.c.yaw, g->boss.c.pos, 0, &g->level);
+            camera_snap_behind(&g->cam, g->player.c.pos, g->player.c.yaw, &g->level);
+            g->cam.locked = true;
         } else if (g->after_scene == GS_END) {
             g->state = GS_END;
         } else {
             g->boss.state = BS_SCRIPTED;
             g->state = GS_EXPLORE;
-            camera_set_fixed(&g->cam, &g->level, g->player.c.pos);
+            camera_snap_behind(&g->cam, g->player.c.pos, g->player.c.yaw, &g->level);
         }
         g->state_t = 0;
     }
@@ -216,7 +263,8 @@ static void tick_fight(Game *g, const Input *in, float dt) {
     boss_update(&g->boss, &g->player, &g->level, dt, &ev);
     if (g->boss.state != BS_DEAD) character_separate(&g->player.c, &g->boss.c, &g->level);
     apply_events(g, &ev);
-    camera_set_follow(&g->cam, g->player.c.pos, g->player.c.yaw, g->boss.c.pos, in->look_x, &g->level);
+    if (in->lockon) camera_toggle_lock(&g->cam);
+    camera_orbit(&g->cam, g->player.c.pos, in->look_x, in->look_y, g->boss.state != BS_DEAD, g->boss.c.pos, &g->level, dt);
     g->fight_intensity = damp(g->fight_intensity, g->boss.phase2 ? 1.0f : 0.7f, 2, dt);
     audio_set_drone(0.35f);
     audio_set_fight(g->fight_intensity);
@@ -234,7 +282,7 @@ static void tick_dead(Game *g, const Input *in, float dt) {
     g->state_t += dt;
     character_script_update(&g->player.c, dt);
     g->boss.c.anim_t += dt;
-    camera_update(&g->cam, dt);
+    camera_orbit(&g->cam, g->player.c.pos, 0, 0, false, v3(0, 0, 0), &g->level, dt);
     bool boss_dead = g->boss.state == BS_DEAD;
     if (boss_dead) {
         audio_set_fight(fmaxf(0, 1.0f - g->state_t));
@@ -289,6 +337,8 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     }
     charmodel_drive_player(&g->player_model, &g->player, dt);
     charmodel_drive_boss(&g->boss_model, &g->boss, dt);
+    update_particles(g, dt);
+    if (g->hint_t > 0) g->hint_t -= dt;
     camera_update(&g->cam, dt);
 }
 
@@ -318,7 +368,12 @@ static void draw_hud(Game *g, Platform *pf) {
         gfx_ui_text(x, bx, H - 64, 1.0f, dim, g->boss.def.name);
         bar(x, bx, H - 50, bw, 7, g->boss.c.hp / g->boss.c.hp_max, v4(0.2f, 0.05f, 0.08f, 1), v4(0.8f, 0.2f, 0.25f, 1));
         bar(x, bx, H - 40, bw, 4, g->boss.c.posture / g->boss.c.posture_max, v4(0.15f, 0.12f, 0.05f, 1), v4(0.95f, 0.75f, 0.25f, 1));
-        if (g->last_hit_text_t > 0) text_center(x, W * 0.5f, H * 0.5f - 60, 2.0f, v4(1, 0.9f, 0.6f, fminf(1, g->last_hit_text_t * 2)), g->hit_text);
+        if (g->last_hit_text_t > 0) {
+            float a = fminf(1, g->last_hit_text_t * 2);
+            float tw = gfx_ui_text_width(2.0f, g->hit_text);
+            gfx_ui_rect(x, W * 0.5f - tw * 0.5f - 8, H * 0.5f - 66, tw + 16, 26, v4(0, 0, 0, 0.6f * a));
+            text_center(x, W * 0.5f, H * 0.5f - 60, 2.0f, v4(1, 0.9f, 0.6f, a), g->hit_text);
+        }
     }
     if (g->state == GS_DEAD && g->boss.state != BS_DEAD && g->state_t > 0.6f) {
         float a = fminf(1, (g->state_t - 0.6f) * 1.5f);
@@ -343,6 +398,24 @@ static void draw_hud(Game *g, Platform *pf) {
         text_center(x, W * 0.5f, H - 64, 1.4f, white, g->scene.subtitle);
     }
     if (g->msg_t > 0) gfx_ui_text(x, 12, H - 16, 1.0f, v4(0.9f, 0.8f, 0.4f, 1), g->msg);
+    if (g->hint_t > 0 && g->state == GS_EXPLORE) {
+        float a = fminf(1, g->hint_t);
+        text_center(x, W * 0.5f, 30, 1.0f, v4(0.85f, 0.85f, 0.8f, a), "WASD move   mouse look   J attack   K parry   Space dodge");
+        text_center(x, W * 0.5f, 44, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "Tab lock-on   Enter skips cutscenes   F1 debug   Esc quit");
+    }
+    if (g->state == GS_FIGHT && g->cam.locked && g->boss.state != BS_DEAD) {
+        // lock-on marker: a small diamond over the boss, projected
+        Mat4 vp = camera_view_proj(&g->cam, (float)INTERNAL_W / INTERNAL_H);
+        Vec3 bp = v3_add(g->boss.c.pos, v3(0, g->boss.c.height * 0.75f, 0));
+        float cx = vp.m[0] * bp.x + vp.m[4] * bp.y + vp.m[8] * bp.z + vp.m[12];
+        float cy = vp.m[1] * bp.x + vp.m[5] * bp.y + vp.m[9] * bp.z + vp.m[13];
+        float cw = vp.m[3] * bp.x + vp.m[7] * bp.y + vp.m[11] * bp.z + vp.m[15];
+        if (cw > 0.1f) {
+            float sx = (cx / cw * 0.5f + 0.5f) * W, sy = (0.5f - cy / cw * 0.5f) * H;
+            gfx_ui_rect(x, sx - 4, sy - 1, 8, 2, v4(1, 0.9f, 0.5f, 0.9f));
+            gfx_ui_rect(x, sx - 1, sy - 4, 2, 8, v4(1, 0.9f, 0.5f, 0.9f));
+        }
+    }
 
     if (pf->debug) {
         static const char *GS[] = { "EXPLORE", "SCENE", "FIGHT", "DEAD", "END" };
@@ -350,7 +423,7 @@ static void draw_hud(Game *g, Platform *pf) {
         static const char *BS[] = { "IDLE", "APPROACH", "WINDUP", "ACTIVE", "RECOVER", "STAGGER", "DEAD", "SCRIPTED" };
         char l[8][160]; int n = 0;
         snprintf(l[n++], 160, "fps %.0f  draws %u  tick %u  %s", g->fps, g->gfx.draw_calls, g->tick, g->paused ? "PAUSED" : "");
-        snprintf(l[n++], 160, "game %s %.2fs   cam %s  vol %s", GS[g->state], g->state_t, g->cam.mode == CAM_FIXED ? "fixed" : g->cam.mode == CAM_FOLLOW ? "follow" : "scene", g->cam.vol ? g->cam.vol->name : "-");
+        snprintf(l[n++], 160, "game %s %.2fs   cam %s  vol %s", GS[g->state], g->state_t, g->cam.mode == CAM_ORBIT ? (g->cam.locked ? "orbit+lock" : "orbit") : "scene", "-");
         snprintf(l[n++], 160, "player %s t=%.2f  pos %.1f %.1f %.1f  yaw %.0f  hp %.0f  anim %s", PS[g->player.state], g->player.t, g->player.c.pos.x, g->player.c.pos.y, g->player.c.pos.z, g->player.c.yaw / DEG2RAD, g->player.c.hp, anim_name(g->player.c.anim));
         const BossMove *m = &g->boss.def.moves[g->boss.move];
         snprintf(l[n++], 160, "boss %s t=%.2f move %s  hp %.0f  posture %.0f  %s", BS[g->boss.state], g->boss.t, m->name, g->boss.c.hp, g->boss.c.posture, g->boss.phase2 ? "PHASE2" : "");
@@ -410,11 +483,17 @@ void game_render(Game *g, Platform *pf, float alpha) {
         }
         for (int i = 0; i < lv->ncams; i++) {
             const CamVolume *c = &lv->cams[i];
-            gfx_draw_box_wire(x, v3_scale(v3_add(c->vmin, c->vmax), 0.5f), v3_sub(c->vmax, c->vmin), c == g->cam.vol ? v4(0.2f, 1, 1, 1) : v4(0.2f, 0.4f, 0.5f, 1));
+            gfx_draw_box_wire(x, v3_scale(v3_add(c->vmin, c->vmax), 0.5f), v3_sub(c->vmax, c->vmin), v4(0.2f, 0.4f, 0.5f, 1));
             gfx_draw_box(x, &x->white, c->eye, v3(0.15f, 0.15f, 0.15f), 0, v4(0.2f, 1, 1, 1), 0);
         }
     }
+    for (int i = 0; i < 128; i++) {
+        const struct Particle *p = &g->particles[i];
+        if (p->life <= 0) continue;
+        float k = fminf(1, p->life * 2.5f);
+        gfx_draw_box(x, &x->white, p->pos, v3(p->size, p->size, p->size), 0, v4(p->color.x * 1.5f, p->color.y * 1.5f, p->color.z * 1.5f, k), 0);
+    }
     draw_hud(g, pf);
-    PostParams pp = { .grain = 0.07f, .vignette = 0.6f, .fade = g->fade };
+    PostParams pp = { .grain = 0.07f, .vignette = 0.6f, .fade = g->fade, .flash_color = g->flash_color, .flash = g->flash };
     gfx_end(x, pf, &pp, g->time);
 }

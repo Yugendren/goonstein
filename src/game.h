@@ -28,6 +28,10 @@ typedef struct Game {
     float    fps; unsigned frames; double fps_t;
     float    last_hit_text_t; char hit_text[32];
     unsigned parries, hits_taken, deaths;
+    // feedback
+    struct Particle { Vec3 pos, vel; Vec3 color; float life, size; } particles[128];
+    Vec3  flash_color; float flash;
+    float hint_t;
     bool     bot;                 // test harness: plays the fight by itself
 } Game;
 

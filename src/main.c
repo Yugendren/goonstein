@@ -71,8 +71,8 @@ int main(int argc, char **argv) {
         if (max_frames >= 0 && --max_frames == 0) running = false;
     }
     if (shot) game_screenshot(&game, shot);
-    SDL_Log("stats: state=%d parries=%u hits_taken=%u deaths=%u boss_hp=%.0f player_hp=%.0f player_yaw=%.0f",
-            game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, game.player.c.hp, game.player.c.yaw / DEG2RAD);
+    SDL_Log("stats: state=%d parries=%u hits_taken=%u deaths=%u boss_hp=%.0f player_hp=%.0f player_yaw=%.0f flash=%.2f t=%.3f",
+            game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, game.player.c.hp, game.player.c.yaw / DEG2RAD, game.flash, game.time);
 
     game_shutdown(&game);
     platform_shutdown(&pf);

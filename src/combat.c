@@ -245,6 +245,7 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, B
 
     case PS_PARRY: {
         // Window is checked by the boss when its hit lands (p->t <= parry_window).
+        if (p->t >= d->parry_window && p->t - dt < d->parry_window && c->anim == ANIM_PARRY) ev->parry_whiff = true;
         if (p->t >= d->parry_window + d->parry_recovery) player_enter(p, PS_FREE, ANIM_IDLE);
     } break;
 
@@ -305,7 +306,10 @@ static int boss_pick_move(Boss *b, const Player *p) {
 static void boss_land_hit(Boss *b, Player *p, const BossMove *m, CombatEvents *ev) {
     const PlayerDef *pd = &p->def;
     if (p->state == PS_DEAD) return;
+    ev->contact = v3_add(p->c.pos, v3_scale(forward(p->c.yaw), 0.8f)); ev->contact.y += p->c.height * 0.62f;
     if (p->state == PS_DODGE && p->t <= pd->dodge_iframes) return;                     // dodged
+    if (p->state == PS_PARRY && m->parryable && p->t > pd->parry_window) ev->parry_early = true;
+    if (p->state == PS_PARRY && !m->parryable) ev->parry_unblockable = true;
     if (p->state == PS_PARRY && p->t <= pd->parry_window && m->parryable) {           // parried
         b->c.posture -= m->posture_on_parry;
         b->regen_delay = 3.0f;

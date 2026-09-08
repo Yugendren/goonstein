@@ -139,6 +139,27 @@ static float synth_parry(float t, Uint32 *seed, bool *done) {
     return (ping * env * 0.6f + shimmer + transient) * 0.9f;
 }
 
+static float synth_whiff(float t, Uint32 *seed, bool *done) {
+    const float dur = 0.2f;
+    *done = t >= dur;
+    if (*done) return 0.0f;
+    float frac = t / dur;
+    float env = sinf((float)M_PI * frac);
+    float n = noise1(seed) * env * 0.35f;
+    float creak = sinf(TWO_PI * (180.0f + 60.0f * frac) * t) * env * 0.25f;
+    return (n + creak) * 0.7f;
+}
+
+static float synth_fail(float t, Uint32 *seed, bool *done) {
+    const float dur = 0.3f;
+    *done = t >= dur;
+    if (*done) return 0.0f;
+    float env = expdecay(t, 0.07f);
+    float clunk = sinf(TWO_PI * 140.0f * t) * env + sinf(TWO_PI * 95.0f * t) * expdecay(t, 0.12f) * 0.7f;
+    float knock = noise1(seed) * expdecay(t, 0.012f) * 0.5f;
+    return (clunk * 0.6f + knock) * 0.8f;
+}
+
 static float synth_hurt(float t, Uint32 *seed, bool *done) {
     const float dur = 0.35f;
     *done = t >= dur;
@@ -259,6 +280,8 @@ static float synth_sound(SoundId id, float t, Uint32 *seed, bool *done) {
         case SND_HEART:    return synth_heart(t, seed, done);
         case SND_DOOR:     return synth_door(t, seed, done);
         case SND_STING:    return synth_sting(t, seed, done);
+        case SND_WHIFF:    return synth_whiff(t, seed, done);
+        case SND_FAIL:     return synth_fail(t, seed, done);
         default:           *done = true; return 0.0f;
     }
 }

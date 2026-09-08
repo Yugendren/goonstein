@@ -28,6 +28,7 @@ bool platform_init(Platform *pf, const char *title, int w, int h) {
                                   SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
 
     SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(pf->gpu));
+    SDL_SetWindowRelativeMouseMode(pf->window, true);
 
     // Pick up an already-connected gamepad; hotplug is handled in poll.
     int count = 0;
@@ -41,7 +42,7 @@ bool platform_poll(Platform *pf) {
     Input *in = &pf->input;
     // Edge-triggered actions reset each frame; held state is re-derived below.
     in->attack = in->parry = in->dodge = in->interact = in->debug_toggle = false;
-    in->pause_toggle = in->step = in->reload = in->skip = false;
+    in->pause_toggle = in->step = in->reload = in->skip = in->lockon = false;
     in->look_x = in->look_y = 0.0f;
 
     SDL_Event e;
@@ -61,6 +62,7 @@ bool platform_poll(Platform *pf) {
             case SDL_SCANCODE_K: in->parry = true; break;
             case SDL_SCANCODE_SPACE: in->dodge = true; break;
             case SDL_SCANCODE_E: in->interact = true; break;
+            case SDL_SCANCODE_TAB: case SDL_SCANCODE_Q: in->lockon = true; break;
             default: break;
             }
             break;
@@ -84,6 +86,7 @@ bool platform_poll(Platform *pf) {
             case SDL_GAMEPAD_BUTTON_EAST:  in->dodge = true; break;    // B / Circle
             case SDL_GAMEPAD_BUTTON_SOUTH: in->interact = true; break; // A / Cross
             case SDL_GAMEPAD_BUTTON_START: in->skip = true; break;
+            case SDL_GAMEPAD_BUTTON_RIGHT_STICK: in->lockon = true; break;
             case SDL_GAMEPAD_BUTTON_BACK:  in->debug_toggle = true; pf->debug = !pf->debug; break;
             default: break;
             }
@@ -100,8 +103,8 @@ bool platform_poll(Platform *pf) {
         float sx = dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_LEFTX) / 32767.0f);
         float sy = dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_LEFTY) / 32767.0f);
         if (sx != 0.0f || sy != 0.0f) { in->move_x = sx; in->move_y = sy; }
-        in->look_x += dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_RIGHTX) / 32767.0f) * 8.0f;
-        in->look_y += dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_RIGHTY) / 32767.0f) * 8.0f;
+        in->look_x += dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_RIGHTX) / 32767.0f) * 6.0f;
+        in->look_y += dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_RIGHTY) / 32767.0f) * 6.0f;
     }
     return true;
 }

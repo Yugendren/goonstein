@@ -160,14 +160,14 @@ bool model_load(Gfx *g, Model *m, const char *path, int max_tex_size) {
         c->channels = calloc(a->channels_count, sizeof *c->channels);
         for (size_t ci = 0; ci < a->channels_count; ci++) {
             const cgltf_animation_channel *ch = &a->channels[ci];
-            int path = ch->target_path == cgltf_animation_path_type_translation ? 0 :
-                       ch->target_path == cgltf_animation_path_type_rotation ? 1 :
-                       ch->target_path == cgltf_animation_path_type_scale ? 2 : -1;
-            if (path < 0 || !ch->target_node) continue;
+            int ptype = ch->target_path == cgltf_animation_path_type_translation ? 0 :
+                        ch->target_path == cgltf_animation_path_type_rotation ? 1 :
+                        ch->target_path == cgltf_animation_path_type_scale ? 2 : -1;
+            if (ptype < 0 || !ch->target_node) continue;
             AnimChannel *o = &c->channels[c->nchannels++];
-            o->node = node_index(d, ch->target_node); o->path = path;
+            o->node = node_index(d, ch->target_node); o->path = ptype;
             o->nkeys = (int)ch->sampler->input->count;
-            int comps = path == 1 ? 4 : 3;
+            int comps = ptype == 1 ? 4 : 3;
             o->times = malloc((size_t)o->nkeys * sizeof(float));
             o->values = malloc((size_t)o->nkeys * comps * sizeof(float));
             for (int k = 0; k < o->nkeys; k++) {
@@ -302,9 +302,9 @@ void model_pose(const Model *m, const AnimPlayer *p, ModelPose *out) {
     bool done[MODEL_MAX_NODES] = {0};
     for (int i = 0; i < m->nnodes; i++) {
         // walk up until a resolved ancestor, then resolve down the chain
-        int chain[MODEL_MAX_NODES]; int n = 0; int j = i;
-        while (j >= 0 && !done[j]) { chain[n++] = j; j = m->nodes[j].parent; }
-        for (int c = n - 1; c >= 0; c--) {
+        int chain[MODEL_MAX_NODES]; int cn = 0; int j = i;
+        while (j >= 0 && !done[j]) { chain[cn++] = j; j = m->nodes[j].parent; }
+        for (int c = cn - 1; c >= 0; c--) {
             int k = chain[c];
             Mat4 local = m4_from_trs(cur.t[k], cur.r[k], cur.s[k]);
             int par = m->nodes[k].parent;

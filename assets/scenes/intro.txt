@@ -2,6 +2,7 @@
 0.0 letterbox on
 0.0 fade 0 1 3.0
 0.0 cam 1.4 2.4 13.0   0 0.9 1.5   40 cut
+0.0 actor player teleport 0 0 1.5 0
 0.2 actor player anim idle
 0.5 sound door
 1.0 say "The door behind you is already gone." 3.5

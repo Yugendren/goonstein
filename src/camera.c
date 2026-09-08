@@ -1,72 +1,78 @@
 #include "camera.h"
 #include <string.h>
 
+#define MOUSE_SENS 0.0022f
+#define PITCH_MIN (-0.35f)
+#define PITCH_MAX (1.05f)
+
 void camera_init(Camera *c) {
     memset(c, 0, sizeof *c);
-    c->fov = c->goal_fov = c->from_fov = 60;
-    c->blend = 1;
-    c->follow_dist = 7.5f; c->follow_height = 3.2f; c->follow_lambda = 6.0f;
-    c->eye = c->goal_eye = v3(0, 2, -4); c->target = c->goal_target = v3(0, 1, 0);
+    c->fov = c->goal_fov = 55;
+    c->yaw = 0; c->pitch = 0.32f;
+    c->dist = 5.5f; c->height = 1.5f; c->cur_dist = c->dist;
+    c->eye = v3(0, 2, -5); c->target = v3(0, 1, 0);
 }
 
-static void start_blend(Camera *c, bool cut) {
-    if (cut) { c->blend = 1; c->eye = c->goal_eye; c->target = c->goal_target; c->fov = c->goal_fov; return; }
-    c->from_eye = c->eye; c->from_target = c->target; c->from_fov = c->fov;
-    c->blend = 0;
+static Vec3 orbit_dir(float yaw, float pitch) {
+    // direction from pivot to eye
+    return v3(-sinf(yaw) * cosf(pitch), sinf(pitch), -cosf(yaw) * cosf(pitch));
 }
 
-void camera_set_fixed(Camera *c, const Level *lv, Vec3 p) {
-    const CamVolume *v = level_camera_at(lv, p);
-    bool changed = (c->mode != CAM_FIXED) || (v != c->vol);
-    c->mode = CAM_FIXED;
-    if (!v) { c->vol = NULL; return; }  // keep the last angle if we walked out of every volume
-    c->vol = v;
-    c->goal_eye = v->eye; c->goal_target = v->target; c->goal_fov = v->fov;
-    if (changed) start_blend(c, true);
+void camera_orbit(Camera *c, Vec3 pp, float look_x, float look_y, bool has_lock, Vec3 lock_pos, const Level *lv, float dt) {
+    c->mode = CAM_ORBIT;
+    c->has_lock = has_lock; c->lock_pos = lock_pos;
+    if (!has_lock) c->locked = false;
+    Vec3 pivot = v3(pp.x, pp.y + c->height, pp.z);
+    if (c->locked) {
+        // Face the target: yaw toward it, pitch settles to a readable angle, the pivot leans toward it.
+        Vec3 to = v3_sub(lock_pos, pp); to.y = 0;
+        float want = v3_len(to) > 0.3f ? atan2f(to.x, to.z) : c->yaw;
+        c->yaw = angle_damp(c->yaw, want, 8, dt);
+        c->pitch = damp(c->pitch, 0.42f, 4, dt);
+        pivot = v3_lerp(pivot, v3(lock_pos.x, lock_pos.y + 1.4f, lock_pos.z), 0.3f);
+        // Big targets need room: pull back as the distance to the target grows.
+        float far_k = clampf((v3_len(to) - 3.0f) / 8.0f, 0, 1);
+        c->dist = lerpf(8.5f, 11.0f, far_k);
+    } else {
+        c->yaw += look_x * MOUSE_SENS;
+        c->pitch = clampf(c->pitch + look_y * MOUSE_SENS, PITCH_MIN, PITCH_MAX);
+        c->dist = 5.5f;
+    }
+    Vec3 want_eye = v3_add(pivot, v3_scale(orbit_dir(c->yaw, c->pitch), c->dist));
+    // Wall collision: shorten along the ray until clear, with a margin so we don't clip geometry.
+    float t = level_ray_solid(lv, pivot, want_eye, 0.35f);
+    float target_dist = fmaxf(0.8f, c->dist * t);
+    c->cur_dist = target_dist < c->cur_dist ? target_dist : damp(c->cur_dist, target_dist, 6, dt);
+    Vec3 eye = v3_add(pivot, v3_scale(orbit_dir(c->yaw, c->pitch), c->cur_dist));
+    c->eye = v3_damp(c->eye, eye, 30, dt);
+    c->target = v3_damp(c->target, pivot, 30, dt);
+    c->fov = damp(c->fov, 55, 4, dt);
 }
 
-void camera_set_follow(Camera *c, Vec3 pp, float pyaw, Vec3 bp, float look_x, const Level *lv) {
-    bool entering = c->mode != CAM_FOLLOW;
-    c->mode = CAM_FOLLOW; c->vol = NULL;
-    c->orbit += look_x * 0.004f;
-    c->orbit = angle_damp(c->orbit, 0, 1.5f, 1.0f / 60.0f);   // drift back to centre
-    Vec3 to_boss = v3_sub(bp, pp); to_boss.y = 0;
-    float yaw = v3_len(to_boss) > 0.5f ? atan2f(to_boss.x, to_boss.z) : pyaw;
-    yaw += c->orbit;
-    Vec3 back = v3(-sinf(yaw), 0, -cosf(yaw));
-    Vec3 eye = v3_add(pp, v3_scale(back, c->follow_dist)); eye.y = pp.y + c->follow_height;
-    // Keep the eye inside the arena so walls never swallow the camera.
-    eye.x = clampf(eye.x, lv->arena_min.x + 0.4f, lv->arena_max.x - 0.4f);
-    eye.z = clampf(eye.z, lv->arena_min.z + 0.4f, lv->arena_max.z - 0.4f);
-    eye.y = clampf(eye.y, lv->arena_min.y + 0.4f, lv->arena_max.y - 0.4f);
-    Vec3 mid = v3_lerp(v3_add(pp, v3(0, 1.0f, 0)), v3_add(bp, v3(0, 1.4f, 0)), 0.45f);
-    c->goal_eye = eye; c->goal_target = mid; c->goal_fov = 52;
-    if (entering) { start_blend(c, false); }
+void camera_toggle_lock(Camera *c) { if (c->has_lock) c->locked = !c->locked; }
+
+void camera_snap_behind(Camera *c, Vec3 pp, float yaw, const Level *lv) {
+    c->mode = CAM_ORBIT; c->yaw = yaw; c->pitch = 0.32f; c->cur_dist = c->dist = 5.5f;
+    Vec3 pivot = v3(pp.x, pp.y + c->height, pp.z);
+    Vec3 eye = v3_add(pivot, v3_scale(orbit_dir(c->yaw, c->pitch), c->dist));
+    float t = level_ray_solid(lv, pivot, eye, 0.35f);
+    c->cur_dist = fmaxf(0.8f, c->dist * t);
+    c->eye = v3_add(pivot, v3_scale(orbit_dir(c->yaw, c->pitch), c->cur_dist));
+    c->target = pivot;
 }
 
 void camera_set_scene(Camera *c, Vec3 eye, Vec3 target, float fov, bool cut) {
-    bool entering = c->mode != CAM_SCENE;
-    c->mode = CAM_SCENE; c->vol = NULL;
+    (void)cut;
+    c->mode = CAM_SCENE;
     c->goal_eye = eye; c->goal_target = target; c->goal_fov = fov;
-    if (entering || cut) start_blend(c, true);
+    c->eye = eye; c->target = target; c->fov = fov;
 }
+
+void camera_end_scene(Camera *c) { c->mode = CAM_ORBIT; }
 
 void camera_add_shake(Camera *c, float amount) { c->shake = fmaxf(c->shake, amount); }
 
 void camera_update(Camera *c, float dt) {
-    if (c->blend < 1) {
-        c->blend = fminf(1, c->blend + dt / 0.8f);
-        float k = ease_in_out(c->blend);
-        c->eye = v3_lerp(c->from_eye, c->goal_eye, k);
-        c->target = v3_lerp(c->from_target, c->goal_target, k);
-        c->fov = lerpf(c->from_fov, c->goal_fov, k);
-    } else if (c->mode == CAM_FOLLOW) {
-        c->eye = v3_damp(c->eye, c->goal_eye, c->follow_lambda, dt);
-        c->target = v3_damp(c->target, c->goal_target, c->follow_lambda * 1.5f, dt);
-        c->fov = damp(c->fov, c->goal_fov, 4, dt);
-    } else {
-        c->eye = c->goal_eye; c->target = c->goal_target; c->fov = c->goal_fov;
-    }
     c->shake = fmaxf(0, c->shake - dt * 2.2f);
     c->shake_t += dt;
 }
@@ -82,15 +88,10 @@ Mat4 camera_view_proj(const Camera *c, float aspect) {
     return m4_mul(proj, view);
 }
 
-Vec3 camera_move_dir(Camera *c, float in_x, float in_y) {
+Vec3 camera_move_dir(const Camera *c, float in_x, float in_y) {
     float mag = sqrtf(in_x * in_x + in_y * in_y);
-    if (mag < 0.05f) { c->basis_locked = false; return v3(0, 0, 0); }
-    if (!c->basis_locked) {
-        Vec3 f = v3_sub(c->target, c->eye); f.y = 0; f = v3_norm(f);
-        if (v3_len(f) < 0.01f) f = v3(0, 0, 1);
-        c->basis_fwd = f; c->basis_right = v3(f.z, 0, -f.x);
-        c->basis_locked = true;
-    }
-    // in_y is +down on the stick, so forward is -in_y
-    return v3_add(v3_scale(c->basis_right, in_x), v3_scale(c->basis_fwd, -in_y));
+    if (mag < 0.05f) return v3(0, 0, 0);
+    Vec3 f = v3(sinf(c->yaw), 0, cosf(c->yaw));
+    Vec3 r = v3(f.z, 0, -f.x);
+    return v3_add(v3_scale(r, in_x), v3_scale(f, -in_y));   // stick up (in_y < 0) is forward
 }

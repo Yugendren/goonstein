@@ -84,6 +84,8 @@ typedef struct Boss {
 // One-frame events for feedback (sound, shake, hitstop). Cleared by the caller each tick.
 typedef struct CombatEvents {
     bool parried, player_hit, boss_hit, boss_staggered, boss_died, player_died;
+    bool parry_early, parry_unblockable, parry_whiff;   // failure flavours for feedback
+    Vec3 contact;                                        // where the last hit or parry happened
     bool player_swing, boss_swing, footstep, boss_footstep, phase2;
     float hitstop, shake;
 } CombatEvents;

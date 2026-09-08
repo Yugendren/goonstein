@@ -297,3 +297,28 @@ Trigger *level_trigger_at(Level *lv, Vec3 p) {
 void level_reset_triggers(Level *lv) {
     for (int i = 0; i < lv->ntriggers; i++) lv->triggers[i].fired = false;
 }
+
+float level_ray_solid(const Level *lv, Vec3 a, Vec3 b, float margin) {
+    float best = 1.0f;
+    Vec3 d = v3_sub(b, a);
+    for (int i = 0; i < lv->nblocks; i++) {
+        const Block *bl = &lv->blocks[i];
+        if (!bl->solid) continue;
+        Vec3 h = v3_scale(bl->size, 0.5f);
+        Vec3 mn = v3(bl->center.x - h.x - margin, bl->center.y - h.y - margin, bl->center.z - h.z - margin);
+        Vec3 mx = v3(bl->center.x + h.x + margin, bl->center.y + h.y + margin, bl->center.z + h.z + margin);
+        float t0 = 0.0f, t1 = 1.0f;
+        const float *av = &a.x, *dv = &d.x, *mnv = &mn.x, *mxv = &mx.x;
+        bool miss = false;
+        for (int k = 0; k < 3; k++) {
+            if (fabsf(dv[k]) < 1e-6f) { if (av[k] < mnv[k] || av[k] > mxv[k]) { miss = true; break; } continue; }
+            float ta = (mnv[k] - av[k]) / dv[k], tb = (mxv[k] - av[k]) / dv[k];
+            if (ta > tb) { float tmp = ta; ta = tb; tb = tmp; }
+            if (ta > t0) t0 = ta;
+            if (tb < t1) t1 = tb;
+            if (t0 > t1) { miss = true; break; }
+        }
+        if (!miss && t0 < best) best = t0 > 0 ? t0 : 0;
+    }
+    return best;
+}
