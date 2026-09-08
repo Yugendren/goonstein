@@ -77,8 +77,9 @@ so a bug report is: press F8 when it happens, paste.
 
 ## Editors (second window, live in the game)
 
-`Ctrl+E` (or F6) opens the environment editor, `Ctrl+P` (or F7) the sprite editor, `\` the
-debugger; each takes over the tool window, and pressing the same key closes it. On a Mac, Cmd
+In the game, `[` opens the environment editor, `]` the sprite editor and `\` the debugger;
+`Esc` closes the open tool (with nothing selected in it), and Esc quits only when no tool is
+open. Ctrl+E / Ctrl+P (or F6 / F7) also work. On a Mac, Cmd
 works in place of Ctrl, and the function keys need Fn unless you change the keyboard setting.
 Also `Ctrl+D` wireframes (F1), `Ctrl+R` reload data (F5), `Ctrl+G` snapshot (F8).
 Command line: `--tool 2` / `--tool 3`.

@@ -445,8 +445,16 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     dbg_set_time(g->time);
     if (in->key_down[SDL_SCANCODE_F8]) debug_snapshot(g);
     if (in->key_down[SDL_SCANCODE_BACKSLASH] || in->key_down[SDL_SCANCODE_GRAVE]) game_set_tool(g, 1);
-    if (in->key_down[SDL_SCANCODE_F6] || (in->ctrl && in->key_down[SDL_SCANCODE_E])) game_set_tool(g, 2);   // environment editor
-    if (in->key_down[SDL_SCANCODE_F7] || (in->ctrl && in->key_down[SDL_SCANCODE_P])) game_set_tool(g, 3);   // pixel sprite editor
+    // [ environment editor, ] sprite editor, \ debugger. The brackets only open (inside the editors
+    // they mean scale / frame); Esc closes the open tool when nothing is selected in it.
+    if (g->tool_mode == 0 && in->key_down[SDL_SCANCODE_LEFTBRACKET]) game_set_tool(g, 2);
+    if (g->tool_mode == 0 && in->key_down[SDL_SCANCODE_RIGHTBRACKET]) game_set_tool(g, 3);
+    if (in->key_down[SDL_SCANCODE_F6] || (in->ctrl && in->key_down[SDL_SCANCODE_E])) game_set_tool(g, 2);
+    if (in->key_down[SDL_SCANCODE_F7] || (in->ctrl && in->key_down[SDL_SCANCODE_P])) game_set_tool(g, 3);
+    if (in->key_down[SDL_SCANCODE_ESCAPE] && g->tool_mode != 0) {
+        bool selected = g->tool_mode == 2 && (g->leveled.sel_prop >= 0 || g->leveled.sel_light >= 0 || g->leveled.sel_emitter >= 0);
+        if (!selected) game_set_tool(g, g->tool_mode);   // same mode again closes it
+    }
     if (in->ctrl && in->key_down[SDL_SCANCODE_D]) g->pf->debug = !g->pf->debug;                              // wireframe overlay (F1)
     if (in->ctrl && in->key_down[SDL_SCANCODE_G]) debug_snapshot(g);                                          // snapshot (F8)
     if (g->tool_mode == 3 && g->editor_open) {
@@ -743,7 +751,7 @@ static void draw_hud(Game *g, Platform *pf) {
     if (g->hint_t > 0 && g->state == GS_EXPLORE) {
         float a = fminf(1, g->hint_t);
         text_center(x, W * 0.5f, 30, 1.0f, v4(0.85f, 0.85f, 0.8f, a), "WASD move   Shift sprint   E interact   walk the path");
-        text_center(x, W * 0.5f, 44, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "Enter skips cutscenes   F1 debug   F5 reload   Esc quit");
+        text_center(x, W * 0.5f, 44, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "[ environment editor   ] sprite editor   \\ debugger   Esc quit");
     }
     if (g->state == GS_FIGHT && g->cam.locked && g->boss.state != BS_DEAD) {
         // lock-on marker: a small diamond over the boss, projected

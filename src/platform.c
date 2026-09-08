@@ -67,7 +67,7 @@ bool platform_poll(Platform *pf) {
             if (e.key.repeat) break;
             dbg_log("[in] key %s", SDL_GetScancodeName(e.key.scancode));
             switch (e.key.scancode) {
-            case SDL_SCANCODE_ESCAPE: if (!pf->editing) pf->want_quit = true; break;
+            case SDL_SCANCODE_ESCAPE: if (!pf->editing && !pf->console) pf->want_quit = true; break;
             case SDL_SCANCODE_F1: in->debug_toggle = true; pf->debug = !pf->debug; break;
             case SDL_SCANCODE_F2: in->pause_toggle = true; break;
             case SDL_SCANCODE_F3: in->step = true; break;
