@@ -118,9 +118,9 @@ Knight, Samurai, Princess, OldMan, Villager, Monk, Hunter. Each has SeparateAnim
 | `Actor/Boss/GiantRedSamurai/ChargeLeft.png` | 288x96 | 3 frame(s) of 96x96 |
 | `Actor/Boss/GiantRedSamurai/ChargeRight.png` | 288x96 | 3 frame(s) of 96x96 |
 | `Actor/Boss/GiantRedSamurai/Faceset.png` | 38x38 | single 38x38 portrait (not a strip) |
-| `Actor/Boss/GiantRedSamurai/Hit.png` | 384x48 | 8 frame(s) of 48x48 |
-| `Actor/Boss/GiantRedSamurai/Idle.png` | 576x48 | 12 frame(s) of 48x48 |
-| `Actor/Boss/GiantRedSamurai/Walk.png` | 576x48 | 12 frame(s) of 48x48 |
+| `Actor/Boss/GiantRedSamurai/Hit.png` | 384x48 | 4 frame(s) of 96x48 (verified by eye) |
+| `Actor/Boss/GiantRedSamurai/Idle.png` | 576x48 | 6 frame(s) of 96x48 (verified by eye; wide front view) |
+| `Actor/Boss/GiantRedSamurai/Walk.png` | 576x48 | 6 frame(s) of 96x48 (verified by eye) |
 | `Actor/Boss/GiantSlime/Faceset.png` | 38x38 | single 38x38 portrait (not a strip) |
 | `Actor/Boss/GiantSlime/Hit.png` | 310x52 | non-uniform: width 310 is not a clean multiple of height 52; best guess ~6 frame(s) of ~52x52 (2px short of 6 full 52px-wide frames (312px), likely padding/trim or variable-width frames) |
 | `Actor/Boss/GiantSlime/Idle.png` | 310x52 | non-uniform: width 310 is not a clean multiple of height 52; best guess ~6 frame(s) of ~52x52 (2px short of 6 full 52px-wide frames (312px), likely padding/trim or variable-width frames) |
