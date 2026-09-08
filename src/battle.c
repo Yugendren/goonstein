@@ -236,7 +236,7 @@ void battle_start(Battle *b, Vec3 centre, float stage_yaw, float spacing, int pl
     shuffle(b->draw_pile, b->ndraw);
     b->state = BT_INTRO; b->t = 0; b->round = 0;
     b->energy = 0; b->energy_max = ENERGY_BASE; b->banked = 0; b->guard = 0;
-    b->pattern_i = 0; b->timescale = 1; b->hitstop = 0; b->hovered = -1; b->playing_card = -1;
+    b->pattern_i = 0; b->timescale = 1; b->hitstop = 0; b->hovered = -1; b->playing_card = -1; b->dragging = -1; b->drop_target = 0;
     b->parries = b->perfects = b->hits_taken = 0; b->combo = b->max_combo = 0; b->last_judge = J_NONE; b->judge_t = -1;
     for (int i = 0; i < HITS_MAX; i++) { b->burst_t[i] = -1; b->hit_judge[i] = J_NONE; }
     // opening shot: wide from the player's side
@@ -490,7 +490,7 @@ static void update_cards(Battle *b, float mx, float my, float dt) {
     // hover pick: of the cards under the mouse, the one whose centre is nearest (fans overlap)
     float best = 1e9f;
     for (int i = 0; i < b->nhand; i++) {
-        if (b->state != BT_PLAYER || b->hand[i].phase != CP_HAND || !inside_card(&b->hand[i], mx, my)) continue;
+        if (b->state != BT_PLAYER || b->dragging >= 0 || b->hand[i].phase != CP_HAND || !inside_card(&b->hand[i], mx, my)) continue;
         float d = fabsf(mx - b->hand[i].x) - (b->hovered == i ? 20.0f : 0.0f);   // a little hysteresis on the current pick
         if (d < best) { best = d; b->hovered = i; }
     }
@@ -508,6 +508,9 @@ static void update_cards(Battle *b, float mx, float my, float dt) {
             trot = lerpf(trot, (mx - h->x) * 0.0012f, h->hover);
             // neighbours make room
             if (b->hovered >= 0 && !hov) { float away = (float)(i - b->hovered); tx += (away > 0 ? 1 : -1) * 22.0f / fabsf(away); }
+        } else if (h->phase == CP_DRAG) {
+            if (b->cards[h->def].kind == CK_ATTACK) { tx = 640; ty = 800 - CARD_H * 0.5f - 40; trot = 0; tsc = 1.1f; }   // targeted: the arrow does the pointing
+            else { tx = mx; ty = my - 20; trot = (mx - h->x) * 0.002f; tsc = 1.08f; }
         } else if (h->phase == CP_PLAYING) {
             tx = 640; ty = 330; trot = 0; tsc = 0.35f;
             if (h->phase_t > 0.45f) { remove_from_hand(b, i); i--; continue; }
@@ -515,7 +518,7 @@ static void update_cards(Battle *b, float mx, float my, float dt) {
             tx = -120; ty = 700; trot = -0.8f; tsc = 0.6f;
             if (h->phase_t > 0.5f) { remove_from_hand(b, i); i--; continue; }
         }
-        float k = h->phase == CP_PLAYING ? 320 : 240, d = 2.0f * sqrtf(k) * 0.9f;
+        float k = h->phase == CP_PLAYING ? 320 : h->phase == CP_DRAG ? 420 : 240, d = 2.0f * sqrtf(k) * 0.9f;
         spring(&h->x, &h->vx, tx, k, d, dt);
         spring(&h->y, &h->vy, ty, k, d, dt);
         spring(&h->rot, &h->vrot, trot, k, d, dt);
@@ -568,6 +571,8 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
     if (player->c.flash > 0) player->c.flash = fmaxf(0, player->c.flash - dt_real * 6);
     if (boss->c.flash > 0) boss->c.flash = fmaxf(0, boss->c.flash - dt_real * 5);
     Mat4 vp = camera_view_proj(cam, 1280.0f / 800.0f);
+    if (!uifx_project(vp, chest(b->enemy_pos, 1.6f), &b->enemy_sx, &b->enemy_sy)) { b->enemy_sx = 300; b->enemy_sy = 400; }
+    if (!uifx_project(vp, chest(b->player_pos, 1.0f), &b->player_sx, &b->player_sy)) { b->player_sx = 980; b->player_sy = 460; }
 
     update_cards(b, mx, my, dt_real);
     b->end_hover = b->state == BT_PLAYER && inside(mx, my, END_X, END_Y, END_W, END_H);
@@ -581,16 +586,32 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
         if (b->t > 1.2f) begin_player_turn(b, fx);
         break;
 
-    case BT_PLAYER:
+    case BT_PLAYER: {
         shot_base(b);
-        play_bound(pm, ANIM_IDLE, 0, 0, 0.2f);   // idle loops; play_bound only restarts on change? it restarts each call
-        if (in->click) {
-            if (b->hovered >= 0 && can_play(b, b->hovered)) play_card(b, b->hovered, player, pm, ps, fx);
+        play_bound(pm, ANIM_IDLE, 0, 0, 0.2f);
+        // Drag a card from the hand and drop it on a target: attacks on the enemy, everything else on yourself.
+        if (b->dragging < 0 && in->click) {
+            if (b->hovered >= 0 && can_play(b, b->hovered)) { b->dragging = b->hovered; b->hand[b->dragging].phase = CP_DRAG; b->drag_t = 0; b->drag_x0 = mx; b->drag_y0 = my; audio_play_file(SFX("Menu/Accept.wav"), 0.3f, 1.3f); }
             else if (b->hovered >= 0) { audio_play(SND_FAIL, 0.4f, 1.6f); set_read(b, "can't"); }
             else if (b->end_hover) begin_enemy_turn(b, bm, boss, fx);
         }
-        if (in->skip) begin_enemy_turn(b, bm, boss, fx);   // Enter also ends the turn
-        break;
+        if (b->dragging >= 0) {
+            b->drag_t += dt_real; b->drag_mx = mx; b->drag_my = my;
+            const CardDef *c = &b->cards[b->hand[b->dragging].def];
+            float de = hypotf(mx - b->enemy_sx, my - b->enemy_sy), dp = hypotf(mx - b->player_sx, my - b->player_sy);
+            b->drop_target = 0;
+            if (c->kind == CK_ATTACK) { if (de < 190) b->drop_target = 1; }
+            else if (dp < 150 || (my < 520 && de >= 190)) b->drop_target = 2;
+            if (!in->mouse_held) {
+                bool quick = b->drag_t < 0.18f && hypotf(mx - b->drag_x0, my - b->drag_y0) < 12;   // a plain click plays straight away
+                int idx = b->dragging; b->dragging = -1;
+                if (b->drop_target || quick) { b->hand[idx].phase = CP_HAND; play_card(b, idx, player, pm, ps, fx); }
+                else { b->hand[idx].phase = CP_HAND; b->hand[idx].vy -= 200; }
+                b->drop_target = 0;
+            }
+        }
+        if (in->skip && b->dragging < 0) begin_enemy_turn(b, bm, boss, fx);   // Enter also ends the turn
+    } break;
 
     case BT_CARD: {
         const CardDef *c = &b->cards[b->playing_card];
@@ -790,17 +811,51 @@ void battle_draw_ui(const Battle *b, Gfx *g, Mat4 vp) {
         gfx_ui_rect(g, END_X, END_Y, END_W, END_H, v4(0.08f, 0.06f, 0.05f, 0.9f));
         frame_rect(g, END_X, END_Y, END_W, END_H, 3, c);
         text_c(g, END_X + END_W * 0.5f, END_Y + 18, 1.8f, c, "END TURN");
+        text_c(g, 640, 556, 1.1f, dim, "drag a card onto the Warden to attack, onto yourself for guard and heal, or just click it");
     }
-    // Hand: cards drawn in their own rotated frames, hovered card last so it sits on top
+    // Drop targets while dragging
+    if (b->dragging >= 0) {
+        const CardDef *c = &b->cards[b->hand[b->dragging].def];
+        float pulse = 0.6f + 0.4f * sinf(b->intent_pulse * 8.0f);
+        if (c->kind == CK_ATTACK) {
+            bool on = b->drop_target == 1;
+            Vec4 col = on ? v4(1, 0.85f, 0.4f, 0.95f) : v4(1, 0.55f, 0.35f, 0.7f);
+            // Curved arrow from the held card to the cursor (snaps to the target's centre when over it)
+            const HandCard *h = &b->hand[b->dragging];
+            float x0 = h->x, y0 = h->y - CARD_H * 0.5f * h->sc, x2 = on ? b->enemy_sx : b->drag_mx, y2 = on ? b->enemy_sy : b->drag_my;
+            float x1 = (x0 + x2) * 0.5f, y1 = fminf(y0, y2) - 180;
+            float px = x0, py = y0;
+            const int N = 28;
+            for (int k = 1; k <= N; k++) {
+                float t = (float)k / N, u = 1 - t;
+                float x = u * u * x0 + 2 * u * t * x1 + t * t * x2, y = u * u * y0 + 2 * u * t * y1 + t * t * y2;
+                if (k < N - 1) gfx_ui_disc(g, x, y, 4 + 5 * t, v4(col.x, col.y, col.z, col.w * (0.35f + 0.65f * t)));
+                if (k == N) {   // arrowhead
+                    float dx = x - px, dy = y - py, len = hypotf(dx, dy); if (len < 1e-3f) { dx = 0; dy = -1; len = 1; }
+                    dx /= len; dy /= len; float nx = -dy, ny = dx, sz = 26;
+                    float q[8] = { x + dx * sz, y + dy * sz, x + nx * sz * 0.6f, y + ny * sz * 0.6f, x - dx * sz * 0.3f, y - dy * sz * 0.3f, x - nx * sz * 0.6f, y - ny * sz * 0.6f };
+                    gfx_ui_quad(g, q, col);
+                }
+                px = x; py = y;
+            }
+            gfx_ui_ring(g, b->enemy_sx, b->enemy_sy, on ? 175 : 165, on ? 6 : 3, v4(col.x, col.y, col.z, on ? 0.9f : 0.3f + 0.2f * pulse));
+            if (on) text_c(g, b->enemy_sx, b->enemy_sy - 200, 1.4f, col, "RELEASE TO ATTACK");
+        } else {
+            Vec4 col = b->drop_target == 2 ? v4(0.6f, 0.9f, 1, 0.9f) : v4(0.5f, 0.7f, 1, 0.35f + 0.2f * pulse);
+            gfx_ui_ring(g, b->player_sx, b->player_sy, b->drop_target == 2 ? 120 : 110, 5, col);
+            text_c(g, b->player_sx, b->player_sy - 145, 1.3f, col, "DROP ON YOURSELF");
+        }
+    }
+    // Hand: cards drawn in their own rotated frames, hovered or dragged card last so it sits on top
     for (int pass = 0; pass < 2; pass++)
     for (int i = 0; i < b->nhand; i++) {
         const HandCard *h = &b->hand[i];
-        bool top = b->hovered == i;
+        bool top = b->hovered == i || b->dragging == i;
         if ((pass == 0) == top) continue;
         const CardDef *c = &b->cards[h->def];
         float a = h->phase == CP_PLAYING ? 1.0f - clampf(h->phase_t / 0.45f, 0, 1) : 1.0f;
         if (h->phase == CP_DISCARDING) a = 1.0f - clampf(h->phase_t / 0.5f, 0, 1);
-        bool playable = b->state == BT_PLAYER && h->phase == CP_HAND && can_play(b, i);
+        bool playable = b->state == BT_PLAYER && (h->phase == CP_HAND || h->phase == CP_DRAG) && can_play(b, i);
         Vec4 col = v4(c->color.x, c->color.y, c->color.z, a);
         float ca = cosf(h->rot), sa = sinf(h->rot), sc = h->sc;
         #define CQ(lx, ly, lw, lh, colr) do { float _q[8]; float _c[4][2] = {{(lx), (ly)}, {(lx) + (lw), (ly)}, {(lx) + (lw), (ly) + (lh)}, {(lx), (ly) + (lh)}}; \
@@ -855,9 +910,20 @@ void battle_bot(const Battle *b, const CharModel *bm, Input *in, float *mx, floa
     if (b->state == BT_PLAYER) {
         int pick = -1;
         for (int i = 0; i < b->nhand; i++) if (b->hand[i].phase == CP_HAND && can_play(b, i)) { pick = i; break; }
+        static float vx = 640, vy = 700;   // the bot's own cursor, persistent across ticks
+        if (b->dragging >= 0) {
+            // carry the cursor to the target, then let go
+            const CardDef *c = &b->cards[b->hand[b->dragging].def];
+            float tx = c->kind == CK_ATTACK ? b->enemy_sx : b->player_sx, ty = c->kind == CK_ATTACK ? b->enemy_sy : b->player_sy;
+            float dx = tx - vx, dy = ty - vy, d = hypotf(dx, dy);
+            float step = 45.0f; if (d > step) { vx += dx / d * step; vy += dy / d * step; } else { vx = tx; vy = ty; }
+            in->mouse_held = d > 30;
+            *mx = vx; *my = vy;
+            return;
+        }
         if (pick >= 0) {
-            *mx = b->hand[pick].x; *my = b->hand[pick].y;
-            if (tick % 12 == 0 && b->hovered == pick) in->click = true;   // hover first, then click
+            vx = b->hand[pick].x; vy = b->hand[pick].y; *mx = vx; *my = vy; in->mouse_held = false;
+            if (tick % 12 == 0 && b->hovered == pick) { in->click = true; in->mouse_held = true; }   // press to start the drag
         } else {
             bool dealing = false;
             for (int i = 0; i < b->nhand; i++) if (b->hand[i].phase == CP_DRAWING || b->hand[i].phase == CP_PLAYING) dealing = true;

@@ -20,6 +20,10 @@ typedef struct Input {
     float mouse_x, mouse_y;          // window points
     bool  click, rclick;             // edge-triggered this frame
     bool  mouse_held, rmouse_held;
+    float wheel;                     // scroll this frame
+    // Generic keys for tools: edge-triggered presses and held state by scancode
+    bool  key_down[512], key_held[512];
+    bool  ctrl, shift_held;
 } Input;
 
 typedef struct Platform {

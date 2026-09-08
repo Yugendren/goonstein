@@ -54,12 +54,25 @@ The game is meant to be edited without touching C:
 
 Reaching the boss starts a card battle. Cards are in `assets/cards/cards.txt`, the starting deck
 in `assets/decks/knight.txt`, the boss's attacks and pattern in `assets/enemies/warden_battle.txt`.
-Play cards with the mouse; End Turn (or Enter) hands over to the enemy. Its attacks are rhythm
+Attack cards are played Slay the Spire style: press one, a curved arrow follows the cursor,
+release over the Warden. Guard, heal and other self cards are dragged up onto yourself. A plain
+click still plays a card straight away. End Turn (or Enter) hands over to the enemy. Its attacks are rhythm
 reads: a numbered hit circle appears on you and an approach ring closes onto it. Click, right-click
 or press Space when the ring meets the circle. Judgement tiers are PERFECT (45 ms), GREAT (95 ms)
 and GOOD (150 ms); anything else is a miss and the hit lands. Perfects counter and bank two energy,
 greats bank one, every fourth combo hit banks a bonus, and a miss resets the combo. Shift dodges
 unblockable attacks. A timing bar shows whether you were early or late.
+
+## Sprite editor
+
+    ./build/bin/hollow --edit NAME [--size 32]
+
+Opens the in-engine pixel editor on `assets/sprites/own/NAME`, creating it with idle, walk and
+attack if it does not exist. Mouse paints (right-drag erases); B pencil, E eraser, G fill, I pick,
+L line; `[` `]` change frame, 1-4 change direction, arrows nudge, O onion skin, M mirror, K marks
+the frame as the attack's contact (the parry beat), C copies a frame to every direction, F mirrors
+left into right, A adds the next preset animation, Space plays, Ctrl+S saves. Saving writes the
+PNG sheets, the sprite definition and a character binding, so `--hero NAME` plays it immediately.
 
 ## Headless test harness
 

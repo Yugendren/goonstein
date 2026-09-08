@@ -11,11 +11,12 @@
 #include "props.h"
 #include "particles.h"
 #include "battle.h"
+#include "editor.h"
 
 #define INTERNAL_W 1280
 #define INTERNAL_H 800
 
-typedef enum GState { GS_EXPLORE, GS_SCENE, GS_FIGHT, GS_DEAD, GS_END, GS_BATTLE } GState;
+typedef enum GState { GS_EXPLORE, GS_SCENE, GS_FIGHT, GS_DEAD, GS_END, GS_BATTLE, GS_EDITOR } GState;
 
 typedef struct Game {
     double   time; unsigned tick;
@@ -24,6 +25,8 @@ typedef struct Game {
     Player   player; Boss boss; PlayerDef player_def; BossDef boss_def;
     CharModel player_model, boss_model;
     PropCache props; Particles particles; Battle battle; Uifx fx; bool battle_loaded;
+    Editor editor; bool editor_open;
+    char hero_config[128];        // override for assets/characters/<name>.txt
     GState   state, after_scene; float state_t;
     float    hitstop, letterbox, fade, fight_intensity;
     bool     paused, step_once;
@@ -50,3 +53,5 @@ void game_screenshot(Game *g, const char *path);
 void game_start_at(Game *g, const char *where);
 // Harness: true once when the named battle moment is on screen (ring closing, a judgement burst, a card in flight).
 bool game_shot_moment(Game *g, const char *when);
+// Open the sprite editor on a character (creates it if missing).
+void game_open_editor(Game *g, const char *name, int frame_size);

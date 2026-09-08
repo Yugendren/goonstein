@@ -112,7 +112,7 @@ bool game_init_gfx(Game *g, Platform *pf) {
     world_textures_create(&g->gfx, &g->wt);
     if (!load_defs(g)) return false;
     // Skinned models are optional: without them the box figures draw.
-    charmodel_load(&g->gfx, &g->player_model, ASSET("characters/hero.txt"));
+    { char hp[640]; snprintf(hp, sizeof hp, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, g->hero_config[0] ? g->hero_config : "hero"); charmodel_load(&g->gfx, &g->player_model, hp); }
     charmodel_load(&g->gfx, &g->boss_model, ASSET("characters/warden.txt"));
     particles_init(&g->particles);
     uifx_init(&g->fx);
@@ -125,6 +125,7 @@ bool game_init_gfx(Game *g, Platform *pf) {
 }
 
 void game_shutdown(Game *g) {
+    if (g->editor_open) editor_shutdown(&g->editor);
     props_clear(&g->gfx, &g->props);
     charmodel_destroy(&g->gfx, &g->player_model);
     charmodel_destroy(&g->gfx, &g->boss_model);
@@ -388,6 +389,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     case GS_DEAD:    tick_dead(g, in, dt); break;
     case GS_END:     tick_end(g, in, dt); break;
     case GS_BATTLE:  tick_battle(g, in, g->pf, dt); break;
+    case GS_EDITOR: { float mx, my; platform_mouse_ui(g->pf, INTERNAL_W, INTERNAL_H, &mx, &my); editor_tick(&g->editor, in, mx, my, dt); } break;
     }
     if (g->state != GS_SCENE) {
         g->letterbox = damp(g->letterbox, 0, 6, dt);
@@ -501,6 +503,15 @@ static void draw_hud(Game *g, Platform *pf) {
 void game_render(Game *g, Platform *pf, float alpha) {
     (void)alpha;
     g->frames++;
+    if (g->state == GS_EDITOR) {
+        FrameParams fp = { .view_proj = m4_identity(), .cam_pos = v3(0, 0, 0), .cam_right = v3(1, 0, 0), .cam_up = v3(0, 1, 0),
+                           .fog_color = v3(0.09f, 0.09f, 0.11f), .sky_zenith = v3(0.09f, 0.09f, 0.11f), .sky_horizon = v3(0.09f, 0.09f, 0.11f), .sky_ground = v3(0.09f, 0.09f, 0.11f) };
+        gfx_begin(&g->gfx, pf, &fp);
+        editor_draw(&g->editor, &g->gfx);
+        PostParams pp = { .grain = 0, .vignette = 0, .fade = 1, .exposure = 1, .saturation = 1, .contrast = 1, .bloom = 0, .gain = v3(1, 1, 1), .bloom_threshold = 10 };
+        gfx_end(&g->gfx, pf, &pp, g->time);
+        return;
+    }
     if (g->time - g->fps_t >= 0.5) { g->fps = (float)(g->frames / (g->time - g->fps_t)); g->frames = 0; g->fps_t = g->time; }
 
     const Level *lv = &g->level; const Look *lk = &lv->look;
@@ -594,5 +605,15 @@ bool game_shot_moment(Game *g, const char *when) {
     if (!strcmp(when, "judge")) { for (int i = 0; i < HITS_MAX; i++) if (b->burst_t[i] > 0.08f && b->burst_t[i] < 0.16f) return true; return false; }
     if (!strcmp(when, "play")) { for (int i = 0; i < b->nhand; i++) if (b->hand[i].phase == CP_PLAYING && b->hand[i].phase_t > 0.12f && b->hand[i].phase_t < 0.2f) return true; return false; }
     if (!strcmp(when, "hover")) return b->hovered >= 0 && b->hand[b->hovered].hover > 0.9f;
+    if (!strcmp(when, "drag")) return b->dragging >= 0 && b->drag_t > 0.25f && b->drop_target != 0;
+    if (!strcmp(when, "arrow")) return b->dragging >= 0 && b->cards[b->hand[b->dragging].def].kind == CK_ATTACK && b->drag_t > 0.2f;
     return false;
+}
+
+void game_open_editor(Game *g, const char *name, int frame_size) {
+    if (g->editor_open) editor_shutdown(&g->editor);
+    editor_init(&g->editor, name, frame_size);
+    g->editor_open = true;
+    g->state = GS_EDITOR; g->state_t = 0;
+    audio_music_stop(0.5f);
 }

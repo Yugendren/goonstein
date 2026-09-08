@@ -46,7 +46,7 @@ typedef enum BattleState {
 
 // A card in the hand has physical state: springs pull it toward its fan slot, the hover slot,
 // the play point, or the discard pile.
-typedef enum CardPhase { CP_DRAWING, CP_HAND, CP_PLAYING, CP_DISCARDING } CardPhase;
+typedef enum CardPhase { CP_DRAWING, CP_HAND, CP_DRAG, CP_PLAYING, CP_DISCARDING } CardPhase;
 typedef struct HandCard {
     int def; CardPhase phase; float phase_t;
     float x, y, rot, sc, vx, vy, vrot, vsc;   // position, rotation, scale and their velocities
@@ -83,6 +83,9 @@ typedef struct Battle {
     Vec3 shot_eye, shot_target; float shot_fov;       // current shot
     float timescale, hitstop;
     int hovered; bool end_hover;
+    int dragging; float drag_t, drag_x0, drag_y0, drag_mx, drag_my;   // card being dragged, press time, start and current cursor
+    float enemy_sx, enemy_sy, player_sx, player_sy; // projected target centres in UI pixels
+    int drop_target;                                 // 0 none, 1 enemy, 2 self (while dragging)
     float intent_pulse;
     unsigned parries, perfects, hits_taken;
     char last_read[24]; float last_read_t;

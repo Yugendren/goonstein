@@ -22,7 +22,10 @@ int main(int argc, char **argv) {
     // --start S       begin in state S: explore (default), fight, end
     // --bot           let a simple bot play the fight (with --start fight)
     // --volume V      master volume 0..1 (test runs use 0.1)
+    // --edit NAME     open the sprite editor on assets/sprites/own/NAME (created if missing); --size N frame size for new characters
+    // --hero NAME     play with assets/characters/NAME.txt as the player
     int max_frames = -1; const char *shot = NULL; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
+    const char *edit = NULL; int edit_size = 32;
     static Game game;   // large; static keeps it off the stack (and zeroed)
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = atoi(argv[++i]);
@@ -31,7 +34,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--bot")) bot = true;
         else if (!strcmp(argv[i], "--level") && i + 1 < argc) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, argv[++i]);
         else if (!strcmp(argv[i], "--volume") && i + 1 < argc) volume = (float)atof(argv[++i]);
-        else if (!strcmp(argv[i], "--shot-when") && i + 1 < argc) shot_when = argv[++i];   // ring | judge | play: screenshot at that battle moment, then exit
+        else if (!strcmp(argv[i], "--shot-when") && i + 1 < argc) shot_when = argv[++i];
+        else if (!strcmp(argv[i], "--edit") && i + 1 < argc) edit = argv[++i];
+        else if (!strcmp(argv[i], "--size") && i + 1 < argc) edit_size = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--hero") && i + 1 < argc) snprintf(game.hero_config, sizeof game.hero_config, "%s", argv[++i]);   // ring | judge | play: screenshot at that battle moment, then exit
     }
 
     Platform pf;
@@ -46,6 +52,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (start) game_start_at(&game, start);
+    if (edit) game_open_editor(&game, edit, edit_size);
     game.bot = bot;
     audio_set_master(volume * 0.8f);
 

@@ -43,7 +43,8 @@ bool platform_poll(Platform *pf) {
     // Edge-triggered actions reset each frame; held state is re-derived below.
     in->attack = in->parry = in->dodge = in->interact = in->debug_toggle = false;
     in->pause_toggle = in->step = in->reload = in->skip = in->lockon = false;
-    in->click = in->rclick = false;
+    in->click = in->rclick = false; in->wheel = 0;
+    memset(in->key_down, 0, sizeof in->key_down);
     in->look_x = in->look_y = 0.0f;
 
     SDL_Event e;
@@ -51,6 +52,7 @@ bool platform_poll(Platform *pf) {
         switch (e.type) {
         case SDL_EVENT_QUIT: return false;
         case SDL_EVENT_KEY_DOWN:
+            if (e.key.scancode < 512) in->key_down[e.key.scancode] = true;   // repeats count for nudging
             if (e.key.repeat) break;
             switch (e.key.scancode) {
             case SDL_SCANCODE_ESCAPE: pf->want_quit = true; break;
@@ -74,6 +76,7 @@ bool platform_poll(Platform *pf) {
             else if (e.button.button == SDL_BUTTON_MIDDLE) in->lockon = true;
             in->mouse_x = e.button.x; in->mouse_y = e.button.y;
             break;
+        case SDL_EVENT_MOUSE_WHEEL: in->wheel += e.wheel.y; break;
         case SDL_EVENT_MOUSE_BUTTON_UP:
             if (e.button.button == SDL_BUTTON_LEFT) in->mouse_held = false;
             else if (e.button.button == SDL_BUTTON_RIGHT) in->rmouse_held = false;
@@ -112,6 +115,9 @@ bool platform_poll(Platform *pf) {
     // Held movement: keyboard, overridden by stick if it's deflected.
     const bool *keys = SDL_GetKeyboardState(NULL);
     in->sprint = keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT];
+    for (int i = 0; i < 512; i++) in->key_held[i] = keys[i];
+    in->ctrl = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL] || keys[SDL_SCANCODE_LGUI] || keys[SDL_SCANCODE_RGUI];
+    in->shift_held = in->sprint;
     if (pf->gamepad && SDL_GetGamepadButton(pf->gamepad, SDL_GAMEPAD_BUTTON_EAST)) in->sprint = true;
     in->move_x = (float)(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]);
     in->move_y = (float)(keys[SDL_SCANCODE_S] - keys[SDL_SCANCODE_W]);

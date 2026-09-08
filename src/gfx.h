@@ -39,7 +39,7 @@ typedef struct PostParams {
     float bloom_threshold, bloom_knee;
 } PostParams;
 
-#define UI_MAX_VERTS 65536
+#define UI_MAX_VERTS 262144
 #define P_MAX_VERTS  (4096 * 6)
 
 typedef struct Gfx {
