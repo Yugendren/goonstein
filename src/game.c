@@ -606,7 +606,7 @@ bool game_shot_moment(Game *g, const char *when) {
     if (!strcmp(when, "play")) { for (int i = 0; i < b->nhand; i++) if (b->hand[i].phase == CP_PLAYING && b->hand[i].phase_t > 0.12f && b->hand[i].phase_t < 0.2f) return true; return false; }
     if (!strcmp(when, "hover")) return b->hovered >= 0 && b->hand[b->hovered].hover > 0.9f;
     if (!strcmp(when, "drag")) return b->dragging >= 0 && b->drag_t > 0.25f && b->drop_target != 0;
-    if (!strcmp(when, "arrow")) return b->dragging >= 0 && b->cards[b->hand[b->dragging].def].kind == CK_ATTACK && b->drag_t > 0.2f;
+    if (!strcmp(when, "arrow")) return b->dragging >= 0 && b->cards[b->hand[b->dragging].def].kind == CK_ATTACK && b->drag_t > 0.08f;
     return false;
 }
 
