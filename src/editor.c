@@ -169,7 +169,8 @@ void editor_tick(Editor *e, const Input *in, float mx, float my, float dt) {
     // Playback
     if (e->playing && a) { e->play_t += dt * a->fps; if (e->play_t >= a->nframes) e->play_t = a->loop ? fmodf(e->play_t, (float)a->nframes) : (float)(a->nframes - 1); }
 
-    // Keys
+    // Keys (plain letters only; with Ctrl/Cmd they belong to the game's shortcuts)
+    if (!in->ctrl) {
     if (in->key_down[SDL_SCANCODE_B]) e->tool = TOOL_PENCIL;
     if (in->key_down[SDL_SCANCODE_E]) e->tool = TOOL_ERASER;
     if (in->key_down[SDL_SCANCODE_G]) e->tool = TOOL_FILL;
@@ -194,6 +195,7 @@ void editor_tick(Editor *e, const Input *in, float mx, float my, float dt) {
     if (in->key_down[SDL_SCANCODE_LEFT]) nudge(e, -1, 0); if (in->key_down[SDL_SCANCODE_RIGHT]) nudge(e, 1, 0);
     if (in->key_down[SDL_SCANCODE_MINUS] && a) { a->fps = fmaxf(1, a->fps - 1); e->dirty = true; }
     if (in->key_down[SDL_SCANCODE_EQUALS] && a) { a->fps = fminf(30, a->fps + 1); e->dirty = true; }
+    }
     if (in->ctrl && in->key_down[SDL_SCANCODE_S]) do_action(e, 0, in);
     if (in->ctrl && in->key_down[SDL_SCANCODE_Z]) { if (in->shift_held) redo(e); else undo(e); }
     if (in->ctrl && in->key_down[SDL_SCANCODE_Y]) redo(e);

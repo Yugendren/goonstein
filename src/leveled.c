@@ -183,11 +183,11 @@ void leveled_tick(LevelEd *e, Level *lv, Camera *cam, const Input *in, float mx,
 
     // Keys
     bool over_tool_window = false; (void)over_tool_window;
-    if (in->key_down[SDL_SCANCODE_R]) { float step = 15 * DEG2RAD; if (e->sel_prop >= 0 && e->tool == LT_SELECT) { push_undo(e, lv); lv->props[e->sel_prop].yaw += step; } else e->ghost_yaw += step; }
+    if (in->key_down[SDL_SCANCODE_R] && !in->ctrl) { float step = 15 * DEG2RAD; if (e->sel_prop >= 0 && e->tool == LT_SELECT) { push_undo(e, lv); lv->props[e->sel_prop].yaw += step; } else e->ghost_yaw += step; }
     if (in->key_down[SDL_SCANCODE_LEFTBRACKET])  { if (e->sel_prop >= 0 && e->tool == LT_SELECT) { push_undo(e, lv); lv->props[e->sel_prop].scale *= 0.9f; } else e->ghost_scale *= 0.9f; }
     if (in->key_down[SDL_SCANCODE_RIGHTBRACKET]) { if (e->sel_prop >= 0 && e->tool == LT_SELECT) { push_undo(e, lv); lv->props[e->sel_prop].scale *= 1.1f; } else e->ghost_scale *= 1.1f; }
     if (in->key_down[SDL_SCANCODE_X] || in->key_down[SDL_SCANCODE_DELETE] || in->key_down[SDL_SCANCODE_BACKSPACE]) delete_selected(e, lv);
-    if (in->key_down[SDL_SCANCODE_G] && e->sel_prop >= 0 && lv->nprops < LEVEL_MAX_PROPS) {
+    if (in->key_down[SDL_SCANCODE_G] && !in->ctrl && e->sel_prop >= 0 && lv->nprops < LEVEL_MAX_PROPS) {
         push_undo(e, lv); Prop copy = lv->props[e->sel_prop]; copy.pos.x += 1.5f; lv->props[lv->nprops++] = copy; add_collider_for(lv, &copy); e->sel_prop = lv->nprops - 1; say(e, "duplicated");
     }
     if (in->key_down[SDL_SCANCODE_ESCAPE]) { e->sel_prop = e->sel_light = e->sel_emitter = -1; e->tool = LT_SELECT; }
@@ -195,7 +195,7 @@ void leveled_tick(LevelEd *e, Level *lv, Camera *cam, const Input *in, float mx,
     if (in->key_down[SDL_SCANCODE_3]) e->tool = LT_LIGHT;  if (in->key_down[SDL_SCANCODE_4]) e->tool = LT_EMITTER;
     if (in->ctrl && in->key_down[SDL_SCANCODE_Z]) pop_undo(e, lv);
     if (in->ctrl && in->key_down[SDL_SCANCODE_S]) leveled_save(e, lv);
-    if (in->key_down[SDL_SCANCODE_F] && e->sel_prop >= 0) { e->cam_pos = v3_add(lv->props[e->sel_prop].pos, v3(-f.x * 8, 5, -f.z * 8)); }
+    if (in->key_down[SDL_SCANCODE_F] && !in->ctrl && e->sel_prop >= 0) { e->cam_pos = v3_add(lv->props[e->sel_prop].pos, v3(-f.x * 8, 5, -f.z * 8)); }
 
     // Mouse in the world
     if (!e->ghost_valid) { if (!in->mouse_held) e->dragging = false; return; }

@@ -445,8 +445,10 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     dbg_set_time(g->time);
     if (in->key_down[SDL_SCANCODE_F8]) debug_snapshot(g);
     if (in->key_down[SDL_SCANCODE_BACKSLASH] || in->key_down[SDL_SCANCODE_GRAVE]) game_set_tool(g, 1);
-    if (in->key_down[SDL_SCANCODE_F6]) game_set_tool(g, 2);
-    if (in->key_down[SDL_SCANCODE_F7]) game_set_tool(g, 3);
+    if (in->key_down[SDL_SCANCODE_F6] || (in->ctrl && in->key_down[SDL_SCANCODE_E])) game_set_tool(g, 2);   // environment editor
+    if (in->key_down[SDL_SCANCODE_F7] || (in->ctrl && in->key_down[SDL_SCANCODE_P])) game_set_tool(g, 3);   // pixel sprite editor
+    if (in->ctrl && in->key_down[SDL_SCANCODE_D]) g->pf->debug = !g->pf->debug;                              // wireframe overlay (F1)
+    if (in->ctrl && in->key_down[SDL_SCANCODE_G]) debug_snapshot(g);                                          // snapshot (F8)
     if (g->tool_mode == 3 && g->editor_open) {
         // sprite editor runs in the tool window with that window's mouse; keys are shared
         Input ein = *in; ein.click = in->tool_pressed; ein.mouse_held = in->tool_down; ein.rmouse_held = false; ein.wheel = in->tool_wheel;
@@ -467,7 +469,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     { static GState last = (GState)-1; if (g->state != last) { dbg_log("state -> %s", GS_NAMES[g->state]); last = g->state; } }
     if (in->pause_toggle) { g->paused = !g->paused; say(g, g->paused ? "paused (F3 steps one tick)" : "resumed"); }
     if (in->step) g->step_once = true;
-    if (in->reload) {
+    if (in->reload || (in->ctrl && in->key_down[SDL_SCANCODE_R])) {
         bool ok = load_defs(g);
         g->player.def = g->player_def; g->boss.def = g->boss_def;
         g->boss.c.hp_max = g->boss_def.hp; g->boss.c.posture_max = g->boss_def.posture;
