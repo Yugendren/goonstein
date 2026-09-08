@@ -34,7 +34,7 @@ void camera_orbit(Camera *c, Vec3 pp, float look_x, float look_y, bool has_lock,
         float far_k = clampf((v3_len(to) - 3.0f) / 8.0f, 0, 1);
         c->dist = lerpf(8.5f, 11.0f, far_k);
     } else {
-        c->yaw += look_x * MOUSE_SENS;
+        c->yaw -= look_x * MOUSE_SENS;   // mouse right turns the view toward the right hand (-X when facing +Z)
         c->pitch = clampf(c->pitch + look_y * MOUSE_SENS, PITCH_MIN, PITCH_MAX);
         c->dist = 5.5f;
     }
@@ -92,6 +92,6 @@ Vec3 camera_move_dir(const Camera *c, float in_x, float in_y) {
     float mag = sqrtf(in_x * in_x + in_y * in_y);
     if (mag < 0.05f) return v3(0, 0, 0);
     Vec3 f = v3(sinf(c->yaw), 0, cosf(c->yaw));
-    Vec3 r = v3(f.z, 0, -f.x);
+    Vec3 r = v3(-f.z, 0, f.x);   // right-handed: facing +Z, right is -X
     return v3_add(v3_scale(r, in_x), v3_scale(f, -in_y));   // stick up (in_y < 0) is forward
 }

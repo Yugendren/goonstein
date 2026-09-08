@@ -127,7 +127,7 @@ static void bot_input(Game *g, Input *in) {
         if (dist > p->def.attack_range + b->c.radius - 0.2f) {
             // camera-relative input: convert world direction back through the camera basis
             Vec3 f = v3(sinf(g->cam.yaw), 0, cosf(g->cam.yaw));
-            Vec3 r = v3(f.z, 0, -f.x);
+            Vec3 r = v3(-f.z, 0, f.x);
             Vec3 n = v3_scale(d, 1.0f / dist);
             in->move_x = v3_dot(n, r); in->move_y = -v3_dot(n, f);
         } else if (b->state != BS_ACTIVE) in->attack = true;
