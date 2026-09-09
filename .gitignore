@@ -5,3 +5,4 @@ compile_commands.json
 .DS_Store
 hollow.log
 hollow_snapshot.txt
+__pycache__/
