@@ -84,6 +84,7 @@ typedef struct Gfx {
     SDL_GPUGraphicsPipeline *bound_pipe;
     Vec3 cam_right, cam_up; float sprite_lean; bool planar_next;
     unsigned char frame_uniforms[2048]; Uint32 frame_uniforms_size;   // re-pushed when a pass reopens
+    Vec4 palette[64]; int npalette; long long palette_mtime; Uint64 palette_check;   // assets/palette.txt
     unsigned draw_calls;
 } Gfx;
 
@@ -156,5 +157,7 @@ void gfx_pixel_begin(Gfx *g, Mat4 view_proj, float off_x, float off_y);
 void gfx_portrait_begin(Gfx *g, Platform *pf, const FrameParams *fp, int size, Vec3 backdrop);
 void gfx_portrait_end(Gfx *g);
 void gfx_pixel_end(Gfx *g);
+// Reload assets/palette.txt if it changed (called once a frame; checks the file once a second).
+void gfx_palette_update(Gfx *g);
 bool gfx_screenshot(Gfx *g, const char *path);
 void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time);

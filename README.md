@@ -194,6 +194,9 @@ game at once. **Per-asset recolour**: a `MODEL.recolor` file beside a model (`r 
 per line, 0..255) moves that paint colour with its shading kept, applied on load; tint, stretch and
 grouping in the world editor cover the rest. Meshes come from CAD, packs or scans and are
 reshaped with the Blender scripts. `assets/models/polyhaven/barrel_03/*.recolor` is an example.
+**The palette itself** is `assets/palette.txt`, one hex colour per line (up to 64); both the
+character pass and the world style pass snap to it, and it reloads live when saved. Change that
+file and the whole game's colour identity changes.
 
 ### The art pipeline in one paragraph
 

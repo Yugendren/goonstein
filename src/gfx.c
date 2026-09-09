@@ -30,8 +30,8 @@ typedef struct FrameUniforms {
 } FrameUniforms;
 typedef struct MaterialUniforms { Vec4 tint, emissive, rim; } MaterialUniforms;
 typedef struct SkyUniforms { Mat4 inv_view_proj; Vec4 cam_pos, sun_dir, sun_color, zenith, horizon, ground, params, fog_color; } SkyUniforms;
-typedef struct PostUniforms { Vec4 params, res, flash, grade, lift, gain, style; } PostUniforms;
-typedef struct PixUniforms { Vec4 res, offset, params; } PixUniforms;
+typedef struct PostUniforms { Vec4 params, res, flash, grade, lift, gain, style; Vec4 pal[64]; Sint32 npal[4]; } PostUniforms;
+typedef struct PixUniforms { Vec4 res, offset, params; Vec4 pal[64]; Sint32 npal[4]; } PixUniforms;
 
 // ---------------------------------------------------------------- shaders and helpers
 
@@ -336,6 +336,7 @@ void gfx_shutdown(Gfx *g) {
 // ---------------------------------------------------------------- world pass
 
 static void push_frame_uniforms(Gfx *g, const FrameParams *fp);
+static void fill_palette(Gfx *g, Vec4 *pal, Sint32 *npal);
 static void fullscreen_pass(Gfx *g, SDL_GPUCommandBuffer *cmd, SDL_GPUGraphicsPipeline *pipe, SDL_GPUTexture *dst, const SDL_GPUTextureSamplerBinding *samplers, Uint32 nsamplers, const void *uniforms, Uint32 usize, const SDL_GPUViewport *vpt);
 static void push_material(Gfx *g, Vec4 tint) {
     const Material *m = &g->material;
@@ -345,6 +346,7 @@ static void push_material(Gfx *g, Vec4 tint) {
 }
 
 void gfx_begin(Gfx *g, Platform *pf, const FrameParams *fp) {
+    gfx_palette_update(g);
     g->frame = *fp; g->ui_count = 0; g->ui_nbatches = 0; g->ui2_count = 0; g->ui2_nbatches = 0; g->ui_target = 0; g->p_add_count = g->p_alpha_count = 0; g->draw_calls = 0;
     g->bound_tex = NULL; g->bound_pipe = NULL; g->pass = NULL; g->cmd = pf->cmd;
     g->material = material_default();
@@ -439,6 +441,7 @@ void gfx_portrait_end(Gfx *g) {
         SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(g->cmd, &ct, 1, &dt);
         PixUniforms u = { .res = v4((float)g->por_size, (float)g->por_size, 1.0f / g->por_size, 1.0f / g->por_size), .offset = v4(0, 0, 0, 0),
                           .params = v4(g->pix_levels, g->pix_outline, g->pix_palette, g->pix_inner) };
+        fill_palette(g, u.pal, u.npal);
         SDL_BindGPUGraphicsPipeline(pass, g->pipe_pixcomp);
         SDL_PushGPUFragmentUniformData(g->cmd, 0, &u, sizeof u);
         SDL_GPUTextureSamplerBinding sb[2] = { { .texture = g->por_hdr, .sampler = g->samp_nearest }, { .texture = g->por_depth, .sampler = g->samp_nearest } };
@@ -449,7 +452,8 @@ void gfx_portrait_end(Gfx *g) {
     // tone map into the UI texture (neutral grade)
     {
         PostUniforms u = { .params = v4(0, 0, 0, 1), .res = v4((float)g->por_size, (float)g->por_size, 0, 0), .flash = v4(0, 0, 0, 0),
-                           .grade = v4(1, 1, 1, 0), .lift = v4(0, 0, 0, 0), .gain = v4(1, 1, 1, 0) };
+                           .grade = v4(1, 1, 1, 0), .lift = v4(0, 0, 0, 0), .gain = v4(1, 1, 1, 0), .style = v4(0, 0, 0, 1) };
+        fill_palette(g, u.pal, u.npal);
         SDL_GPUTextureSamplerBinding sb[3] = { { .texture = g->por_comp, .sampler = g->samp_nearest }, { .texture = g->por_comp, .sampler = g->samp_nearest }, { .texture = g->por_comp_depth, .sampler = g->samp_nearest } };
         fullscreen_pass(g, g->cmd, g->pipe_post, g->portrait.tex, sb, 3, &u, sizeof u, NULL);
     }
@@ -474,6 +478,35 @@ void gfx_set_pixel_look(Gfx *g, int scale, float levels, float outline, float pa
     }
     g->pix_levels = levels; g->pix_outline = outline; g->pix_palette = palette; g->pix_inner = inner;
 }
+
+void gfx_palette_update(Gfx *g) {
+    Uint64 now = SDL_GetTicks(); if (g->npalette && now - g->palette_check < 1000) return; g->palette_check = now;
+    char path[640]; snprintf(path, sizeof path, "%s/palette.txt", HOLLOW_ASSET_DIR);
+    SDL_PathInfo info; long long m = SDL_GetPathInfo(path, &info) ? (long long)info.modify_time : 0;
+    if (g->npalette && m == g->palette_mtime) return;
+    g->palette_mtime = m;
+    size_t n = 0; char *text = SDL_LoadFile(path, &n);
+    int count = 0;
+    if (text) {
+        char *cur = text;
+        while (*cur && count < 64) {
+            char *line = cur; char *nl = strchr(cur, '\n'); if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
+            char *hash = strchr(line, '#'); if (hash) *hash = 0;
+            while (*line == ' ' || *line == '\t') line++;
+            unsigned v; if (sscanf(line, "%x", &v) != 1 || strlen(line) < 6) continue;
+            g->palette[count++] = v4(((v >> 16) & 255) / 255.0f, ((v >> 8) & 255) / 255.0f, (v & 255) / 255.0f, 1);
+        }
+        SDL_free(text);
+    }
+    if (count == 0) {   // no file: Endesga 32
+        static const unsigned E[32] = { 0xbe4a2f,0xd77643,0xead4aa,0xe4a672,0xb86f50,0x733e39,0x3e2731,0xa22633,0xe43b44,0xf77622,0xfeae34,0xfee761,0x63c74d,0x3e8948,0x265c42,0x193c3e,0x124e89,0x0099db,0x2ce8f5,0xffffff,0xc0cbdc,0x8b9bb4,0x5a6988,0x3a4466,0x262b44,0x181425,0xff0044,0x68386c,0xb55088,0xf6757a,0xe8b796,0xc28569 };
+        for (int i = 0; i < 32; i++) g->palette[i] = v4(((E[i] >> 16) & 255) / 255.0f, ((E[i] >> 8) & 255) / 255.0f, (E[i] & 255) / 255.0f, 1);
+        count = 32;
+    }
+    g->npalette = count;
+    SDL_Log("palette: %d colours", count);
+}
+static void fill_palette(Gfx *g, Vec4 *pal, Sint32 *npal) { memcpy(pal, g->palette, sizeof g->palette); npal[0] = g->npalette; npal[1] = npal[2] = npal[3] = 0; }
 
 static void repush_frame(Gfx *g) {
     SDL_PushGPUFragmentUniformData(g->cmd, 0, g->frame_uniforms, g->frame_uniforms_size);
@@ -505,6 +538,7 @@ void gfx_pixel_end(Gfx *g) {
     PixUniforms u = { .res = v4((float)g->pw, (float)g->ph, 1.0f / g->pw, 1.0f / g->ph),
                       .offset = v4(g->pix_off_x / g->pw, g->pix_off_y / g->ph, 0, 0),
                       .params = v4(g->pix_levels, g->pix_outline, g->pix_palette, g->pix_inner) };
+    fill_palette(g, u.pal, u.npal);
     SDL_BindGPUGraphicsPipeline(g->pass, g->pipe_pixcomp);
     SDL_PushGPUFragmentUniformData(g->cmd, 0, &u, sizeof u);
     SDL_GPUTextureSamplerBinding sb[2] = { { .texture = g->pix, .sampler = g->samp_nearest }, { .texture = g->pix_depth, .sampler = g->samp_nearest } };
@@ -885,6 +919,7 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
             .grade = v4(pp->exposure, pp->saturation, pp->contrast, pp->bloom),
             .lift = v4(pp->lift.x, pp->lift.y, pp->lift.z, 0), .gain = v4(pp->gain.x, pp->gain.y, pp->gain.z, 0),
             .style = v4(pp->style_snap, pp->style_outline, pp->style_levels, pp->style_pixel) };
+        fill_palette(g, u.pal, u.npal);
         SDL_GPUTextureSamplerBinding s[3] = { { .texture = g->hdr, .sampler = g->samp_clamp }, { .texture = g->bloom_a, .sampler = g->samp_clamp }, { .texture = g->depth, .sampler = g->samp_nearest } };
         fullscreen_pass(g, pf->cmd, g->pipe_post, g->ldr, s, 3, &u, sizeof u, NULL);
     }

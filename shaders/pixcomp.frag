@@ -9,20 +9,13 @@ layout(set = 2, binding = 1) uniform sampler2D pixdepth;
 layout(set = 3, binding = 0, std140) uniform Pix {
     vec4 res;      // xy = layer resolution
     vec4 offset;   // xy = sub-texel shift in uv
-    vec4 params;   // x = colour levels (0 = off), y = outline (0..1), z = palette (0 = levels, 1 = Endesga 32), w = inner line strength
+    vec4 params;   // x = colour levels (0 = off), y = outline (0..1), z = palette (0 = levels, 1 = the palette file), w = inner line strength
+    vec4 pal[64];  // the game's palette (assets/palette.txt), rgb, w unused
+    ivec4 npal;    // x = colours in use
 };
 layout(location = 0) in vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 
-const vec3 PAL[32] = vec3[32](
-    vec3(0.745, 0.294, 0.176), vec3(0.847, 0.459, 0.239), vec3(0.918, 0.616, 0.412), vec3(0.980, 0.882, 0.702),
-    vec3(0.243, 0.216, 0.184), vec3(0.353, 0.290, 0.235), vec3(0.510, 0.408, 0.325), vec3(0.667, 0.545, 0.443),
-    vec3(0.212, 0.239, 0.298), vec3(0.365, 0.451, 0.510), vec3(0.545, 0.635, 0.702), vec3(0.769, 0.847, 0.882),
-    vec3(1.000, 1.000, 1.000), vec3(0.518, 0.541, 0.545), vec3(0.353, 0.361, 0.365), vec3(0.239, 0.239, 0.243),
-    vec3(0.114, 0.118, 0.129), vec3(0.204, 0.098, 0.110), vec3(0.259, 0.173, 0.204), vec3(0.384, 0.263, 0.298),
-    vec3(0.545, 0.376, 0.365), vec3(0.706, 0.478, 0.412), vec3(0.867, 0.627, 0.478), vec3(1.000, 0.855, 0.671),
-    vec3(0.180, 0.365, 0.408), vec3(0.239, 0.510, 0.427), vec3(0.310, 0.667, 0.416), vec3(0.510, 0.808, 0.376),
-    vec3(0.808, 0.925, 0.565), vec3(0.878, 0.776, 0.318), vec3(0.980, 0.635, 0.290), vec3(0.929, 0.353, 0.361));
 
 vec3 to_gamma(vec3 c) { return pow(max(c, 0.0), vec3(1.0 / 2.2)); }
 vec3 to_linear(vec3 c) { return pow(max(c, 0.0), vec3(2.2)); }
@@ -35,7 +28,7 @@ vec3 crunch(vec3 c) {
     vec3 g = to_gamma(c / over);
     if (params.z > 0.5) {
         float best = 1e9; vec3 pick = g;
-        for (int i = 0; i < 32; i++) { vec3 d = PAL[i] - g; float e = dot(d, d); if (e < best) { best = e; pick = PAL[i]; } }
+        for (int i = 0; i < npal.x; i++) { vec3 d = pal[i].rgb - g; float e = dot(d, d); if (e < best) { best = e; pick = pal[i].rgb; } }
         g = pick;
     } else if (params.x > 0.5) {
         g = floor(g * params.x + 0.5) / params.x;
