@@ -85,7 +85,11 @@ if(WIN32)
   # window.
   set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE FALSE)
   if(MINGW)
-    target_link_options(${PROJECT_NAME} PRIVATE -static-libgcc)
+    # -static is the one that matters: without it the exe imports libwinpthread-1.dll, which is
+    # not part of Windows and is not bundled by install()/CPack, so a packaged build would fail
+    # to launch on any machine without MSYS2 installed. Verified with objdump -p on a
+    # cross-compiled goonstein.exe.
+    target_link_options(${PROJECT_NAME} PRIVATE -static -static-libgcc)
     if(CMAKE_CXX_COMPILER_LOADED)
       target_link_options(${PROJECT_NAME} PRIVATE -static-libstdc++)
     endif()

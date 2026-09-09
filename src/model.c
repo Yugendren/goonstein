@@ -171,7 +171,7 @@ bool model_load(Gfx *g, Model *m, const char *path, int max_tex_size) {
     if (cgltf_load_buffers(&opt, d, path) != cgltf_result_success) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "model buffers failed: %s", path); cgltf_free(d); return false; }
 
     // Nodes
-    if (d->nodes_count > MODEL_MAX_NODES) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: too many nodes (%zu)", path, d->nodes_count); cgltf_free(d); return false; }
+    if (d->nodes_count > MODEL_MAX_NODES) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: too many nodes (%lu)", path, (unsigned long)d->nodes_count); cgltf_free(d); return false; }
     m->nnodes = (int)d->nodes_count;
     for (int i = 0; i < m->nnodes; i++) {
         const cgltf_node *n = &d->nodes[i];
@@ -216,7 +216,7 @@ bool model_load(Gfx *g, Model *m, const char *path, int max_tex_size) {
     // Skin (first one only)
     if (d->skins_count > 0) {
         const cgltf_skin *s = &d->skins[0];
-        if (s->joints_count > MODEL_MAX_JOINTS) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: too many joints (%zu)", path, s->joints_count); cgltf_free(d); return false; }
+        if (s->joints_count > MODEL_MAX_JOINTS) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: too many joints (%lu)", path, (unsigned long)s->joints_count); cgltf_free(d); return false; }
         m->njoints = (int)s->joints_count;
         for (int j = 0; j < m->njoints; j++) {
             m->joints[j] = node_index(d, s->joints[j]);

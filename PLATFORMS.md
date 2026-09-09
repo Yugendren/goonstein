@@ -66,9 +66,20 @@ The MinGW path was checked for real by cross-compiling from the Mac (`brew insta
 a toolchain file setting `CMAKE_SYSTEM_NAME Windows` and the `x86_64-w64-mingw32-*` tools). SDL3
 builds from source under mingw without any option changes, the `if(WIN32)` block links `ws2_32`,
 `winmm` and `-static-libgcc`, `HOLLOW_PORTABLE` compiles in, and the link produces a PE32+ console
-executable. Only two things in the game's own code stood in the way, both of them `sscanf`/
-`snprintf` used without `<stdio.h>` -- a warning under GCC on Linux and a hard error under GCC 16
-on Windows -- and both are fixed. The binary has never been *run* on Windows.
+executable. The binary has never been *run* on Windows.
+
+Three things it turned up, all fixed:
+
+* `sscanf` in `platform.c` and `snprintf` in `uifx.c` used without `<stdio.h>` -- a warning under
+  GCC on Linux, a hard error under GCC 16 for mingw.
+* `%zu` passed to `SDL_LogError` in `model.c`. Plain `printf` accepts it, but SDL's
+  `format(printf, ...)` attribute is checked against the Windows target, where `%zu` is not
+  recognised, so it was a `-Wformat` warning with a real risk of printing garbage. Now cast to
+  `unsigned long` with `%lu`.
+* The link pulled in **`libwinpthread-1.dll`**, which is not part of Windows and is not bundled by
+  `install()`/CPack -- a packaged build would have failed to launch on any machine without MSYS2.
+  `if(MINGW)` now passes `-static`. Checked with `objdump -p`: the import table is now only stock
+  system DLLs and the `api-ms-win-crt-*` UCRT forwarders that ship with Windows 10 and later.
 
 ### Presets
 
