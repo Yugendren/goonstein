@@ -279,6 +279,170 @@ frame, `--start` jumps to `battle`, `fight`, `boss_intro`, `victory` or `end`, `
 simple frame-perfect bot play the fight and logs every swing, parry and hit. This is how
 the fight is checked without a controller in hand.
 
+## Networking
+
+Four players on one map. One of them hosts and plays in the same process (a listen server), and
+the host's simulation is the truth: it owns every player, runs the fixed 60 Hz tick for all of
+them, and tells the others what happened. There is no dedicated server and no matchmaking yet —
+you type in an address.
+
+    ./build/bin/goonstein --host 7777 --slots 4 --start level:lantern --third
+    ./build/bin/goonstein --join 192.168.1.20:7777 --name ada --start level:lantern --third
+
+| Flag | What it does |
+|------|--------------|
+| `--host PORT` | listen on UDP PORT and play in the same process |
+| `--slots N` | how many players the host seats, 1..4 (default 4) |
+| `--join HOST:PORT` | join a listen server; HOST may be a name or an IPv4 address |
+| `--name NAME` | your name in the log and in join messages; also sends the log to `hollow_NAME.log` |
+| `--log FILE` | write this process's log somewhere else (so four processes do not clobber one file) |
+| `--no-scenes` | never fire a trigger's cutscene; implied by `--host` and `--join` |
+| `--third` | force the third-person camera whatever the level says |
+| `HOLLOW_NET_LOSS=0.2` | throw away 20% of received packets, for testing |
+
+### How it fits together
+
+`src/net.c` is the transport and knows nothing about the game: one non-blocking UDP socket, peers
+with sequence numbers, a 32-bit ack history, round-trip estimation and a small ordered reliable
+channel. `src/net_sys.h` hides the difference between BSD sockets and Winsock, so the same code
+builds on macOS, Linux and Windows. `src/netgame.c` is the glue and knows nothing about sockets:
+slots, joining, snapshots, interpolation, prediction and the per-second log line. The game calls
+into it at exactly four places (`netgame_pre_tick`, `netgame_post_tick`, `netgame_local_input`,
+`netgame_view_pos`), so with no `--host` or `--join` the single-player paths are untouched.
+
+**A host tick.** Drain the socket: seat anyone who sent a join, queue each client's intent, drop
+anyone silent for five seconds. Tick the host's own player through the normal game code. Then
+simulate every remote player by feeding its newest intent through the same `player_update` the
+local player uses. Every other tick (30 Hz), send each client a snapshot.
+
+**A client tick.** Drain the socket, apply the newest snapshot, tick its own player normally, send
+this tick's intent. It only ever simulates itself.
+
+**Remote players are interpolated.** Snapshots go into a per-slot ring with the time they arrived,
+and remote players are drawn at `now - 100 ms`, between the two snapshots that bracket that
+moment. That is the price of smooth motion over a jittery link: everyone else is 100 ms in the
+past. The engine's existing between-tick interpolation still runs on top, so 120 Hz screens see
+motion every frame.
+
+**The local player is predicted.** The client runs the same movement code on its own input
+immediately rather than waiting for the host. Every input is stamped with a tick and the position
+it produced is remembered for 128 ticks. A snapshot says "I applied your input from tick T, and
+this is where you ended up"; the client compares that with what it predicted for tick T. The
+difference is added to the current position — the inputs since T were pure integration, so the
+error carries forward unchanged — and the same amount is subtracted from a visual offset that
+decays back to zero over about 70 ms, so the correction is applied to the simulation immediately
+and to the picture gradually. An error over 2 m is a real desync rather than jitter, so it snaps
+and says so in the log.
+
+The move direction is **quantised before the client uses it**, to a signed byte per axis. The
+client predicts with the same numbers the host will replay, so the two do not drift apart just
+from rounding.
+
+### Packet layout
+
+Everything is little-endian and written through a bounds-checked byte cursor, so the wire format
+does not depend on struct padding. Every packet starts with the same 16-byte header:
+
+| Bytes | Field | |
+|---|---|---|
+| 2 | magic | `0x484E` |
+| 1 | proto | protocol version |
+| 1 | ptype | 0 none, 1 input, 2 snapshot |
+| 2 | seq | this packet's sequence number |
+| 2 | ack | newest sequence seen from the other side |
+| 4 | ack_bits | which of the 32 before that also arrived |
+| 2 | rel_ack | reliable messages received in order up to here |
+| 1 | nrel | reliable blocks that follow |
+| 1 | pad | |
+
+Then `nrel` reliable blocks (`u16 id, u16 len, body`) and then the payload. Reliable messages —
+join, accept, reject, player joined, player left, goodbye — ride along on the ordinary traffic and
+are resent in every packet until the other side acks them, so joining works over a lossy link
+without a separate retry timer.
+
+**Input** (client to host, every tick, 10 bytes): client tick `u32`, move x and z as `i8` each
+(world space, /127), look yaw `i16` (radians × 32767/π), buttons `u16`.
+
+**Snapshot** (host to client, 30 Hz): server tick `u32`, the client's newest applied input tick
+`u32`, entity count `u8`, then one record per entity. Each record starts with a type and an id
+rather than being a fixed struct, so carried objects and thrown props can be added to the same
+packet later without a new message. A player record is 22 bytes: position 3 × `f32`, yaw `i16`,
+anim `u8`, anim time `u16` (ms), hp `u16`, player state `u8`.
+
+Four players is a 113-byte snapshot. See the measured bandwidth below.
+
+### Testing on a LAN
+
+On the host machine, find its address (`ipconfig getifaddr en0` on macOS, `ip addr` on Linux),
+then:
+
+    ./build/bin/goonstein --host 7777 --start level:lantern --third
+
+Each other machine runs the same build and level:
+
+    ./build/bin/goonstein --join HOST_ADDRESS:7777 --name bo --start level:lantern --third
+
+Open UDP 7777 on the host's firewall. Everyone must start on the same level; the host's level name
+travels in the accept message and a mismatch is logged as a warning. Joining late is fine, and
+quitting is fine — the others see the slot disappear. A client that stops sending for five seconds
+is dropped.
+
+There is **no NAT traversal**: over the open internet this needs port forwarding. Lobbies,
+invites and relay come with Steam in M7.
+
+### Headless four-process test
+
+`--frames N` plus `--shot-every N DIR` makes each process exit on its own and leave a trail of
+screenshots, so the whole thing runs without a human:
+
+    ./build/bin/goonstein --volume 0 --host 7777 --start level:lantern --third \
+        --frames 1800 --shot-every 300 /tmp/net/H &
+    sleep 8
+    for i in 1 2 3; do
+      ./build/bin/goonstein --volume 0 --join 127.0.0.1:7777 --bot --name c$i \
+          --start level:lantern --third --frames 1500 --shot-every 300 /tmp/net/C$i &
+    done
+    wait
+
+`--bot` on a client wanders — a slow arc with a new random heading every second or two, turning
+back when it strays too far from the spawn — so the screenshots show four humanoids moving around
+each other. Each process writes its own log (`hollow_host.log`, `hollow_c1.log`, ...) with a line
+per second:
+
+    net client slot 2 peers 1 | in 30 pkt 3390 B | out 60 pkt 1560 B | rtt 16.8 ms |
+      snap age 20 ms | corr 4 avg 0.021 max 0.084 m snaps 0 | dropped 0
+
+plus a `net pos` line with every seated player's position, stamped with the wall clock, which is
+what the test uses to check that the four processes agree about where everyone is
+(`HOLLOW_NET_TRACE=1` logs that line at 5 Hz instead of once a second). Note that `rtt` is ack
+turnaround, not wire latency: the other side only answers on its next send, so on loopback it
+reads as most of one snapshot interval rather than nothing.
+
+Add `HOLLOW_NET_LOSS=0.2` to every process to throw away one packet in five on receive.
+
+### What it costs, measured
+
+One host and three bot clients on loopback, the lantern level, 60 Hz, 45 seconds:
+
+| | up | down |
+|---|---|---|
+| each client | 1.6 kB/s (60 packets/s, 26 B each) | 3.4 kB/s (30 packets/s, ~113 B each) |
+| the host, three clients seated | 5.7 kB/s | 2.7 kB/s |
+
+So a full four-player game costs the host about 6 kB/s out and 3 kB/s in — nothing, and it stays
+flat as players join because the snapshot is one packet per client per 33 ms whatever is in it.
+
+Reconciliation over the same run: 100 to 370 corrections in 26 seconds, mean 0.07 to 0.21 m each,
+one or two hard snaps per client and those are the moment of joining, before the host's spawn has
+arrived. Comparing each client's log with the host's, a client's picture of another player sits
+0.2 m from the host's truth on average; measured against where the host says that player was
+100 ms earlier — which is what the client is trying to draw — the median difference is 0.03 m. Its
+own predicted position matches the host's to 0.02 m.
+
+With `HOLLOW_NET_LOSS=0.2` on all four processes (about 1500 packets thrown away), nothing
+changes: everyone still joins, the numbers above are the same to within noise, and all four
+processes exit cleanly.
+
 ## Layout
 
     src/            game and platform code
@@ -294,6 +458,9 @@ the fight is checked without a controller in hand.
       sprite.*      sprite sheets, frame animation, contact frames, upright billboards
       audio.*       procedural synth plus WAV/OGG samples and crossfading music
       game.*        state flow, HUD, debug overlay, scene hosting
+      net.*         UDP transport: peers, sequence numbers, acks, reliable channel
+      net_sys.h     the one header that knows Winsock from BSD sockets
+      netgame.*     four-player listen server: slots, snapshots, interpolation, prediction
     shaders/        Vulkan GLSL source, compiled by tools/shaders.sh
     assets/         all content (see above); assets/shaders holds compiled shaders
     ASSETS.md       licence manifest (KayKit CC0 props, Ninja Adventure CC0 sprites, music and sounds, stb, cgltf)
