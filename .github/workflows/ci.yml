@@ -1,26 +1,79 @@
 name: build
 on: [push, pull_request]
+
 jobs:
+  # ---------------------------------------------------------------- the three targets
   build:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        include:
+          - os: macos-latest
+            name: macOS
+          - os: ubuntu-latest
+            name: Linux
+          - os: windows-latest
+            name: Windows (MSVC)
+    name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      # SDL3 is built from source, so it needs the platform's dev headers.
       - name: Linux deps
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libasound2-dev libpulse-dev libx11-dev libxext-dev \
-            libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libwayland-dev \
-            libxkbcommon-dev libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
-            libudev-dev libdbus-1-dev libibus-1.0-dev pkg-config
+          sudo apt-get install -y ninja-build pkg-config \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libjack-dev libsndio-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
+            libxss-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+            libudev-dev libdbus-1-dev libibus-1.0-dev libvulkan-dev
       - name: macOS deps
         if: runner.os == 'macOS'
         run: brew install ninja
+
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DHOLLOW_PORTABLE=ON
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release -j 4
+
+      - name: Install layout
+        run: cmake --install build --config Release --prefix dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: goonstein-${{ runner.os }}
+          path: dist
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------- DXIL
+  # Signed DXIL needs Microsoft's dxil.dll, which only ships on Windows, so the D3D12 shaders
+  # cannot be produced on the macOS dev machine. This job compiles them from the committed HLSL
+  # (tools/shaders.sh generates that HLSL on any platform) and uploads them. Download the artifact
+  # and commit assets/shaders/*.dxil whenever a shader changes. Until DXIL is committed, a Windows
+  # build runs on Vulkan if the driver offers it and otherwise stops at startup with a log line
+  # naming this job.
+  shaders-dxil:
+    name: DXIL (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile HLSL to DXIL
+        shell: pwsh
+        run: ./tools/shaders.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shaders-dxil
+          path: assets/shaders/*.dxil
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------- shaders in sync
+  # Catches a shaders/*.frag edit committed without re-running tools/shaders.sh.
+  shaders-check:
+    name: shaders up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y glslc spirv-cross
+      - run: ./tools/shaders.sh --check
