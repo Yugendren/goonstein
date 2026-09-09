@@ -402,7 +402,9 @@ static void client_reliable(Game *g, const uint8_t *body, int len) {
         if (n->connected) return;
         n->connected = true; n->join_tries = 1;   // connected once: never warn about the join again
         n->slots_max = smax ? smax : NET_MAX_PLAYERS;
-        if (slot != 0) { n->slots[0].active = false; memset(&g->players[0], 0, sizeof g->players[0]); }
+        // Slot 0 is the host's. Drop the model this process loaded for it before it knew its own
+        // slot, so it comes back as slot 0's goon instead of this client's --hero.
+        if (slot != 0) { n->slots[0].active = false; memset(&g->players[0], 0, sizeof g->players[0]); charmodel_destroy(&g->gfx, &g->player_models[0]); }
         g->local = slot; n->local = slot;
         seat(g, slot, n->name);
         game_snap_camera(g);

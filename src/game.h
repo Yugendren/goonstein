@@ -65,6 +65,7 @@ typedef struct Game {
     bool     no_scenes;           // multiplayer: skip cutscene playback from triggers and NPC talk
     bool     force_third;         // --third: force third-person view
     bool     force_first;         // --first: force first-person view
+    bool     slot_tinted[NET_MAX_PLAYERS];   // this slot fell back to hero.txt, so the slot colour is what tells it apart
     char     log_path[256];       // --log FILE (default hollow.log)
 } Game;
 

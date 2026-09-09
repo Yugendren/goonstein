@@ -75,8 +75,21 @@ static void play_scene(Game *g, const char *name, GState after) {
 
 // ---------------------------------------------------------------- setup and resets
 
-// The hero's character file and its model reload when they change on disk (checked once a second).
 static long long path_mtime(const char *path) { SDL_PathInfo info; return SDL_GetPathInfo(path, &info) ? (long long)info.modify_time : 0; }
+
+// The Goon Squad: each net slot plays its own character file, so four processes on one map show four
+// different people without anyone choosing anything. A missing file falls back to the hero, and that
+// slot is then told apart by its net colour instead. --hero NAME (or settings.txt) overrides the file
+// for whichever slot this process drives; the other three always show the goon their slot owns.
+static const char *SLOT_CHAR[NET_MAX_PLAYERS] = { "goon_a", "goon_b", "goon_c", "goon_d" };
+static const char *slot_character(const Game *g, int slot, bool *tinted) {
+    if (tinted) *tinted = false;
+    if (slot == g->local && g->hero_config[0]) return g->hero_config;
+    char path[640]; snprintf(path, sizeof path, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, SLOT_CHAR[slot]);
+    if (path_mtime(path)) return SLOT_CHAR[slot];
+    if (tinted) *tinted = true;
+    return "hero";
+}
 
 // First person sits the eye just under the top of the head, so the view is the character's own and
 // the model's neck never crosses the near plane.
@@ -87,11 +100,12 @@ static float bob_amount(const Game *g) {
     return e ? (float)atof(e) : g->level.view_bob;
 }
 
+// The local player's character file and its model reload when they change on disk (checked once a second).
 static void hero_hot_reload(Game *g) {
     static Uint64 last = 0; static long long cfg_m = -1, model_m = -1; static char watched[128] = "";
     Uint64 now = SDL_GetTicks(); if (now - last < 1000) return; last = now;
     if (g->tool_mode == 4) return;   // the builder owns the hero while it is open
-    const char *hero = g->hero_config[0] ? g->hero_config : "hero";
+    const char *hero = slot_character(g, g->local, NULL);
     char cfg[640]; snprintf(cfg, sizeof cfg, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, hero);
     char mdl[640]; snprintf(mdl, sizeof mdl, "%s/%s", HOLLOW_ASSET_DIR, PLAYER_MODEL(g).spec.model[0] ? PLAYER_MODEL(g).spec.model : PLAYER_MODEL(g).spec.sprite);
     long long cm = path_mtime(cfg), mm = path_mtime(mdl);
@@ -228,10 +242,13 @@ static bool load_defs(Game *g) {
     return ok;
 }
 
-// Loads the hero character model into player_models[slot] if not already loaded.
+// Loads this slot's character model if not already loaded (see slot_character).
 void game_ensure_player_model(Game *g, int slot) {
     if (g->player_models[slot].loaded) return;
-    char path[640]; snprintf(path, sizeof path, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, g->hero_config[0] ? g->hero_config : "hero");
+    bool tinted = false;
+    const char *name = slot_character(g, slot, &tinted);
+    g->slot_tinted[slot] = tinted;
+    char path[640]; snprintf(path, sizeof path, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, name);
     charmodel_load(&g->gfx, &g->player_models[slot], path);
 }
 
@@ -1081,6 +1098,13 @@ static void draw_hud(Game *g, Platform *pf) {
 // Draw between the last two ticks so 90/120/144 Hz screens show motion every frame. Big jumps
 // (teleports, camera cuts) are not interpolated. Sim state is put back afterwards.
 static Vec3 lerp_or_cut(Vec3 a, Vec3 b, float t) { return v3_len(v3_sub(b, a)) > 4.0f ? b : v3_lerp(a, b, t); }
+// A seated player's draw tint: the hit flash, times the slot colour only for slots that fell back to
+// the shared hero model. The goons carry their own colours, so tinting them again muddies them.
+static Vec4 slot_draw_tint(const Game *g, int slot, Vec4 flash) {
+    if (!g->slot_tinted[slot]) return flash;
+    Vec4 t = g->net.slots[slot].tint;
+    return v4(flash.x * t.x, flash.y * t.y, flash.z * t.z, 1);
+}
 void game_render_at(Game *g, Platform *pf, float alpha);
 void game_render(Game *g, Platform *pf, float alpha) {
     if (!g->prev_valid || alpha <= 0 || alpha >= 1 || SDL_getenv("HOLLOW_NOINTERP")) { game_render_at(g, pf, alpha); return; }
@@ -1205,9 +1229,8 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
                 for (int i = 0; i < NET_MAX_PLAYERS; i++) {
                     if (!g->net.slots[i].active || !g->player_models[i].loaded || g->player_models[i].is_sprite) continue;
                     if (fp_self && i == g->local) continue;
-                    Vec4 tint = v4(pt.x * g->net.slots[i].tint.x, pt.y * g->net.slots[i].tint.y, pt.z * g->net.slots[i].tint.z, 1);
                     Character cc = g->players[i].c; cc.pos = vpos[i];
-                    charmodel_draw(x, &g->player_models[i], &cc, tint);
+                    charmodel_draw(x, &g->player_models[i], &cc, slot_draw_tint(g, i, pt));
                 }
             }
             if (boss_pix) { gfx_set_material(x, &bm); charmodel_draw(x, &g->boss_model, bc, bt); }
@@ -1224,9 +1247,8 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
                 if (fp_self && i == g->local) continue;   // shadow only: see fp_self
                 bool drawn_pixelated = player_pix && g->player_models[i].loaded && !g->player_models[i].is_sprite;
                 if (drawn_pixelated) continue;   // already drawn in the pixel pass above
-                Vec4 tint = v4(pt.x * g->net.slots[i].tint.x, pt.y * g->net.slots[i].tint.y, pt.z * g->net.slots[i].tint.z, 1);
                 Character cc = g->players[i].c; cc.pos = vpos[i];
-                if (g->player_models[i].loaded) charmodel_draw(x, &g->player_models[i], &cc, tint);
+                if (g->player_models[i].loaded) charmodel_draw(x, &g->player_models[i], &cc, slot_draw_tint(g, i, pt));
                 else draw_character(x, &cc, g->player_def.color, g->player_def.size, false, &g->wt.tex[TEX_PLASTER]);
             }
         }
