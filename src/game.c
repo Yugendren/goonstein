@@ -77,6 +77,16 @@ static void play_scene(Game *g, const char *name, GState after) {
 
 // The hero's character file and its model reload when they change on disk (checked once a second).
 static long long path_mtime(const char *path) { SDL_PathInfo info; return SDL_GetPathInfo(path, &info) ? (long long)info.modify_time : 0; }
+
+// First person sits the eye just under the top of the head, so the view is the character's own and
+// the model's neck never crosses the near plane.
+static float eye_height(const Game *g) { return fmaxf(0.6f, PLAYER(g).c.height * 0.92f); }
+// Head bob amount: the level's `view first BOB` (1 = the default subtle bob, 0 = off), env-overridable.
+static float bob_amount(const Game *g) {
+    const char *e = SDL_getenv("HOLLOW_BOB");
+    return e ? (float)atof(e) : g->level.view_bob;
+}
+
 static void hero_hot_reload(Game *g) {
     static Uint64 last = 0; static long long cfg_m = -1, model_m = -1; static char watched[128] = "";
     Uint64 now = SDL_GetTicks(); if (now - last < 1000) return; last = now;
@@ -120,7 +130,8 @@ static void setup_npcs(Game *g) {
 }
 
 static void setup_level_content(Game *g) {
-    if (g->force_third) g->level.third_person = true;
+    if (g->force_first) g->level.view = VIEW_FIRST;        // --first / --third override the level's view line
+    else if (g->force_third) g->level.view = VIEW_THIRD;
     props_load_level(&g->gfx, &g->props, &g->level);
     // terrain follows the level: reload when the level names one, drop it otherwise
     if (g->level.terrain_file[0]) {
@@ -224,6 +235,12 @@ void game_ensure_player_model(Game *g, int slot) {
     charmodel_load(&g->gfx, &g->player_models[slot], path);
 }
 
+// The camera the level asks for, seated on the local player.
+void game_snap_camera(Game *g) {
+    if (g->level.view == VIEW_FIRST) camera_snap_first(&g->cam, PLAYER(g).c.pos, eye_height(g), PLAYER(g).c.yaw);
+    else camera_snap_behind(&g->cam, PLAYER(g).c.pos, PLAYER(g).c.yaw, &g->level);
+}
+
 // Puts players[slot] at the level spawn, spread out so seated players don't stack.
 void game_spawn_player(Game *g, int slot) {
     Vec3 pos = v3_add(g->level.spawn, v3(((float)slot - 1.5f) * 1.5f, 0, 0));
@@ -240,7 +257,7 @@ static void reset_to_start(Game *g) {
     g->fade = 0; g->letterbox = 0; g->hitstop = 0; g->fight_intensity = 0;
     audio_music_play(MUSIC("1 - Adventure Begin.ogg"), true, 0.28f, 2.0f);
     camera_init(&g->cam);
-    camera_snap_behind(&g->cam, PLAYER(g).c.pos, PLAYER(g).c.yaw, &g->level);
+    game_snap_camera(g);
     g->hint_t = 8.0f;
 }
 
@@ -336,7 +353,7 @@ void game_start_at(Game *g, const char *where) {
 // A deliberately simple bot: parry when a parryable windup is about to land, dodge the rest,
 // otherwise close in and attack. Exists so the fight can be exercised headlessly.
 static void bot_input(Game *g, Input *in) {
-    if (netgame_on(&g->net)) { netgame_bot_wander(g, in); return; }
+    if (netgame_on(&g->net) || g->cam.mode == CAM_FIRST) { netgame_bot_wander(g, in); return; }
     const Boss *b = &g->boss; const Player *p = &PLAYER(g);
     in->move_x = in->move_y = 0; in->attack = in->parry = in->dodge = false;
     if (g->state == GS_EXPLORE) {
@@ -476,7 +493,15 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     snap_to_terrain(g);
     apply_events(g, &ev);
     { const Look *ck = &g->level.look; camera_iso_set(ck->cam_pitch, ck->cam_dist, ck->cam_fov, ck->cam_yaw); if (SDL_getenv("HOLLOW_CAM")) { float a = ck->cam_pitch, b = ck->cam_dist, c = ck->cam_fov, d = ck->cam_yaw; sscanf(SDL_getenv("HOLLOW_CAM"), "%f %f %f %f", &a, &b, &c, &d); camera_iso_set(a, b, c, d); } }
-    if (g->level.third_person) { camera_orbit(&g->cam, PLAYER(g).c.pos, in->look_x, in->look_y, false, v3(0, 0, 0), &g->level, dt); camera_above_terrain(g); }   // view third: behind the hero, mouse look
+    if (g->level.view == VIEW_FIRST) {
+        // view first: the eye rides the head and the body turns with the view, so the next tick's
+        // movement is relative to where you are looking. The eye follows the networked view position
+        // (simulated plus the decaying correction), which is the one that does not jump on a snapshot.
+        const Character *lc = &PLAYER(g).c;
+        camera_first(&g->cam, netgame_view_pos(&g->net, g->local, lc->pos), eye_height(g),
+                     in->look_x, in->look_y, bob_amount(g), lc->speed, lc->walk_phase, dt);
+        PLAYER(g).c.yaw = g->cam.yaw;
+    } else if (g->level.view == VIEW_THIRD) { camera_orbit(&g->cam, PLAYER(g).c.pos, in->look_x, in->look_y, false, v3(0, 0, 0), &g->level, dt); camera_above_terrain(g); }   // view third: behind the hero, mouse look
     else camera_iso(&g->cam, PLAYER(g).c.pos, &g->level, dt);
     Trigger *t = level_trigger_at(&g->level, PLAYER(g).c.pos);   // marks the trigger fired even when scenes are skipped
     if (t && !g->no_scenes) {
@@ -535,7 +560,7 @@ static void tick_scene(Game *g, const Input *in, float dt) {
         } else {
             g->boss.state = BS_SCRIPTED;
             g->state = GS_EXPLORE;
-            camera_snap_behind(&g->cam, PLAYER(g).c.pos, PLAYER(g).c.yaw, &g->level);
+            game_snap_camera(g);
         }
         g->state_t = 0;
     }
@@ -644,8 +669,8 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     }
     if (in->ctrl && in->key_down[SDL_SCANCODE_D]) g->pf->debug = !g->pf->debug;                              // wireframe overlay (F1)
     if (in->ctrl && in->key_down[SDL_SCANCODE_G]) debug_snapshot(g);                                          // snapshot (F8)
-    // Mouse look owns the cursor only while the game window itself is being played in third person.
-    { bool play = (g->state == GS_EXPLORE && g->level.third_person) || g->state == GS_FIGHT;
+    // Mouse look owns the cursor only while the game window itself is being played in first or third person.
+    { bool play = (g->state == GS_EXPLORE && g->level.view != VIEW_TOP) || g->state == GS_FIGHT;
       bool capture = play && g->tool_mode == 0 && !g->pf->tool_focus && !g->paused && !g->bot;
       static int captured = -1;
       if (captured != (int)capture) { captured = capture; platform_set_cursor(g->pf, !capture); } }
@@ -1108,6 +1133,9 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         fp.lights[fp.nlights++] = (PointLight){ .pos = v3(pc->pos.x, pc->pos.y + 1.2f, pc->pos.z), .radius = 7.0f, .color = g->flash_color, .intensity = 2.5f * g->flash };
 
     Gfx *x = &g->gfx;
+    // First person: the local player's own model is drawn into the sun shadow map (so it still casts)
+    // but skipped in the camera passes, because at eye height the camera is inside its head.
+    bool fp_self = g->cam.mode == CAM_FIRST;
     // Sun shadow map: the world drawn once from the sun, fitted around what the camera looks at
     {
         float strength = SDL_getenv("HOLLOW_NOSHADOW") ? 0 : (SDL_getenv("HOLLOW_SHADOW") ? (float)atof(SDL_getenv("HOLLOW_SHADOW")) : lk->shadow);
@@ -1159,7 +1187,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         bool pix_on = pxs >= 1 && !SDL_getenv("HOLLOW_NOPIX");
         gfx_set_pixel_look(x, pix_on ? (int)pxs : 0, pxl, pxo, pxp, pxi);
         bool player_pix = false;
-        for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active && g->player_models[i].loaded && !g->player_models[i].is_sprite) { player_pix = true; break; }
+        for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active && !(fp_self && i == g->local) && g->player_models[i].loaded && !g->player_models[i].is_sprite) { player_pix = true; break; }
         player_pix = pix_on && player_pix;
         bool boss_pix = pix_on && g->boss_model.loaded && !g->boss_model.is_sprite;
         bool npc_pix = pix_on && g->nnpcs > 0;
@@ -1176,6 +1204,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
                 gfx_set_material(x, &pm);
                 for (int i = 0; i < NET_MAX_PLAYERS; i++) {
                     if (!g->net.slots[i].active || !g->player_models[i].loaded || g->player_models[i].is_sprite) continue;
+                    if (fp_self && i == g->local) continue;
                     Vec4 tint = v4(pt.x * g->net.slots[i].tint.x, pt.y * g->net.slots[i].tint.y, pt.z * g->net.slots[i].tint.z, 1);
                     Character cc = g->players[i].c; cc.pos = vpos[i];
                     charmodel_draw(x, &g->player_models[i], &cc, tint);
@@ -1192,6 +1221,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             gfx_set_material(x, &pm);
             for (int i = 0; i < NET_MAX_PLAYERS; i++) {
                 if (!g->net.slots[i].active) continue;
+                if (fp_self && i == g->local) continue;   // shadow only: see fp_self
                 bool drawn_pixelated = player_pix && g->player_models[i].loaded && !g->player_models[i].is_sprite;
                 if (drawn_pixelated) continue;   // already drawn in the pixel pass above
                 Vec4 tint = v4(pt.x * g->net.slots[i].tint.x, pt.y * g->net.slots[i].tint.y, pt.z * g->net.slots[i].tint.z, 1);

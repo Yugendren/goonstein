@@ -38,6 +38,8 @@ static bool parse_level(Level *out, const char *path) {
     out->fog_color = v3(0, 0, 0);
     out->light_color = v3(1, 1, 1);
     out->ambient = 0.2f;
+    out->view = VIEW_TOP;
+    out->view_bob = 1.0f;
     SDL_strlcpy(out->scene_intro, "intro.txt", sizeof out->scene_intro);
     SDL_strlcpy(out->scene_boss, "boss_intro.txt", sizeof out->scene_boss);
     SDL_strlcpy(out->scene_victory, "victory.txt", sizeof out->scene_victory);
@@ -183,7 +185,12 @@ static bool parse_level(Level *out, const char *path) {
         } else if (strcmp(cmd, "combat") == 0) {
             out->combat_realtime = n >= 2 && strcmp(tok[1], "realtime") == 0;
         } else if (strcmp(cmd, "view") == 0) {
-            out->third_person = n >= 2 && strcmp(tok[1], "third") == 0;
+            // view top | third | first [BOB]   (BOB scales the first-person head bob: 1 subtle, 0 off)
+            out->view = VIEW_TOP;
+            if (n >= 2 && strcmp(tok[1], "third") == 0) out->view = VIEW_THIRD;
+            else if (n >= 2 && strcmp(tok[1], "first") == 0) out->view = VIEW_FIRST;
+            out->view_bob = 1.0f;
+            if (n >= 3) { float f[1]; if (parse_floats(tok, 2, 1, f)) out->view_bob = f[0]; }
         } else if (strcmp(cmd, "camera") == 0) {
             // camera PITCH DIST FOV [YAW]   (overworld camera: 36 14 32 -35 is the isometric default; 25 9 50 = closer over-the-shoulder)
             float f[4] = { 36, 14, 32, -35 };
@@ -388,7 +395,8 @@ bool level_save(const Level *lv, const char *path) {
     if (lv->scene_boss[0])    fprintf(f, "scene boss %s\n", lv->scene_boss);
     if (lv->scene_victory[0]) fprintf(f, "scene victory %s\n", lv->scene_victory);
     if (lv->combat_realtime) fprintf(f, "combat realtime\n");
-    if (lv->third_person) fprintf(f, "view third\n");
+    if (lv->view == VIEW_THIRD) fprintf(f, "view third\n");
+    else if (lv->view == VIEW_FIRST) { if (lv->view_bob == 1.0f) fprintf(f, "view first\n"); else fprintf(f, "view first %.2f\n", lv->view_bob); }
     for (int i = 0; i < lv->nscenes; i++) fprintf(f, "scene %s %s\n", lv->scenes[i].name, lv->scenes[i].file);
     for (int i = 0; i < lv->nnpcs; i++) fprintf(f, "npc %s %s %.3f %.3f %.3f %.1f %s %.2f\n", lv->npcs[i].name, lv->npcs[i].file, lv->npcs[i].pos.x, lv->npcs[i].pos.y, lv->npcs[i].pos.z, lv->npcs[i].yaw / DEG2RAD, lv->npcs[i].scene, lv->npcs[i].radius);
     if (lv->terrain_file[0])  fprintf(f, "terrain %s\n", lv->terrain_file);

@@ -27,6 +27,7 @@ int main(int argc, char **argv) {
     // --host PORT [--slots N] | --join HOST:PORT | --name NAME  multiplayer (see netgame.h)
     // --no-scenes     skip cutscene playback from triggers and NPC talk (multiplayer sets this too)
     // --third         force third-person view
+    // --first         force first-person view (R.E.P.O.-style: eye in the head, own model hidden)
     // --log FILE      write the debug log to FILE instead of hollow.log
     int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *shot_every_dir = NULL; int shot_every = 0; bool spawn_set = false; float spawn_x = 0, spawn_z = 0; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
     bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1; bool log_set = false;
@@ -59,6 +60,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--hero") && i + 1 < argc) snprintf(game.hero_config, sizeof game.hero_config, "%s", argv[++i]);   // ring | judge | play: screenshot at that battle moment, then exit
         else if (!strcmp(argv[i], "--no-scenes")) game.no_scenes = true;
         else if (!strcmp(argv[i], "--third")) game.force_third = true;
+        else if (!strcmp(argv[i], "--first")) game.force_first = true;
         else if (!strcmp(argv[i], "--log") && i + 1 < argc) { log_set = true; snprintf(game.log_path, sizeof game.log_path, "%s", argv[++i]); }
         // --host/--slots/--join/--name already consumed by netgame_parse_args; skip so they are not mistaken for something else
         else if (!strcmp(argv[i], "--host") && i + 1 < argc) i++;

@@ -405,7 +405,7 @@ static void client_reliable(Game *g, const uint8_t *body, int len) {
         if (slot != 0) { n->slots[0].active = false; memset(&g->players[0], 0, sizeof g->players[0]); }
         g->local = slot; n->local = slot;
         seat(g, slot, n->name);
-        camera_snap_behind(&g->cam, g->players[slot].c.pos, g->players[slot].c.yaw, &g->level);
+        game_snap_camera(g);
         dbg_log("net: accepted as slot %d of %d, level %s", slot, n->slots_max, level);
         SDL_Log("net: accepted as slot %d (level %s)", slot, level);
         if (n->level_name[0] && strcmp(level, n->level_name) != 0)
@@ -535,6 +535,14 @@ void netgame_bot_wander(Game *g, Input *in) {
     float away = v3_len(home);
     Vec3 want = v3(sinf(n->bot_heading), 0, cosf(n->bot_heading));
     if (away > 8.0f) want = v3_norm(v3_lerp(want, v3_scale(home, 1.0f / away), clampf((away - 8.0f) / 4.0f, 0, 1)));
+    if (g->cam.mode == CAM_FIRST) {
+        // First person: turn the head toward the heading and walk straight ahead, so a screenshot
+        // trail shows the world swinging past instead of a fixed view strafing sideways.
+        float d = wrap_pi(atan2f(want.x, want.z) - g->cam.yaw);
+        in->look_x = -clampf(d, -0.05f, 0.05f) / camera_mouse_sens();   // the camera subtracts look_x * sens
+        in->move_x = 0; in->move_y = -1;
+        return;
+    }
     // the movement code is camera relative, so express the world heading in the camera's basis
     Vec3 f = v3(sinf(g->cam.yaw), 0, cosf(g->cam.yaw)), r = v3(-f.z, 0, f.x);
     in->move_x = v3_dot(want, r); in->move_y = -v3_dot(want, f);

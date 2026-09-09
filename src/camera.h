@@ -3,7 +3,7 @@
 #include "hmath.h"
 #include "level.h"
 
-typedef enum CamMode { CAM_ORBIT, CAM_SCENE, CAM_ISO } CamMode;
+typedef enum CamMode { CAM_ORBIT, CAM_SCENE, CAM_ISO, CAM_FIRST } CamMode;
 
 typedef struct Camera {
     CamMode mode;
@@ -28,6 +28,16 @@ void camera_iso(Camera *c, Vec3 player_pos, const Level *lv, float dt);
 void camera_iso_set(float pitch_deg, float dist, float fov_deg, float yaw_deg);   // overworld framing (from the level's camera line)
 // Put the camera behind the player facing yaw (used on restarts).
 void camera_snap_behind(Camera *c, Vec3 player_pos, float player_yaw, const Level *lv);
+// First person: the eye rides the player's head. look_x/look_y are this frame's mouse deltas, with
+// the orbit camera's sensitivity; pitch is clamped to the orbit camera's limit in both directions.
+// bob scales the head bob (0 off, 1 the default subtle amount); speed is the player's planar speed
+// in m/s and phase its walk phase accumulator.
+void camera_first(Camera *c, Vec3 player_pos, float eye_height, float look_x, float look_y,
+                  float bob, float speed, float phase, float dt);
+// Put the first-person eye at the player facing yaw, pitch level (spawns, restarts).
+void camera_snap_first(Camera *c, Vec3 player_pos, float eye_height, float yaw);
+// Radians of yaw per unit of mouse delta, shared by every mouse-look camera.
+float camera_mouse_sens(void);
 // Cutscene: absolute.
 void camera_set_scene(Camera *c, Vec3 eye, Vec3 target, float fov, bool cut);
 void camera_end_scene(Camera *c);

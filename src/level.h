@@ -54,6 +54,11 @@ typedef struct LevelEmitter {
     char type[16]; Vec3 pos, extent; float rate; Vec3 color; float size, life;
 } LevelEmitter;
 
+// How the overworld is played. `view top` (the default) is the fixed camera from the level's
+// `camera` line, `view third` orbits behind the hero with mouse look, `view first` puts the eye
+// in the hero's head.
+typedef enum ViewMode { VIEW_TOP, VIEW_THIRD, VIEW_FIRST } ViewMode;
+
 // Everything about how a level looks, all optional with sane defaults.
 typedef struct Look {
     Vec3 sun_dir; float sun_intensity; Vec3 sun_color;
@@ -82,7 +87,8 @@ typedef struct Level {
     Trigger   triggers[LEVEL_MAX_TRIGGERS]; int ntriggers;
     struct { char name[32], file[128]; } scenes[16]; int nscenes;   // scene NAME FILE: a trigger named NAME plays FILE
     bool combat_realtime;   // combat realtime: the boss fight is the third-person action fight instead of the card battle
-    bool third_person;      // view third: the overworld is played behind the hero with mouse look (default: view top, the fixed camera line)
+    ViewMode view;          // view top | third | first (see ViewMode)
+    float view_bob;         // first person head bob, 1 = the default subtle amount, 0 = off
     Npc       npcs[LEVEL_MAX_NPCS]; int nnpcs;
     Vec3  spawn;      float spawn_yaw;    // player start (yaw in radians)
     Vec3  boss_spawn; float boss_yaw;

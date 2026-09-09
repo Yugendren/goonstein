@@ -64,6 +64,7 @@ typedef struct Game {
     NetGame  net;
     bool     no_scenes;           // multiplayer: skip cutscene playback from triggers and NPC talk
     bool     force_third;         // --third: force third-person view
+    bool     force_first;         // --first: force first-person view
     char     log_path[256];       // --log FILE (default hollow.log)
 } Game;
 
@@ -76,6 +77,8 @@ void game_shutdown(Game *g);
 void game_ensure_player_model(Game *g, int slot);
 // Puts players[slot] at the level spawn, spread out.
 void game_spawn_player(Game *g, int slot);
+// Re-seat the camera on the local player for the level's view mode (spawns, restarts, joining).
+void game_snap_camera(Game *g);
 void game_screenshot(Game *g, const char *path);
 void game_tool_screenshot(Game *g, const char *path);
 // Test harness: jump to a state ("explore", "fight", "end").

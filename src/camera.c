@@ -6,6 +6,9 @@
 #define MOUSE_SENS 0.0022f
 #define PITCH_MIN (-0.35f)
 #define PITCH_MAX (1.05f)
+#define FP_PITCH  PITCH_MAX     // first person looks as far up as the orbit camera looks down
+#define FP_LOOK   6.0f          // how far ahead the look-at point sits
+#define FP_FOV    70.0f         // wider than the orbit camera's 55: first person needs the peripheral read
 
 void camera_init(Camera *c) {
     memset(c, 0, sizeof *c);
@@ -18,6 +21,15 @@ void camera_init(Camera *c) {
 static Vec3 orbit_dir(float yaw, float pitch) {
     // direction from pivot to eye
     return v3(-sinf(yaw) * cosf(pitch), sinf(pitch), -cosf(yaw) * cosf(pitch));
+}
+
+float camera_mouse_sens(void) { return MOUSE_SENS; }
+
+// View direction for a look-from-eye camera, matching camera_move_dir's forward: yaw 0 looks down
+// +Z. Positive pitch looks DOWN, the same convention as orbit_dir (positive pitch lifts the eye
+// above the pivot), so the body can be turned by copying c->yaw straight across.
+static Vec3 look_dir(float yaw, float pitch) {
+    return v3(sinf(yaw) * cosf(pitch), -sinf(pitch), cosf(yaw) * cosf(pitch));
 }
 
 void camera_orbit(Camera *c, Vec3 pp, float look_x, float look_y, bool has_lock, Vec3 lock_pos, const Level *lv, float dt) {
@@ -80,6 +92,34 @@ void camera_snap_behind(Camera *c, Vec3 pp, float yaw, const Level *lv) {
     c->cur_dist = fmaxf(0.8f, c->dist * t);
     c->eye = v3_add(pivot, v3_scale(orbit_dir(c->yaw, c->pitch), c->cur_dist));
     c->target = pivot;
+}
+
+void camera_first(Camera *c, Vec3 player_pos, float eye_height, float look_x, float look_y,
+                  float bob, float speed, float phase, float dt) {
+    bool entering = c->mode != CAM_FIRST;
+    c->mode = CAM_FIRST; c->locked = false; c->has_lock = false;
+    c->yaw -= look_x * MOUSE_SENS;   // same sign as camera_orbit
+    c->pitch = clampf(c->pitch + look_y * MOUSE_SENS, -FP_PITCH, FP_PITCH);
+    c->dist = c->cur_dist = 0;
+    // Head bob: two vertical dips and one lateral sway per stride, fading out with speed and the bob knob.
+    float k = bob * clampf(speed / 3.0f, 0, 1);
+    float bp = phase * 0.8f;   // walk_phase counts ~5 rad per metre
+    float by = k > 0 ? sinf(bp * 2.0f) * 0.035f * k : 0;
+    float bx = k > 0 ? sinf(bp) * 0.030f * k : 0;
+    Vec3 fwd = look_dir(c->yaw, c->pitch);
+    Vec3 right = v3_norm(v3_cross(fwd, v3(0, 1, 0)));
+    // No damping here: the eye must track the player exactly so game.c's frame-rate interpolation
+    // (which lerps eye/target between ticks) doesn't double-smooth.
+    c->eye = v3_add(v3(player_pos.x, player_pos.y + eye_height + by, player_pos.z), v3_scale(right, bx));
+    c->target = v3_add(c->eye, v3_scale(fwd, FP_LOOK));
+    c->fov = entering ? FP_FOV : damp(c->fov, FP_FOV, 6, dt);
+}
+
+void camera_snap_first(Camera *c, Vec3 player_pos, float eye_height, float yaw) {
+    c->mode = CAM_FIRST; c->yaw = yaw; c->pitch = 0; c->dist = c->cur_dist = 0; c->fov = FP_FOV;
+    Vec3 fwd = look_dir(c->yaw, c->pitch);
+    c->eye = v3(player_pos.x, player_pos.y + eye_height, player_pos.z);
+    c->target = v3_add(c->eye, v3_scale(fwd, FP_LOOK));
 }
 
 void camera_set_scene(Camera *c, Vec3 eye, Vec3 target, float fov, bool cut) {
