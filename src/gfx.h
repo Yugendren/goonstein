@@ -52,6 +52,9 @@ typedef struct Gfx {
     SDL_GPUTexture *pix, *pix_depth; int pw, ph, pixel_scale;
     float pix_levels, pix_outline, pix_palette, pix_inner;
     SDL_GPUGraphicsPipeline *pipe_pixcomp;
+    // sun shadow map (depth only, orthographic), drawn before the main pass
+    SDL_GPUTexture *shadow_tex; int shadow_size; SDL_GPUGraphicsPipeline *pipe_shadow, *pipe_shadow_skin; bool in_shadow;
+    Mat4 sun_vp; float shadow_strength, shadow_bias; bool shadow_valid;
     Mat4 main_vp; float pix_off_x, pix_off_y; bool in_pix;
     // portrait camera: a character head rendered through the pixel pass into a small UI texture
     SDL_GPUTexture *por_hdr, *por_depth, *por_comp, *por_comp_depth; int por_size; Texture portrait; bool in_portrait; Vec3 por_backdrop_lin;
@@ -140,6 +143,11 @@ void gfx_ui_image(Gfx *g, const Texture *t, float x, float y, float w, float h, 
 // to that target's texel grid and off_x/off_y the remaining sub-texel shift in texels; end
 // composites the layer over the world with a one-pixel outline and crunched colours, depth-tested.
 void gfx_set_pixel_look(Gfx *g, int scale, float levels, float outline, float palette, float inner);
+// Sun shadows: call before gfx_begin. Everything drawn between begin and end goes into the shadow
+// map through the sun's orthographic view_proj; the main pass then darkens what the sun cannot see.
+// strength 0 turns shadows off for the frame.
+void gfx_shadow_begin(Gfx *g, Platform *pf, Mat4 sun_vp, float strength, float bias);
+void gfx_shadow_end(Gfx *g);
 void gfx_pixel_begin(Gfx *g, Mat4 view_proj, float off_x, float off_y);
 // Portrait: call before gfx_begin. Opens a pass on a size x size art-pixel target using fp's
 // lighting and view; draw the character; end composites it (outline, palette) and tone-maps it into

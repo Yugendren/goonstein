@@ -741,6 +741,14 @@ void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h)
         #define SECTION(t) do { y = fmaxf(y, sy) + 6; ui_label(ui, x, y, t, v4(1, 0.85f, 0.4f, 1)); y += 24; sy = y; } while (0)
         #define CL(col, lbl, ptr, hi) do { float _x = (col) ? cx2 : x; float _y = (col) && two_col ? sy : y; if (ui_color(ui, _x, _y, cw, lbl, ptr, hi)) e->dirty = true; if (!(col) || !two_col) y += 3 * 26 + 6; if ((col) && two_col) sy += 3 * 26 + 6; } while (0)
         bool ch = false;
+        SECTION(w >= 760 ? "TIME OF DAY   the sun, sky and fog colour follow the clock (off = the values below)" : "TIME OF DAY   (off = the values below)");
+        { float hr = k->daytime < 0 ? -1 : k->daytime;
+          if (ui_slider(ui, x, y, cw, hr < 0 ? "hour  off" : "hour", &hr, -1, 24)) { k->daytime = hr < 0 ? -1 : hr; e->dirty = true; }
+          y += 30;
+          static const struct { const char *name; float hour; } TOD[] = { {"DAWN 6.5", 6.5f}, {"NOON 13", 13.0f}, {"GOLDEN 18.5", 18.5f}, {"NIGHT 1", 1.0f} };
+          float bw = row_w(w, 4);
+          for (int i = 0; i < 4; i++) if (ui_button(ui, x + i * (bw + P_G), y, bw, P_ROW, TOD[i].name)) { k->daytime = TOD[i].hour; e->dirty = true; }
+          y += P_ROW + 4; sy = y; }
         SECTION("SUN AND FOG");
         ch |= ui_slider(ui, x, y, cw, "sun yaw", &sun_yaw, -180, 180);
         if (two_col) { ch |= ui_slider(ui, cx2, sy, cw, "sun pitch", &sun_pitch, 0, 89); sy += 26; y += 26; } else { y += 26; ch |= ui_slider(ui, x, y, cw, "sun pitch", &sun_pitch, 0, 89); y += 26; sy = y; }
@@ -758,7 +766,7 @@ void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h)
         SL(0, "bloom threshold", &k->bloom_threshold, 0.2f, 3); SL(1, "stars", &k->stars, 0, 3); ROW();
         SECTION("TOON SHADING");
         SL(0, "toon softness", &k->toon_softness, 0.01f, 0.4f); SL(1, "shadow floor", &k->shadow_floor, 0, 0.6f); ROW();
-        SL(0, "rim power", &k->rim_power, 1, 8); ROW();
+        SL(0, "rim power", &k->rim_power, 1, 8); SL(1, "sun shadows", &k->shadow, 0, 1); ROW();
         SECTION(w >= 760 ? "PIXEL CHARACTERS   3D characters drawn as pixel art (size 0 = off)" : "PIXEL CHARACTERS   (size 0 = off)");
         { float sc = k->pixel_scale; float _y = y; if (ui_slider(ui, x, _y, cw, "pixel size", &sc, 0, 6)) { k->pixel_scale = roundf(sc); e->dirty = true; }
           float lv2 = k->pixel_levels; if (ui_slider(ui, two_col ? cx2 : x, two_col ? _y : _y + 26, cw, "colour levels", &lv2, 0, 16)) { k->pixel_levels = roundf(lv2); e->dirty = true; }

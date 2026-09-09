@@ -40,9 +40,15 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
     grade    exposure  saturation  contrast  bloom  bloom_threshold
     lift     r g b                             # added to shadows (cool blue lifts read as night)
     gain     r g b                             # multiplied into highlights
+    shadow   strength                          # sun shadow map strength 0..1 (0 = off)
     pixel    scale levels outline palette inner # 3D characters as pixel art: scale = screen pixels per art pixel (0 off),
                                                # levels = colours per channel when palette is 0, palette 1 = snap to Endesga 32,
                                                # outline 0..1 = dark silhouette line, inner 0..1 = crease lines
+    daytime  hour                              # 0..24 clock: the sun, ambient, sky, stars, lift and fog colour
+                                               # are computed for that hour (6.5 dawn, 13 noon, 18.5 golden, 1 night)
+                                               # and override the lines above; the sun line's direction is kept as the
+                                               # sun's bearing at noon, and fog density/shape stay as authored.
+                                               # Leave the line out (or use a negative hour) to keep the values above.
 
 Legacy `fog r g b near far` and `light dx dy dz ambient r g b` lines still parse but are ignored
 by the renderer once `fogv` / `sun` are present. `cam` lines are ignored (camera is free).

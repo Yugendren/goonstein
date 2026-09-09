@@ -26,6 +26,7 @@ typedef struct FrameUniforms {
     Vec4 cam_pos, sun_dir, sun_color, sky_ambient, ground_ambient, fog_color, fog_height, toon;
     Vec4 lights_pos[GFX_MAX_LIGHTS], lights_color[GFX_MAX_LIGHTS];
     Sint32 counts[4];
+    Mat4 sun_vp; Vec4 shadow;
 } FrameUniforms;
 typedef struct MaterialUniforms { Vec4 tint, emissive, rim; } MaterialUniforms;
 typedef struct SkyUniforms { Mat4 inv_view_proj; Vec4 cam_pos, sun_dir, sun_color, zenith, horizon, ground, params, fog_color; } SkyUniforms;
@@ -218,7 +219,8 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
 
     SDL_GPUShader *world_vs = load_shader(g, "world.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
     SDL_GPUShader *skin_vs = load_shader(g, "skin.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 2);
-    SDL_GPUShader *lit_fs = load_shader(g, "lit.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 2);
+    SDL_GPUShader *lit_fs = load_shader(g, "lit.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 2);
+    SDL_GPUShader *shadow_fs = load_shader(g, "shadow.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0);
     SDL_GPUShader *sky_vs = load_shader(g, "sky.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 0);
     SDL_GPUShader *sky_fs = load_shader(g, "sky.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 1);
     SDL_GPUShader *part_vs = load_shader(g, "particle.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
@@ -231,7 +233,7 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     SDL_GPUShader *pixcomp_fs = load_shader(g, "pixcomp.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
     SDL_GPUShader *ui_vs = load_shader(g, "ui.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
     SDL_GPUShader *ui_fs = load_shader(g, "ui.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0);
-    SDL_GPUShader *all[] = { world_vs, skin_vs, lit_fs, sky_vs, sky_fs, part_vs, part_fs, fs_vs, bright_fs, blur_fs, post_fs, blit_fs, ui_vs, ui_fs, pixcomp_fs };
+    SDL_GPUShader *all[] = { world_vs, skin_vs, lit_fs, sky_vs, sky_fs, part_vs, part_fs, fs_vs, bright_fs, blur_fs, post_fs, blit_fs, ui_vs, ui_fs, pixcomp_fs, shadow_fs };
     for (size_t i = 0; i < sizeof all / sizeof *all; i++) if (!all[i]) return false;
 
     SDL_GPUVertexAttribute world_attrs[] = {
@@ -261,6 +263,25 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->pipe_ui_swap = make_pipe(g, &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1 });
     g->pipe_blit = make_pipe(g, &(PipeDesc){ fs_vs, blit_fs, NULL, NULL, 0, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
     g->pipe_pixcomp = make_pipe(g, &(PipeDesc){ fs_vs, pixcomp_fs, NULL, NULL, 0, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 0 });
+    // depth-only shadow pipelines: no colour target
+    {
+        SDL_GPUGraphicsPipelineCreateInfo ci = {
+            .vertex_shader = world_vs, .fragment_shader = shadow_fs, .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+            .rasterizer_state = { .fill_mode = SDL_GPU_FILLMODE_FILL, .cull_mode = SDL_GPU_CULLMODE_NONE, .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
+                                  .enable_depth_bias = true, .depth_bias_constant_factor = 1.5f, .depth_bias_slope_factor = 2.5f },
+            .depth_stencil_state = { .enable_depth_test = true, .enable_depth_write = true, .compare_op = SDL_GPU_COMPAREOP_LESS },
+            .target_info = { .num_color_targets = 0, .has_depth_stencil_target = true, .depth_stencil_format = DEPTH_FMT },
+            .vertex_input_state = { .vertex_buffer_descriptions = &world_vb, .num_vertex_buffers = 1, .vertex_attributes = world_attrs, .num_vertex_attributes = 4 } };
+        g->pipe_shadow = SDL_CreateGPUGraphicsPipeline(g->dev, &ci);
+        ci.vertex_shader = skin_vs; ci.vertex_input_state = (SDL_GPUVertexInputState){ .vertex_buffer_descriptions = &skin_vb, .num_vertex_buffers = 1, .vertex_attributes = skin_attrs, .num_vertex_attributes = 5 };
+        g->pipe_shadow_skin = SDL_CreateGPUGraphicsPipeline(g->dev, &ci);
+        if (!g->pipe_shadow || !g->pipe_shadow_skin) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "shadow pipeline: %s", SDL_GetError());
+        g->shadow_size = 2048;
+        g->shadow_tex = SDL_CreateGPUTexture(g->dev, &(SDL_GPUTextureCreateInfo){ .type = SDL_GPU_TEXTURETYPE_2D, .format = DEPTH_FMT,
+            .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER, .width = 2048, .height = 2048, .layer_count_or_depth = 1, .num_levels = 1 });
+        if (!g->shadow_tex) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "shadow map: %s", SDL_GetError());
+        g->sun_vp = m4_identity(); g->shadow_strength = 0.85f; g->shadow_bias = 0.0025f;
+    }
     for (size_t i = 0; i < sizeof all / sizeof *all; i++) SDL_ReleaseGPUShader(g->dev, all[i]);
     if (!g->pipe_world || !g->pipe_skin || !g->pipe_sky || !g->pipe_particle_add || !g->pipe_particle_alpha || !g->pipe_bright || !g->pipe_blur || !g->pipe_post || !g->pipe_ui || !g->pipe_ui_swap || !g->pipe_blit || !g->pipe_pixcomp) return false;
 
@@ -304,6 +325,8 @@ void gfx_shutdown(Gfx *g) {
     for (int i = 0; i < g->nfonts; i++) { gfx_texture_destroy(g, &g->fonts[i].tex); free(g->fonts[i].cdata); }
     if (g->ttf) SDL_free(g->ttf);
     if (g->tool_shot) SDL_ReleaseGPUTexture(g->dev, g->tool_shot);
+    if (g->shadow_tex) SDL_ReleaseGPUTexture(g->dev, g->shadow_tex);
+    if (g->pipe_shadow) SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_shadow); if (g->pipe_shadow_skin) SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_shadow_skin);
     if (g->por_hdr) SDL_ReleaseGPUTexture(g->dev, g->por_hdr); if (g->por_depth) SDL_ReleaseGPUTexture(g->dev, g->por_depth);
     if (g->por_comp) SDL_ReleaseGPUTexture(g->dev, g->por_comp); if (g->por_comp_depth) SDL_ReleaseGPUTexture(g->dev, g->por_comp_depth);
     if (g->portrait.tex) SDL_ReleaseGPUTexture(g->dev, g->portrait.tex);
@@ -345,7 +368,8 @@ static void push_frame_uniforms(Gfx *g, const FrameParams *fp) {
         .fog_color = v4(fp->fog_color.x, fp->fog_color.y, fp->fog_color.z, fp->fog_density),
         .fog_height = v4(fp->fog_height_base, fp->fog_height_falloff, fp->fog_scatter, fp->fog_start),
         .toon = v4(fp->toon_softness, fp->shadow_floor, fp->rim_power, 0),
-        .counts = { fp->nlights > GFX_MAX_LIGHTS ? GFX_MAX_LIGHTS : fp->nlights, 0, 0, 0 } };
+        .counts = { fp->nlights > GFX_MAX_LIGHTS ? GFX_MAX_LIGHTS : fp->nlights, 0, 0, 0 },
+        .sun_vp = g->sun_vp, .shadow = v4(g->shadow_size > 0 ? 1.0f / g->shadow_size : 0, g->shadow_bias, g->shadow_valid ? g->shadow_strength : 0, 0.08f) };
     for (int i = 0; i < u.counts[0]; i++) {
         const PointLight *l = &fp->lights[i];
         u.lights_pos[i] = v4(l->pos.x, l->pos.y, l->pos.z, l->radius);
@@ -354,6 +378,25 @@ static void push_frame_uniforms(Gfx *g, const FrameParams *fp) {
     SDL_PushGPUFragmentUniformData(g->cmd, 0, &u, sizeof u);
     memcpy(g->frame_uniforms, &u, sizeof u); g->frame_uniforms_size = sizeof u;
     push_material(g, v4(1, 1, 1, 1));
+}
+
+// ---------------------------------------------------------------- sun shadow map
+
+void gfx_shadow_begin(Gfx *g, Platform *pf, Mat4 sun_vp, float strength, float bias) {
+    g->shadow_valid = false; g->shadow_strength = strength; g->shadow_bias = bias; g->sun_vp = sun_vp;
+    if (!pf->cmd || !g->shadow_tex || !g->pipe_shadow || strength <= 0) return;
+    g->cmd = pf->cmd; g->bound_pipe = NULL; g->bound_tex = NULL;
+    g->frame.view_proj = sun_vp;
+    SDL_GPUDepthStencilTargetInfo dt = { .texture = g->shadow_tex, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE,
+        .stencil_load_op = SDL_GPU_LOADOP_DONT_CARE, .stencil_store_op = SDL_GPU_STOREOP_DONT_CARE, .clear_depth = 1.0f, .cycle = true };
+    g->pass = SDL_BeginGPURenderPass(pf->cmd, NULL, 0, &dt);
+    g->in_shadow = g->pass != NULL;
+}
+
+void gfx_shadow_end(Gfx *g) {
+    if (!g->in_shadow) return;
+    SDL_EndGPURenderPass(g->pass); g->pass = NULL; g->in_shadow = false; g->shadow_valid = true;
+    g->bound_pipe = NULL; g->bound_tex = NULL;
 }
 
 // ---------------------------------------------------------------- portrait camera
@@ -478,15 +521,19 @@ static void bind_pipe(Gfx *g, SDL_GPUGraphicsPipeline *p) {
     if (g->bound_pipe != p) { SDL_BindGPUGraphicsPipeline(g->pass, p); g->bound_pipe = p; g->bound_tex = NULL; }
 }
 static void bind_tex(Gfx *g, const Texture *t, SDL_GPUSampler *s) {
-    if (t != g->bound_tex) { SDL_BindGPUFragmentSamplers(g->pass, 0, &(SDL_GPUTextureSamplerBinding){ .texture = t->tex, .sampler = s }, 1); g->bound_tex = t; }
+    if (g->in_shadow) return;   // the depth pass samples nothing
+    if (t != g->bound_tex) {
+        SDL_GPUTextureSamplerBinding b[2] = { { .texture = t->tex, .sampler = s }, { .texture = g->shadow_tex, .sampler = g->samp_clamp } };
+        SDL_BindGPUFragmentSamplers(g->pass, 0, b, 2); g->bound_tex = t;
+    }
 }
 
 void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Vec4 uv_xform) {
     if (!g->pass) return;
-    bind_pipe(g, g->pipe_world);
+    bind_pipe(g, g->in_shadow ? g->pipe_shadow : g->pipe_world);
     VSUniforms u = { g->frame.view_proj, model, uv_xform, v4(g->planar_next ? 1.0f : 0.0f, 0, 0, 0) };
     SDL_PushGPUVertexUniformData(g->cmd, 0, &u, sizeof u);
-    push_material(g, tint);
+    if (!g->in_shadow) push_material(g, tint);
     bind_tex(g, t, g->samp_linear);
     SDL_BindGPUVertexBuffers(g->pass, 0, &(SDL_GPUBufferBinding){ .buffer = m->vb }, 1);
     SDL_BindGPUIndexBuffer(g->pass, &(SDL_GPUBufferBinding){ .buffer = m->ib }, SDL_GPU_INDEXELEMENTSIZE_16BIT);
@@ -496,14 +543,14 @@ void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Ve
 
 void gfx_draw_skinned(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, const Mat4 *joints, int njoints) {
     if (!g->pass) return;
-    bind_pipe(g, g->pipe_skin);
+    bind_pipe(g, g->in_shadow ? g->pipe_shadow_skin : g->pipe_skin);
     VSUniforms u = { g->frame.view_proj, model, v4(1, 1, 0, 0), v4(0, 0, 0, 0) };
     SDL_PushGPUVertexUniformData(g->cmd, 0, &u, sizeof u);
     static Mat4 tmp[64];
     memset(tmp, 0, sizeof tmp);
     memcpy(tmp, joints, (size_t)(njoints > 64 ? 64 : njoints) * sizeof(Mat4));
     SDL_PushGPUVertexUniformData(g->cmd, 1, tmp, sizeof tmp);
-    push_material(g, tint);
+    if (!g->in_shadow) push_material(g, tint);
     bind_tex(g, t, g->samp_linear);
     SDL_BindGPUVertexBuffers(g->pass, 0, &(SDL_GPUBufferBinding){ .buffer = m->vb }, 1);
     SDL_BindGPUIndexBuffer(g->pass, &(SDL_GPUBufferBinding){ .buffer = m->ib }, SDL_GPU_INDEXELEMENTSIZE_16BIT);
@@ -520,6 +567,7 @@ Texture gfx_texture_load_exact(Gfx *g, const char *path) {
 }
 
 void gfx_draw_sprite(Gfx *g, const Texture *t, Vec3 foot, float w, float h, const float *uv, Vec4 tint, bool flip_x) {
+    if (g->in_shadow) return;
     if (!g->pass) return;
     // Basis: right = camera right (horizontal), up = world up, normal = toward the camera, tilted up a little
     Vec3 r = v3_norm(v3(g->cam_right.x, 0, g->cam_right.z));
@@ -565,6 +613,7 @@ void gfx_draw_box(Gfx *g, const Texture *t, Vec3 center, Vec3 size, float yaw, V
 }
 
 void gfx_draw_box_wire(Gfx *g, Vec3 c, Vec3 s, Vec4 color) {
+    if (g->in_shadow) return;
     const float th = 0.02f;
     Material m = material_default(); m.emissive = v3(color.x, color.y, color.z);
     Material saved = g->material; g->material = m;

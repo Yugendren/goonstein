@@ -1,6 +1,7 @@
 #include "game.h"
 #include "audio.h"
 #include "debug.h"
+#include "daylight.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -623,11 +624,13 @@ static void render_portrait(Game *g, Platform *pf, const FrameParams *fp) {
     pp.sun_dir = v3_norm(v3(-0.4f, -0.5f, -0.75f));   // key light from the camera side
     pp.sun_intensity = fmaxf(pp.sun_intensity, 1.0f);
     Vec3 backdrop = which == 2 ? v3(0.16f, 0.09f, 0.09f) : v3(0.10f, 0.13f, 0.11f);
+    bool sv = g->gfx.shadow_valid; g->gfx.shadow_valid = false;   // the portrait has its own light
     gfx_portrait_begin(&g->gfx, pf, &pp, 64, backdrop);
     Material pm = material_default(); pm.rim = 0.3f; pm.rim_color = v3(0.7f, 0.8f, 1.0f); gfx_set_material(&g->gfx, &pm);
     charmodel_draw_posed(&g->gfx, cm, &g->portrait_pose, m4_trs(v3(0, 0, 0), 0, v3(cm->scale, cm->scale, cm->scale)), v4(1, 1, 1, 1));
     gfx_set_material(&g->gfx, NULL);
     gfx_portrait_end(&g->gfx);
+    g->gfx.shadow_valid = sv;
 }
 
 static void draw_console(Game *g, Platform *pf) {
@@ -882,7 +885,9 @@ void game_render(Game *g, Platform *pf, float alpha) {
     g->frames++;
     if (g->time - g->fps_t >= 0.5) { g->fps = (float)(g->frames / (g->time - g->fps_t)); g->frames = 0; g->fps_t = g->time; }
 
-    const Level *lv = &g->level; const Look *lk = &lv->look;
+    const Level *lv = &g->level;
+    Look tod_look; const Look *lk = &lv->look;
+    if (lk->daytime >= 0) { tod_look = daylight_apply(&lv->look, lk->daytime); lk = &tod_look; }
     Vec3 fwd = v3_norm(v3_sub(g->cam.target, g->cam.eye));
     Vec3 right = v3_norm(v3_cross(fwd, v3(0, 1, 0)));
     Vec3 up = v3_cross(right, fwd);
@@ -912,6 +917,27 @@ void game_render(Game *g, Platform *pf, float alpha) {
         fp.lights[fp.nlights++] = (PointLight){ .pos = v3(pc->pos.x, pc->pos.y + 1.2f, pc->pos.z), .radius = 7.0f, .color = g->flash_color, .intensity = 2.5f * g->flash };
 
     Gfx *x = &g->gfx;
+    // Sun shadow map: the world drawn once from the sun, fitted around what the camera looks at
+    {
+        float strength = SDL_getenv("HOLLOW_NOSHADOW") ? 0 : (SDL_getenv("HOLLOW_SHADOW") ? (float)atof(SDL_getenv("HOLLOW_SHADOW")) : lk->shadow);
+        Vec3 sd = v3_norm(lk->sun_dir); if (sd.y > -0.05f) strength = 0;   // sun below the horizon: no shadows
+        Vec3 target = g->cam.target; float R = clampf(v3_len(v3_sub(g->cam.target, g->cam.eye)) * 2.2f, 30, 140);
+        Vec3 up = fabsf(sd.y) > 0.95f ? v3(0, 0, 1) : v3(0, 1, 0);
+        Mat4 view = m4_look_at(v3_sub(target, v3_scale(sd, 120)), target, up);
+        // snap the centre to shadow texels so the map does not swim as the camera moves
+        float texel = 2 * R / (float)(x->shadow_size > 0 ? x->shadow_size : 2048);
+        view.m[12] = roundf(view.m[12] / texel) * texel; view.m[13] = roundf(view.m[13] / texel) * texel;
+        Mat4 sun_vp = m4_mul(m4_ortho(-R, R, -R, R, 1, 260), view);
+        gfx_shadow_begin(x, pf, sun_vp, strength, 0.0022f);
+        if (x->in_shadow) {
+            draw_level(x, lv, &g->wt);
+            if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain); }
+            props_draw(x, &g->props, lv, t);
+            if (g->player_model.loaded && !g->player_model.is_sprite) charmodel_draw(x, &g->player_model, pc, v4(1, 1, 1, 1));
+            if (g->boss_model.loaded && !g->boss_model.is_sprite) charmodel_draw(x, &g->boss_model, bc, v4(1, 1, 1, 1));
+            gfx_shadow_end(x);
+        }
+    }
     render_portrait(g, pf, &fp);
     gfx_begin(x, pf, &fp);
     draw_level(x, lv, &g->wt);

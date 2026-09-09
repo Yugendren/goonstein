@@ -25,3 +25,9 @@ requiring attribution we cannot satisfy in-game.
 | assets/sprites/ninja/Ui/{Arrow.png,Dialog/*.png,Receptacle/*.png} | https://pixel-boy.itch.io/ninja-adventure-asset-pack | CC0 | curated UI subset: menu cursor arrow, dialog box panels/frames, heart/HP icons |
 | assets/sprites/ninja/Audio/Sounds/{Whoosh & Slash,Hit & Impact,Menu,Magic & Skill,Alert,Bonus}/*.wav | https://pixel-boy.itch.io/ninja-adventure-asset-pack | CC0 | 74 sound effects, 44.1kHz stereo 16-bit; see assets/sprites/ninja/SOUNDS.md |
 | assets/sprites/ninja/Audio/Musics/*.ogg | https://pixel-boy.itch.io/ninja-adventure-asset-pack | CC0 | 4 of 41 tracks (Adventure Begin, Clearing, Mystical, Fight), kept under 12MB budget; see SOUNDS.md |
+| assets/models/polyhaven/barrel_03/*.gltf, *.bin, textures/*.jpg | https://polyhaven.com/a/barrel_03 | CC0 | photoscanned model, 1k textures |
+| assets/models/polyhaven/rock_moss_set_01/*.gltf, *.bin, textures/*.jpg | https://polyhaven.com/a/rock_moss_set_01 | CC0 | photoscanned model, 1k textures |
+| assets/models/polyhaven/dead_tree_trunk/*.gltf, *.bin, textures/*.jpg | https://polyhaven.com/a/dead_tree_trunk | CC0 | photoscanned model, 1k textures |
+| assets/models/polyhaven/old_military_crate/*.gltf, *.bin, textures/*.jpg | https://polyhaven.com/a/old_military_crate | CC0 | photoscanned model, 1k textures |
+| assets/models/polyhaven/brass_diya_lantern/*.gltf, *.bin, textures/*.jpg | https://polyhaven.com/a/brass_diya_lantern | CC0 | photoscanned model, 1k textures |
+| assets/models/polyhaven/tree_stump_01/*.gltf, *.bin, textures/*.jpg | https://polyhaven.com/a/tree_stump_01 | CC0 | photoscanned model, 1k textures |

@@ -137,6 +137,12 @@ static inline Quat quat_slerp(Quat a, Quat b, float t) {
     float wa = sinf((1 - t) * th) / s, wb = sinf(t * th) / s;
     return (Quat){a.x * wa + b.x * wb, a.y * wa + b.y * wb, a.z * wa + b.z * wb, a.w * wa + b.w * wb};
 }
+static inline Mat4 m4_ortho(float l, float r, float b, float t, float zn, float zf) {   // depth 0..1
+    Mat4 m = {{0}};
+    m.m[0] = 2.0f / (r - l); m.m[5] = 2.0f / (t - b); m.m[10] = 1.0f / (zn - zf);
+    m.m[12] = -(r + l) / (r - l); m.m[13] = -(t + b) / (t - b); m.m[14] = zn / (zn - zf); m.m[15] = 1.0f;
+    return m;
+}
 static inline Mat4 m4_from_quat(Quat q) {
     float x = q.x, y = q.y, z = q.z, w = q.w;
     Mat4 r = m4_identity();

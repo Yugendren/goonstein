@@ -1,0 +1,18 @@
+# showcase: raw scans (left) vs recoloured, stretched, grouped (right)
+spawn 0 0 0 0
+boss  0 0 40 180
+arena -10 0 30 10 6 50
+block 0 -0.5 10   60 1 60   flat   0.24 0.34 0.18   1   solid
+daytime 13
+fogv     0.55 0.66 0.80   0.004   0.0  0.04  0.5  10
+shadow 1
+pixel 3 8 1 1 0.6
+prop models/polyhaven/barrel_03/barrel_03_1k.gltf -4.0 0 3.0 20 1
+prop models/polyhaven/old_military_crate/old_military_crate_1k.gltf -4.2 0 0.8 0 1.6
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_1k.gltf -4.6 0 -1.6 0 0.8
+prop models/polyhaven/tree_stump_01/tree_stump_01_1k.gltf -2.0 0 -2.2 0 1
+prop models/own/blue_barrel_lamp.part 4.0 0 3.0 -20 1
+prop models/polyhaven/old_military_crate/old_military_crate_1k.gltf 4.2 0 0.8 35 1.6 tint 0.9 0.35 0.3 stretch 1 1.6 1
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_1k.gltf 4.6 0 -1.6 90 0.8 tint 0.7 0.75 1.0 stretch 1.4 0.7 1.4
+prop models/polyhaven/tree_stump_01/tree_stump_01_1k.gltf 2.0 0 -2.2 0 1.6 tint 0.5 0.9 0.6 stretch 1 2.2 1
+light 4.0 2.3 3.0  1.0 0.7 0.3  5 3 0.3
