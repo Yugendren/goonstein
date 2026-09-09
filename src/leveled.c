@@ -19,7 +19,7 @@ static SDL_EnumerationResult scan_cb(void *ud, const char *dirname, const char *
     SDL_PathInfo info; if (!SDL_GetPathInfo(full, &info)) return SDL_ENUM_CONTINUE;
     if (info.type == SDL_PATHTYPE_DIRECTORY) { if (strcmp(c->category, "models") == 0 && !strcmp(fname, "kaykit")) scan_models(e, full, "kaykit"); else scan_models(e, full, fname); return SDL_ENUM_CONTINUE; }
     size_t n = strlen(fname);
-    bool is_model = (n > 4 && !strcmp(fname + n - 4, ".glb")) || (n > 5 && !strcmp(fname + n - 5, ".gltf"));
+    bool is_model = (n > 4 && !strcmp(fname + n - 4, ".glb")) || (n > 5 && !strcmp(fname + n - 5, ".gltf")) || (n > 4 && !strcmp(fname + n - 4, ".obj"));
     if (!is_model) return SDL_ENUM_CONTINUE;
     if (!strcmp(c->category, "kaykit")) return SDL_ENUM_CONTINUE;   // rigged characters live here
     const char *rel = strstr(full, "/models/"); if (!rel) return SDL_ENUM_CONTINUE; rel += 1;

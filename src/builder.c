@@ -22,8 +22,25 @@ static SDL_EnumerationResult scan_cb(void *ud, const char *dirname, const char *
     return SDL_ENUM_CONTINUE;
 }
 
+static SDL_EnumerationResult scan_parts_cb(void *ud, const char *dirname, const char *fname) {
+    Builder *b = ud;
+    size_t n = strlen(fname);
+    bool ok = (n > 4 && !strcmp(fname + n - 4, ".obj")) || (n > 4 && !strcmp(fname + n - 4, ".glb")) || (n > 5 && !strcmp(fname + n - 5, ".gltf"));
+    if (!ok || b->npart_files >= BLD_MAX_FILES) return SDL_ENUM_CONTINUE;
+    char full[1024]; snprintf(full, sizeof full, "%s%s", dirname, fname);
+    const char *rel = strstr(full, "/models/"); if (!rel) return SDL_ENUM_CONTINUE;
+    snprintf(b->part_files[b->npart_files], sizeof b->part_files[0], "%s", rel + 1);
+    char nm[64]; snprintf(nm, sizeof nm, "%s", fname); char *dot = strchr(nm, '.'); if (dot) *dot = 0;
+    snprintf(b->part_names[b->npart_files], sizeof b->part_names[0], "%s", nm);
+    b->npart_files++;
+    return SDL_ENUM_CONTINUE;
+}
+
 void builder_init(Builder *b) {
     memset(b, 0, sizeof *b);
+    // parts you can attach to a bone: your own exports in import/ and parts/
+    { const char *pd[] = { "models/import", "models/parts" }; for (size_t i = 0; i < 2; i++) { char d[640]; snprintf(d, sizeof d, "%s/%s/", HOLLOW_ASSET_DIR, pd[i]); SDL_EnumerateDirectory(d, scan_parts_cb, b); } }
+    b->bone_sel = -1; b->attach_sel = -1;
     // rigged characters: the kaykit root and assets/models/characters (yours)
     const char *dirs[] = { "models/kaykit", "models/characters", "models/import" };
     for (size_t i = 0; i < sizeof dirs / sizeof *dirs; i++) { char d[640]; snprintf(d, sizeof d, "%s/%s/", HOLLOW_ASSET_DIR, dirs[i]); SDL_EnumerateDirectory(d, scan_cb, b); }
@@ -37,7 +54,7 @@ void builder_open(Builder *b, const CharSpec *current, const char *name) {
     b->file_sel = -1;
     for (int i = 0; i < b->nfiles; i++) if (!strcmp(b->files[i], b->spec.model)) b->file_sel = i;
     if (name && name[0]) snprintf(b->name, sizeof b->name, "%s", name);
-    b->tab = 0; b->pal_sel = -1; b->clip_sel = -1; b->scroll = 0; b->name_focus = false;
+    b->tab = 0; b->pal_sel = -1; b->clip_sel = -1; b->scroll = 0; b->name_focus = false; b->attach_sel = -1; b->part_file_sel = b->npart_files ? 0 : -1;
     say(b, "click parts to hide them, pick a colour to repaint it, then SAVE");
 }
 
@@ -100,8 +117,8 @@ int builder_panel(Builder *b, Ui *ui, const Input *keys, float w, float h, const
           for (int i = 0; i < b->nfiles; i++) { bool on = b->file_sel == i; float bx = x + (i % cols) * (bw + G), by = y + (i / cols) * (ROW + G);
               if (ui_toggle(ui, bx, by, bw, ROW, b->names[i], &on) && on) { b->file_sel = i; snprintf(sp->model, sizeof sp->model, "%s", b->files[i]); sp->nhidden = 0; sp->nrecolor = 0; flags |= BLD_RELOAD; b->pal_sel = -1; } }
           y += (ROW + G) * ((b->nfiles + cols - 1) / cols) + 8; }
-        if (ui_slider(ui, x, y, cw, "scale", &sp->scale, 0.3f, 3)) flags |= BLD_RELOAD;
-        { float yo = sp->yaw_offset_deg; if (ui_slider(ui, two ? x + cw + G : x, two ? y : y + 26, cw, "facing offset", &yo, -180, 180)) { sp->yaw_offset_deg = roundf(yo / 15) * 15; flags |= BLD_RELOAD; } }
+        if (ui_slider(ui, x, y, cw, "scale", &sp->scale, 0.3f, 3)) flags |= BLD_HIDE;
+        { float yo = sp->yaw_offset_deg; if (ui_slider(ui, two ? x + cw + G : x, two ? y : y + 26, cw, "facing offset", &yo, -180, 180)) { sp->yaw_offset_deg = roundf(yo / 15) * 15; flags |= BLD_HIDE; } }
         y += two ? 32 : 58;
         // ---- PARTS
         ui_label(ui, x, y, "PARTS   click to hide or show (weapons, shields, hats, capes)", v4(1, 0.85f, 0.4f, 1)); y += 24;
@@ -110,6 +127,48 @@ int builder_panel(Builder *b, Ui *ui, const Input *keys, float w, float h, const
             for (int i = 0; i < b->nparts; i++) { bool on = !is_hidden(sp, b->parts[i]); float bx = x + (i % cols) * (bw + G), by = y + (i / cols) * (ROW + G);
                 if (ui_toggle(ui, bx, by, bw, ROW, b->parts[i], &on)) { set_hidden(sp, b->parts[i], !on); flags |= BLD_HIDE; } }
             y += (ROW + G) * ((b->nparts + cols - 1) / cols) + 8; }
+        // ---- ATTACHMENTS: your own parts on a bone
+        ui_label(ui, x, y, "ATTACH   your OBJ from assets/models/import on a bone (helmet on head, weapon on handslot.r)", v4(1, 0.85f, 0.4f, 1)); y += 24;
+        if (b->npart_files == 0) { ui_label(ui, x, y, "no part files: export OBJ from your CAD tool into assets/models/import", v4(0.6f, 0.58f, 0.55f, 1)); y += 24; }
+        else {
+            int cols = w >= 900 ? 4 : w >= 640 ? 3 : 2; float bw = (w - 2 * M - (cols - 1) * G) / cols;
+            for (int i = 0; i < b->npart_files; i++) { bool on = b->part_file_sel == i; if (ui_toggle(ui, x + (i % cols) * (bw + G), y + (i / cols) * (ROW + G), bw, ROW, b->part_names[i], &on) && on) b->part_file_sel = i; }
+            y += (ROW + G) * ((b->npart_files + cols - 1) / cols) + 6;
+            if (m && m->njoints > 0) {
+                ui_label(ui, x, y, "bone", v4(0.7f, 0.68f, 0.65f, 1)); y += 22;
+                int bc = w >= 900 ? 6 : w >= 640 ? 4 : 3; float bbw = (w - 2 * M - (bc - 1) * G) / bc; int shown = 0;
+                for (int j = 0; j < m->njoints; j++) {
+                    const char *nm = m->nodes[m->joints[j]].name;
+                    if (strstr(nm, "IK") || strstr(nm, "control") || !strcmp(nm, "root")) continue;   // rig helpers are not places for parts
+                    bool on = b->bone_sel == j; if (ui_toggle(ui, x + (shown % bc) * (bbw + G), y + (shown / bc) * (26 + 4), bbw, 26, nm, &on) && on) b->bone_sel = j;
+                    shown++;
+                }
+                y += (26 + 4) * ((shown + bc - 1) / bc) + 6;
+            }
+            if (ui_button(ui, x, y, cw, ROW, "ADD PART TO BONE") && m && b->part_file_sel >= 0 && b->bone_sel >= 0 && b->bone_sel < m->njoints && sp->nattach < SPEC_MAX_ATTACH) {
+                int i = sp->nattach++;
+                snprintf(sp->attach[i].file, 128, "%s", b->part_files[b->part_file_sel]); snprintf(sp->attach[i].bone, 48, "%s", m->nodes[m->joints[b->bone_sel]].name);
+                sp->attach[i].pos = v3(0, 0, 0); sp->attach[i].yaw = sp->attach[i].pitch = sp->attach[i].roll = 0; sp->attach[i].scale = 1;
+                b->attach_sel = i; flags |= BLD_ATTACH;
+            }
+            y += ROW + 10;
+        }
+        for (int i = 0; i < sp->nattach; i++) {
+            char s[200]; const char *fn = strrchr(sp->attach[i].file, '/'); snprintf(s, sizeof s, "%s  on  %s", fn ? fn + 1 : sp->attach[i].file, sp->attach[i].bone);
+            bool on = b->attach_sel == i; if (ui_toggle(ui, x, y, cw, ROW, s, &on)) b->attach_sel = on ? i : -1;
+            if (ui_button(ui, x + cw + G, y, fminf(120, cw), ROW, "REMOVE")) { for (int k = i; k < sp->nattach - 1; k++) sp->attach[k] = sp->attach[k + 1]; sp->nattach--; if (b->attach_sel == i) b->attach_sel = -1; flags |= BLD_ATTACH; y += ROW + G; continue; }
+            y += ROW + G;
+            if (b->attach_sel == i) {
+                float c2x = two ? x + cw + G : x;
+                if (ui_slider(ui, x, y, cw, "x", &sp->attach[i].pos.x, -0.5f, 0.5f)) flags |= BLD_ATTACH;
+                if (ui_slider(ui, c2x, two ? y : y + 26, cw, "yaw", &sp->attach[i].yaw, -180, 180)) flags |= BLD_ATTACH; y += two ? 26 : 52;
+                if (ui_slider(ui, x, y, cw, "y", &sp->attach[i].pos.y, -0.5f, 0.5f)) flags |= BLD_ATTACH;
+                if (ui_slider(ui, c2x, two ? y : y + 26, cw, "pitch", &sp->attach[i].pitch, -180, 180)) flags |= BLD_ATTACH; y += two ? 26 : 52;
+                if (ui_slider(ui, x, y, cw, "z", &sp->attach[i].pos.z, -0.5f, 0.5f)) flags |= BLD_ATTACH;
+                if (ui_slider(ui, c2x, two ? y : y + 26, cw, "roll", &sp->attach[i].roll, -180, 180)) flags |= BLD_ATTACH; y += two ? 26 : 52;
+                if (ui_slider(ui, x, y, cw, "size", &sp->attach[i].scale, 0.1f, 3)) flags |= BLD_ATTACH; y += 32;
+            }
+        }
     } else if (b->tab == 1) {
         // ---- COLOURS
         ui_label(ui, x, y, "PAINT   the model's colours, most used first. Pick one, then move the sliders.", v4(1, 0.85f, 0.4f, 1)); y += 24;

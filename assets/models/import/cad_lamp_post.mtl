@@ -1,0 +1,6 @@
+newmtl wood
+Kd 0.45 0.30 0.18
+newmtl iron
+Kd 0.20 0.20 0.24
+newmtl glass
+Kd 1.0 0.85 0.45

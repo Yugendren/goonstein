@@ -13,13 +13,15 @@ typedef struct Builder {
     char files[BLD_MAX_FILES][160], names[BLD_MAX_FILES][48]; int nfiles, file_sel;
     CharSpec spec; char name[40];
     const char *parts[BLD_MAX_PARTS]; int nparts;      // node names owned by the live model
+    char part_files[BLD_MAX_FILES][160], part_names[BLD_MAX_FILES][48]; int npart_files, part_file_sel;   // OBJ / model files to attach
+    int bone_sel, attach_sel;
     ModelColor pal[BLD_MAX_PAL]; int npal, pal_sel;
     int style, clip_sel, tab; float scroll;
     char msg[160]; float msg_t;
     bool name_focus;
 } Builder;
 
-enum { BLD_RELOAD = 1, BLD_RECOLOR = 2, BLD_HIDE = 4, BLD_PLAY_CLIP = 8, BLD_SAVE = 16, BLD_USE = 32, BLD_OPEN_SPRITE = 64 };
+enum { BLD_RELOAD = 1, BLD_RECOLOR = 2, BLD_HIDE = 4, BLD_PLAY_CLIP = 8, BLD_SAVE = 16, BLD_USE = 32, BLD_OPEN_SPRITE = 64, BLD_ATTACH = 128 };
 
 void builder_init(Builder *b);                                        // finds rigged models
 void builder_open(Builder *b, const CharSpec *current, const char *name);

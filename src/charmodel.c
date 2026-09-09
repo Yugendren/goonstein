@@ -27,6 +27,12 @@ bool charmodel_spec_load(CharSpec *sp, const char *config_path) {
             if (k == 6 && sp->nrecolor < SPEC_MAX_RECOLOR) { for (int c = 0; c < 3; c++) { sp->rc_from[sp->nrecolor][c] = (unsigned char)v[c]; sp->rc_to[sp->nrecolor][c] = (unsigned char)v[3 + c]; } sp->nrecolor++; }
             else SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d bad recolor line", config_path, ln);
         }
+        else if (!strcmp(key, "attach")) {   // attach FILE BONE x y z yaw pitch roll scale
+            char *file = strtok(NULL, " \t\r"), *bone = strtok(NULL, " \t\r"); float f[7] = { 0, 0, 0, 0, 0, 0, 1 }; int k = 0; char *t;
+            while (k < 7 && (t = strtok(NULL, " \t\r"))) f[k++] = (float)atof(t);
+            if (file && bone && sp->nattach < SPEC_MAX_ATTACH) { int i = sp->nattach++; snprintf(sp->attach[i].file, 128, "%s", file); snprintf(sp->attach[i].bone, 48, "%s", bone); sp->attach[i].pos = v3(f[0], f[1], f[2]); sp->attach[i].yaw = f[3]; sp->attach[i].pitch = f[4]; sp->attach[i].roll = f[5]; sp->attach[i].scale = f[6] > 0 ? f[6] : 1; }
+            else SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d bad attach line", config_path, ln);
+        }
         else if (!strcmp(key, "anim")) {
             char *nm = strtok(NULL, " \t\r"), *clip = strtok(NULL, " \t\r");
             if (!nm || !clip) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d bad anim line", config_path, ln); continue; }
@@ -56,6 +62,7 @@ bool charmodel_spec_save(const CharSpec *sp, const char *config_path) {
     fprintf(f, "scale %.3f\ntexture_size %d\nyaw_offset %.1f\n", sp->scale, sp->tex_size, sp->yaw_offset_deg);
     if (sp->nhidden) { fprintf(f, "hide"); for (int i = 0; i < sp->nhidden; i++) fprintf(f, " %s", sp->hidden[i]); fprintf(f, "\n"); }
     for (int i = 0; i < sp->nrecolor; i++) fprintf(f, "recolor %d %d %d  %d %d %d\n", sp->rc_from[i][0], sp->rc_from[i][1], sp->rc_from[i][2], sp->rc_to[i][0], sp->rc_to[i][1], sp->rc_to[i][2]);
+    for (int i = 0; i < sp->nattach; i++) fprintf(f, "attach %s %s  %.3f %.3f %.3f  %.1f %.1f %.1f  %.3f\n", sp->attach[i].file, sp->attach[i].bone, sp->attach[i].pos.x, sp->attach[i].pos.y, sp->attach[i].pos.z, sp->attach[i].yaw, sp->attach[i].pitch, sp->attach[i].roll, sp->attach[i].scale);
     for (int a = 0; a < ANIM_COUNT; a++) {
         if (!sp->anims[a].set) continue;
         fprintf(f, "anim %-10s %s", anim_name((Anim)a), sp->anims[a].clip);
@@ -85,6 +92,13 @@ bool charmodel_apply(Gfx *g, CharModel *cm, const CharSpec *sp) {
         cm->is_sprite = true;
     }
     cm->loaded = true;
+    cm->nparts = 0;
+    for (int i = 0; i < sp->nattach && i < SPEC_MAX_ATTACH; i++) {
+        char path[640]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, sp->attach[i].file);
+        cm->part_ok[i] = model_load(g, &cm->parts[i], path, 256);
+        if (cm->part_ok[i]) { AnimPlayer rest = { .clip = -1, .prev = -1 }; model_pose(&cm->parts[i], &rest, &cm->part_rest[i]); }
+        cm->nparts = i + 1;
+    }
     for (int i = 0; i < sp->nhidden; i++) model_hide_node(&cm->model, sp->hidden[i], true);
     if (!cm->is_sprite && sp->nrecolor) model_recolor(g, &cm->model, sp->rc_from, sp->rc_to, sp->nrecolor);
     for (int a = 0; a < ANIM_COUNT; a++) {
@@ -143,7 +157,23 @@ int charmodel_spec_autobind(CharSpec *sp, const Model *m, int style) {
     return bound;
 }
 
-void charmodel_destroy(Gfx *g, CharModel *cm) { if (cm->loaded && cm->is_sprite) sprite_def_destroy(g, &cm->sdef); else if (cm->loaded) model_destroy(g, &cm->model); cm->loaded = false; }
+void charmodel_destroy(Gfx *g, CharModel *cm) {
+    if (cm->loaded && cm->is_sprite) sprite_def_destroy(g, &cm->sdef); else if (cm->loaded) model_destroy(g, &cm->model);
+    for (int i = 0; i < cm->nparts; i++) if (cm->part_ok[i]) model_destroy(g, &cm->parts[i]);
+    cm->nparts = 0; cm->loaded = false;
+}
+
+void charmodel_draw_posed(Gfx *g, const CharModel *cm, const ModelPose *pose, Mat4 world, Vec4 tint) {
+    model_draw(g, &cm->model, pose, world, tint);
+    for (int i = 0; i < cm->nparts && i < cm->spec.nattach; i++) {
+        if (!cm->part_ok[i]) continue;
+        const CharSpec *sp = &cm->spec;
+        int node = model_find_node(&cm->model, sp->attach[i].bone);
+        Mat4 bone = node >= 0 ? pose->global[node] : m4_identity();
+        Mat4 local = m4_mul(m4_translate(sp->attach[i].pos), m4_mul(m4_rotate_y(sp->attach[i].yaw * DEG2RAD), m4_mul(m4_rotate_x(sp->attach[i].pitch * DEG2RAD), m4_mul(m4_rotate_z(sp->attach[i].roll * DEG2RAD), m4_scale(v3(sp->attach[i].scale, sp->attach[i].scale, sp->attach[i].scale))))));
+        model_draw(g, &cm->parts[i], &cm->part_rest[i], m4_mul(world, m4_mul(bone, local)), tint);
+    }
+}
 
 // Did the character start a new animation since we last looked?
 static bool anim_changed(CharModel *cm, const Character *c) {
@@ -251,7 +281,7 @@ void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint) {
     }
     model_pose(&cm->model, &cm->player, &cm->pose);
     Mat4 world = m4_trs(c->pos, c->yaw + cm->yaw_offset, v3(cm->scale, cm->scale, cm->scale));
-    model_draw(g, &cm->model, &cm->pose, world, tint);
+    charmodel_draw_posed(g, cm, &cm->pose, world, tint);
 }
 
 static void bind_by_names(CharModel *cm) {

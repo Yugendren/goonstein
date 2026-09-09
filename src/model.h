@@ -6,7 +6,7 @@
 #define MODEL_MAX_NODES   128
 #define MODEL_MAX_MESHES  48
 #define MODEL_MAX_JOINTS  64
-#define MODEL_MAX_TEX     4
+#define MODEL_MAX_TEX     24     // glTF materials, or OBJ material colours
 
 typedef struct ModelNode {
     char name[48];
@@ -66,6 +66,8 @@ typedef struct ModelPose {
     Mat4 joints[MODEL_MAX_JOINTS];
 } ModelPose;
 
+// Loads .glb/.gltf (skinned, animated) or .obj/.mtl (static, one flat colour per material; CAD
+// exports). OBJ files larger than 50 units are taken as millimetres and scaled to metres.
 bool model_load(Gfx *g, Model *m, const char *path, int max_tex_size);
 void model_destroy(Gfx *g, Model *m);
 int  model_find_clip(const Model *m, const char *name);   // -1 if missing

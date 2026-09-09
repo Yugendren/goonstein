@@ -138,9 +138,19 @@ through the pixel pass: a head camera, an emotion-driven clip (happy cheers, ang
 slumps, surprised flinches) and the same palette and outline as the world. `assets/portraits.txt`
 maps a speaker to `model:hero`, `model:boss` or an image file.
 
-**Drop-in models.** Any `.glb` or `.gltf` under `assets/models` that `assets/kit.txt` does not
-list appears in the environment editor's palette under a category named after its folder; see
-`assets/models/import/README.md`.
+**Your own models from CAD.** Export OBJ (with materials) from your CAD tool into
+`assets/models/import`. The engine reads `.obj` + `.mtl` directly: one flat colour per material,
+millimetre files scaled to metres, the model stood on the ground. Any `.obj`, `.glb` or `.gltf`
+under `assets/models` that `assets/kit.txt` does not list appears in the environment editor's
+palette under a category named after its folder. `cad_lamp_post.obj` in that folder is a small
+example of the format CAD tools write.
+
+**Your own parts on a character.** In the builder's BODY & PARTS tab, ATTACH puts any file from
+`assets/models/import` (or `parts`) on a bone of the rigged body: a helmet on `head`, a weapon on
+`handslot.r`, a shield on `handslot.l`, armour on `chest`. Nudge position, rotation and size with
+the sliders, and the part follows every animation. Hide the whole KayKit body and attach your own
+segments, one per bone, for a fully self-modelled character on the free animations. Saved as
+`attach FILE BONE x y z yaw pitch roll scale` lines; portraits include the parts.
 
 **Sprite editor** (Ctrl+P). Draws in the tool window while the game keeps running with your character as
 the hero: every stroke updates the sprite in the world within a tenth of a second, so walk

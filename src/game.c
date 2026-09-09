@@ -624,7 +624,7 @@ static void render_portrait(Game *g, Platform *pf, const FrameParams *fp) {
     Vec3 backdrop = which == 2 ? v3(0.16f, 0.09f, 0.09f) : v3(0.10f, 0.13f, 0.11f);
     gfx_portrait_begin(&g->gfx, pf, &pp, 64, backdrop);
     Material pm = material_default(); pm.rim = 0.3f; pm.rim_color = v3(0.7f, 0.8f, 1.0f); gfx_set_material(&g->gfx, &pm);
-    model_draw(&g->gfx, m, &g->portrait_pose, m4_trs(v3(0, 0, 0), 0, v3(cm->scale, cm->scale, cm->scale)), v4(1, 1, 1, 1));
+    charmodel_draw_posed(&g->gfx, cm, &g->portrait_pose, m4_trs(v3(0, 0, 0), 0, v3(cm->scale, cm->scale, cm->scale)), v4(1, 1, 1, 1));
     gfx_set_material(&g->gfx, NULL);
     gfx_portrait_end(&g->gfx);
 }
@@ -1080,9 +1080,15 @@ static void apply_builder(Game *g, int flags) {
     if ((flags & BLD_HIDE) && cm->loaded && !cm->is_sprite) {
         for (int i = 0; i < cm->model.nnodes; i++) cm->model.nodes[i].hidden = false;
         for (int i = 0; i < b->spec.nhidden; i++) model_hide_node(&cm->model, b->spec.hidden[i], true);
-        cm->spec = b->spec;
+        cm->spec = b->spec; cm->scale = b->spec.scale; cm->yaw_offset = b->spec.yaw_offset_deg * DEG2RAD;
     }
     if ((flags & BLD_RECOLOR) && cm->loaded && !cm->is_sprite) { model_recolor(&g->gfx, &cm->model, b->spec.rc_from, b->spec.rc_to, b->spec.nrecolor); cm->spec = b->spec; }
+    if ((flags & BLD_ATTACH) && cm->loaded && !cm->is_sprite) {   // offsets change live; a new or removed part reloads
+        bool same = cm->spec.nattach == b->spec.nattach;
+        for (int i = 0; same && i < b->spec.nattach; i++) if (strcmp(cm->spec.attach[i].file, b->spec.attach[i].file) != 0) same = false;
+        if (same) cm->spec = b->spec;
+        else { charmodel_destroy(&g->gfx, cm); charmodel_apply(&g->gfx, cm, &b->spec); builder_model_loaded(b, cm->loaded ? &cm->model : NULL); }
+    }
     if ((flags & BLD_PLAY_CLIP) && cm->loaded && !cm->is_sprite && b->clip_sel >= 0) { anim_play(&cm->player, &cm->model, b->clip_sel, 1, true, false, 0.1f); cm->last_anim = g->player.c.anim; cm->last_anim_t = g->player.c.anim_t; }
     if (flags & BLD_SAVE) {
         if (!b->name[0]) snprintf(b->name, sizeof b->name, "%s", "my_hero");

@@ -20,12 +20,15 @@ typedef struct AnimBinding { int clip; bool loop, hold; float contact, rate; } A
 // A character file in memory: what the builder edits and what charmodel_apply turns into a model.
 #define SPEC_MAX_HIDDEN 32
 #define SPEC_MAX_RECOLOR 32
+#define SPEC_MAX_ATTACH 16
 typedef struct CharSpec {
     char model[256], sprite[256];        // one of the two is set (relative to assets/)
     float scale, yaw_offset_deg; int tex_size;
     char hidden[SPEC_MAX_HIDDEN][48]; int nhidden;
     unsigned char rc_from[SPEC_MAX_RECOLOR][3], rc_to[SPEC_MAX_RECOLOR][3]; int nrecolor;
     struct { char clip[64]; bool set, loop, hold; float contact, rate; } anims[ANIM_COUNT];
+    // rigid parts (your own OBJ or any model) fixed to a bone: attach FILE BONE x y z yaw pitch roll scale
+    struct { char file[128], bone[48]; Vec3 pos; float yaw, pitch, roll, scale; } attach[SPEC_MAX_ATTACH]; int nattach;
 } CharSpec;
 
 
@@ -36,6 +39,7 @@ typedef struct CharModel {
     AnimBinding bind[ANIM_COUNT];
     float scale, yaw_offset;
     CharSpec spec;                       // what this character was built from
+    Model parts[SPEC_MAX_ATTACH]; ModelPose part_rest[SPEC_MAX_ATTACH]; bool part_ok[SPEC_MAX_ATTACH]; int nparts;
     // change detection
     Anim last_anim; float last_anim_t; int last_move;
 } CharModel;
@@ -54,6 +58,8 @@ void charmodel_drive_player(CharModel *cm, const Player *p, float dt);
 // Advance animation for a boss (uses its move clips and timings).
 void charmodel_drive_boss(CharModel *cm, const Boss *b, float dt);
 void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint);
+// Draw a 3D character with an explicit pose and world matrix (portraits); attachments included.
+void charmodel_draw_posed(Gfx *g, const CharModel *cm, const ModelPose *pose, Mat4 world, Vec4 tint);
 // Sprite helpers used by the battle: play a named sprite animation (fitted so the first contact lands at lead), and contact timing.
 void charmodel_sprite_play(CharModel *cm, const char *anim, float lead, bool restart);
 float charmodel_sprite_contact(const CharModel *cm, const char *anim, int i, float lead);
