@@ -10,11 +10,21 @@ This is the skeleton build: one corridor, one cutscene going in, one boss, one c
 
     cmake -B build -G Ninja
     cmake --build build
-    ./build/bin/hollow
+    ./build/bin/goonstein
 
 The first configure fetches and builds SDL3 from source (a couple of minutes). Incremental
-rebuilds are sub-second. Shaders are precompiled and committed; after editing anything in
-`shaders/` run `tools/shaders.sh` (needs `brew install shaderc spirv-cross`).
+rebuilds are sub-second. Shaders are precompiled and committed, so a fresh clone needs no shader
+toolchain; after editing anything in `shaders/` run `tools/shaders.sh` (needs
+`brew install shaderc spirv-cross`, or `apt install glslc spirv-cross`).
+
+There are CMake presets for every target -- `mac-release`, `linux-release`,
+`windows-msvc-release`, `windows-mingw-release` and the matching debug ones:
+
+    cmake --preset linux-release && cmake --build --preset linux-release -j8
+
+Release presets build a relocatable layout (`bin/` plus `bin/assets/`); `--target package` makes a
+tarball or zip. See **PLATFORMS.md** for per-OS dependencies, the shader pipeline, Steam Deck notes
+and what is verified versus untested.
 
 ## Controls
 
@@ -290,6 +300,14 @@ the fight is checked without a controller in hand.
 
 ## Platform notes
 
-Metal (macOS) and Vulkan (Linux, Steam Deck) shaders are produced by `tools/shaders.sh`.
-Windows needs DXIL, which requires `dxc` on a Windows machine; until that step is added the
-Windows build compiles but the renderer will fail to load shaders at startup.
+One tree builds for macOS (Metal), Linux and Steam Deck (Vulkan) and Windows (D3D12). The GLSL in
+`shaders/` compiles to SPIR-V, MSL and HLSL anywhere via `tools/shaders.sh`; DXIL has to be signed
+by Microsoft's `dxil.dll` and so is produced on Windows by `tools/shaders.ps1` or by the CI job
+that uploads it. `gfx.c` picks whichever compiled format the GPU device accepts and finds on disk,
+and logs the choice at startup.
+
+**PLATFORMS.md** has the full story: per-OS build instructions, the shader pipeline diagram, the
+portable/packaged asset layout, Steam Deck specifics, the crossplay rules (same tick rate, same
+little-endian wire format, host-authoritative so determinism is not required), the `net_sys.h`
+socket shim, and an explicit list of what is verified on the dev machine versus what still needs
+real Windows and Deck hardware.
