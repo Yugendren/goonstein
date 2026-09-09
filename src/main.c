@@ -17,14 +17,19 @@
 #define MAX_FRAME_DT 0.25  // clamp after a stall so we don't spiral
 
 int main(int argc, char **argv) {
+    platform_use_base_dir();   // portable builds run from the executable's directory
     // --frames N      exit after N frames (headless checks, CI)
     // --screenshot P  write the internal frame to P before exiting
     // --start S       begin in state S: explore (default), fight, end
     // --bot           let a simple bot play the fight (with --start fight)
     // --volume V      master volume 0..1;  --quiet = 0.15;  --debug starts with the overlay on
     // --hero NAME     play with assets/characters/NAME.txt as the player
+    // --host PORT [--slots N] | --join HOST:PORT | --name NAME  multiplayer (see netgame.h)
+    // --no-scenes     skip cutscene playback from triggers and NPC talk (multiplayer sets this too)
+    // --third         force third-person view
+    // --log FILE      write the debug log to FILE instead of hollow.log
     int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *shot_every_dir = NULL; int shot_every = 0; bool spawn_set = false; float spawn_x = 0, spawn_z = 0; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
-    bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1;
+    bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1; bool log_set = false;
     static Game game;   // large; static keeps it off the stack (and zeroed)
     // settings.txt next to the assets folder: volume V, debug 0|1, hero NAME, fps N (0 = display rate), vsync 0|1, level NAME. Command-line flags override it.
     { char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR); size_t sn; char *st = SDL_LoadFile(sp, &sn);
@@ -34,6 +39,8 @@ int main(int argc, char **argv) {
       if (SDL_getenv("HOLLOW_FPS")) fps_cap = atoi(SDL_getenv("HOLLOW_FPS"));
       if (SDL_getenv("HOLLOW_NOVSYNC")) vsync = 0;
         SDL_free(st); } }
+    netgame_parse_args(&game.net, argc, argv);   // --host/--slots/--join/--name; must run before game_init
+    if (netgame_on(&game.net)) game.no_scenes = true;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) shot = argv[++i];
@@ -50,7 +57,16 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--tool") && i + 1 < argc) tool_mode = atoi(argv[++i]);   // 2 = world editor, 4 = character builder
         else if (!strcmp(argv[i], "--shot-when") && i + 1 < argc) shot_when = argv[++i];
         else if (!strcmp(argv[i], "--hero") && i + 1 < argc) snprintf(game.hero_config, sizeof game.hero_config, "%s", argv[++i]);   // ring | judge | play: screenshot at that battle moment, then exit
+        else if (!strcmp(argv[i], "--no-scenes")) game.no_scenes = true;
+        else if (!strcmp(argv[i], "--third")) game.force_third = true;
+        else if (!strcmp(argv[i], "--log") && i + 1 < argc) { log_set = true; snprintf(game.log_path, sizeof game.log_path, "%s", argv[++i]); }
+        // --host/--slots/--join/--name already consumed by netgame_parse_args; skip so they are not mistaken for something else
+        else if (!strcmp(argv[i], "--host") && i + 1 < argc) i++;
+        else if (!strcmp(argv[i], "--slots") && i + 1 < argc) i++;
+        else if (!strcmp(argv[i], "--join") && i + 1 < argc) i++;
+        else if (!strcmp(argv[i], "--name") && i + 1 < argc) i++;
     }
+    if (!log_set && game.net.name[0]) snprintf(game.log_path, sizeof game.log_path, "hollow_%s.log", game.net.name);
 
     Platform pf;
     if (!platform_init(&pf, "hollow", 1280, 800)) {
@@ -66,6 +82,7 @@ int main(int argc, char **argv) {
     pf.debug = debug_on;
     if (console_on) game_set_tool(&game, 1);
     if (start) game_start_at(&game, start);
+    if (!netgame_start(&game)) return 1;   // after --start, so the host reports the level it is really on
     pf.fps_cap = fps_cap; if (!vsync) platform_set_vsync(&pf, false); else pf.vsync = true;
     if (spawn_set) { PLAYER(&game).c.pos.x = spawn_x; PLAYER(&game).c.pos.z = spawn_z; }
     if (tool_mode) game_set_tool(&game, tool_mode);
@@ -112,6 +129,7 @@ int main(int argc, char **argv) {
             game.battle.state, game.battle.enemy_hp, game.battle.round, game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, PLAYER(&game).c.hp, PLAYER(&game).c.yaw / DEG2RAD, game.flash, game.time,
             PLAYER(&game).c.pos.x, PLAYER(&game).c.pos.y, PLAYER(&game).c.pos.z, game.boss.c.pos.x, game.boss.c.pos.y, game.boss.c.pos.z, game.cam.eye.x, game.cam.eye.y, game.cam.eye.z, game.cam.cur_dist);
 
+    netgame_shutdown(&game);
     game_shutdown(&game);
     platform_shutdown(&pf);
     return 0;

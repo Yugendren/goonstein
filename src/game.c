@@ -120,6 +120,7 @@ static void setup_npcs(Game *g) {
 }
 
 static void setup_level_content(Game *g) {
+    if (g->force_third) g->level.third_person = true;
     props_load_level(&g->gfx, &g->props, &g->level);
     // terrain follows the level: reload when the level names one, drop it otherwise
     if (g->level.terrain_file[0]) {
@@ -271,8 +272,8 @@ static void start_battle(Game *g) {
 }
 
 void game_init(Game *g) {
-    (void)g;   // static-zeroed by main; do not memset here (command-line overrides are already in it)
-    dbg_init("hollow.log");
+    // static-zeroed by main; do not memset here (command-line overrides are already in it)
+    dbg_init(g->log_path[0] ? g->log_path : "hollow.log");
     if (!audio_init()) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "audio unavailable, running silent");
     audio_set_master(0.8f);
 }
@@ -335,6 +336,7 @@ void game_start_at(Game *g, const char *where) {
 // A deliberately simple bot: parry when a parryable windup is about to land, dodge the rest,
 // otherwise close in and attack. Exists so the fight can be exercised headlessly.
 static void bot_input(Game *g, Input *in) {
+    if (netgame_on(&g->net)) { netgame_bot_wander(g, in); return; }
     const Boss *b = &g->boss; const Player *p = &PLAYER(g);
     in->move_x = in->move_y = 0; in->attack = in->parry = in->dodge = false;
     if (g->state == GS_EXPLORE) {
@@ -469,15 +471,15 @@ static void camera_above_terrain(Game *g) {
 
 static void tick_explore(Game *g, const Input *in, float dt) {
     CombatEvents ev = {0};
-    Vec3 dir = camera_move_dir(&g->cam, in->move_x, in->move_y);
+    Vec3 dir = netgame_local_input(g, camera_move_dir(&g->cam, in->move_x, in->move_y), in);
     player_update(&PLAYER(g), in, dir, &g->level, NULL, dt, &ev);
     snap_to_terrain(g);
     apply_events(g, &ev);
     { const Look *ck = &g->level.look; camera_iso_set(ck->cam_pitch, ck->cam_dist, ck->cam_fov, ck->cam_yaw); if (SDL_getenv("HOLLOW_CAM")) { float a = ck->cam_pitch, b = ck->cam_dist, c = ck->cam_fov, d = ck->cam_yaw; sscanf(SDL_getenv("HOLLOW_CAM"), "%f %f %f %f", &a, &b, &c, &d); camera_iso_set(a, b, c, d); } }
     if (g->level.third_person) { camera_orbit(&g->cam, PLAYER(g).c.pos, in->look_x, in->look_y, false, v3(0, 0, 0), &g->level, dt); camera_above_terrain(g); }   // view third: behind the hero, mouse look
     else camera_iso(&g->cam, PLAYER(g).c.pos, &g->level, dt);
-    Trigger *t = level_trigger_at(&g->level, PLAYER(g).c.pos);
-    if (t) {
+    Trigger *t = level_trigger_at(&g->level, PLAYER(g).c.pos);   // marks the trigger fired even when scenes are skipped
+    if (t && !g->no_scenes) {
         dbg_log("trigger %s at %.1f %.1f", t->name, PLAYER(g).c.pos.x, PLAYER(g).c.pos.z);
         if (!strcmp(t->name, "intro")) play_scene(g, g->level.scene_intro, GS_EXPLORE);
         else if (!strcmp(t->name, "boss_door")) play_scene(g, g->level.scene_boss, GS_FIGHT);
@@ -492,7 +494,7 @@ static void tick_explore(Game *g, const Input *in, float dt) {
         if (d < 5.0f && !c->scripted_moving) { float want = atan2f(PLAYER(g).c.pos.x - c->pos.x, PLAYER(g).c.pos.z - c->pos.z); float diff = want - c->yaw; while (diff > PI) diff -= 2 * PI; while (diff < -PI) diff += 2 * PI; c->yaw += diff * fminf(1, dt * 6); }
         if (d < np->radius && g->talk_npc < 0) g->talk_npc = i;
     }
-    if (g->talk_npc >= 0 && in->interact && g->state == GS_EXPLORE) { const Npc *np = &g->level.npcs[g->talk_npc]; dbg_log("talk to %s", np->name); play_scene(g, np->scene, GS_EXPLORE); }
+    if (g->talk_npc >= 0 && in->interact && g->state == GS_EXPLORE && !g->no_scenes) { const Npc *np = &g->level.npcs[g->talk_npc]; dbg_log("talk to %s", np->name); play_scene(g, np->scene, GS_EXPLORE); }
     audio_set_drone(0.45f);
     audio_set_fight(0.0f);
 }
@@ -544,7 +546,7 @@ static void tick_fight(Game *g, const Input *in, float dt) {
     // Swing timing follows the hero's own clips: each swing connects on the frame its blade lands.
     { static const Anim SWINGS[PLAYER_SWINGS] = { ANIM_ATTACK, ANIM_ATTACK2, ANIM_ATTACK3, ANIM_ATTACK_RUN };
       for (int i = 0; i < PLAYER_SWINGS; i++) { float contact; if (charmodel_clip_timing(&PLAYER_MODEL(g), SWINGS[i], &contact, NULL)) PLAYER(g).swing_lead[i] = contact; } }
-    Vec3 dir = camera_move_dir(&g->cam, in->move_x, in->move_y);
+    Vec3 dir = netgame_local_input(g, camera_move_dir(&g->cam, in->move_x, in->move_y), in);
     player_update(&PLAYER(g), in, dir, &g->level, &g->boss, dt, &ev);
     boss_update(&g->boss, &PLAYER(g), &g->level, dt, &ev);
     if (g->boss.state != BS_DEAD) character_separate(&PLAYER(g).c, &g->boss.c, &g->level);
@@ -656,6 +658,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
         snap_to_terrain(g);
         charmodel_drive_player(&PLAYER_MODEL(g), &PLAYER(g), dt);
         uifx_update(&g->fx, dt); update_particles(g, dt);
+        netgame_pre_tick(g, dt); netgame_post_tick(g, dt);
         g->fade = 1; g->letterbox = 0; g->hint_t = 0;
         return;
     }
@@ -673,11 +676,13 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     { int n = props_hot_reload(&g->gfx, &g->props); if (n) { char m[64]; snprintf(m, sizeof m, "%d model file%s hot-reloaded", n, n > 1 ? "s" : ""); say(g, m); } }
     hero_hot_reload(g);
 
-    if (g->paused && !g->step_once) { camera_update(&g->cam, dt); return; }
+    // A paused or stalled host still has to answer its clients, or they time out.
+    if (g->paused && !g->step_once) { netgame_pre_tick(g, dt); netgame_post_tick(g, dt); camera_update(&g->cam, dt); return; }
     g->step_once = false;
 
-    if (g->hitstop > 0) { g->hitstop -= dt; camera_update(&g->cam, dt); return; }
+    if (g->hitstop > 0) { g->hitstop -= dt; netgame_pre_tick(g, dt); netgame_post_tick(g, dt); camera_update(&g->cam, dt); return; }
 
+    netgame_pre_tick(g, dt);
     switch (g->state) {
     case GS_EXPLORE: tick_explore(g, in, dt); break;
     case GS_SCENE:   tick_scene(g, in, dt); break;
@@ -686,13 +691,21 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     case GS_END:     tick_end(g, in, dt); break;
     case GS_BATTLE:  tick_battle(g, in, g->pf, dt); break;
     }
+    netgame_post_tick(g, dt);
     for (int i = 0; i < g->nnpcs; i++) { Character *c = &g->npcs[i].c; character_script_update(c, dt); if (g->npcs[i].ok) charmodel_drive_simple(&g->npcs[i].model, c, dt); if (g->terrain.present && terrain_inside(&g->terrain, c->pos.x, c->pos.z)) c->pos.y = terrain_height(&g->terrain, c->pos.x, c->pos.z); }
     if (g->daytime_dur > 0) { g->daytime_t += dt; float k = clampf(g->daytime_t / g->daytime_dur, 0, 1); g->level.look.daytime = lerpf(g->daytime_from, g->daytime_to, k * k * (3 - 2 * k)); if (k >= 1) g->daytime_dur = 0; }
     if (g->state != GS_SCENE) {
         g->letterbox = damp(g->letterbox, 0, 6, dt);
         if (g->state != GS_DEAD) g->fade = damp(g->fade, 1, 3, dt);
     }
-    if (g->state != GS_BATTLE) { charmodel_drive_player(&PLAYER_MODEL(g), &PLAYER(g), dt); charmodel_drive_boss(&g->boss_model, &g->boss, dt); }
+    if (g->state != GS_BATTLE) {
+        charmodel_drive_player(&PLAYER_MODEL(g), &PLAYER(g), dt); charmodel_drive_boss(&g->boss_model, &g->boss, dt);
+        for (int i = 0; i < NET_MAX_PLAYERS; i++) {
+            if (i == g->local || !g->net.slots[i].active || !g->player_models[i].loaded) continue;
+            if (g->net.mode == NM_HOST) charmodel_drive_player(&g->player_models[i], &g->players[i], dt);
+            else charmodel_drive_simple(&g->player_models[i], &g->players[i].c, dt);
+        }
+    }
     uifx_update(&g->fx, dt);
     update_particles(g, dt);
     if (g->hint_t > 0) g->hint_t -= dt;
@@ -1046,11 +1059,13 @@ static Vec3 lerp_or_cut(Vec3 a, Vec3 b, float t) { return v3_len(v3_sub(b, a)) >
 void game_render_at(Game *g, Platform *pf, float alpha);
 void game_render(Game *g, Platform *pf, float alpha) {
     if (!g->prev_valid || alpha <= 0 || alpha >= 1 || SDL_getenv("HOLLOW_NOINTERP")) { game_render_at(g, pf, alpha); return; }
-    Vec3 sp = PLAYER(g).c.pos, sb = g->boss.c.pos, se = g->cam.eye, st = g->cam.target;
-    PLAYER(g).c.pos = lerp_or_cut(g->prev_players[g->local], sp, alpha); g->boss.c.pos = lerp_or_cut(g->prev_boss, sb, alpha);
+    Vec3 sp[NET_MAX_PLAYERS]; Vec3 sb = g->boss.c.pos, se = g->cam.eye, st = g->cam.target;
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) { sp[i] = g->players[i].c.pos; g->players[i].c.pos = lerp_or_cut(g->prev_players[i], sp[i], alpha); }
+    g->boss.c.pos = lerp_or_cut(g->prev_boss, sb, alpha);
     g->cam.eye = lerp_or_cut(g->prev_eye, se, alpha); g->cam.target = lerp_or_cut(g->prev_target, st, alpha);
     game_render_at(g, pf, alpha);
-    PLAYER(g).c.pos = sp; g->boss.c.pos = sb; g->cam.eye = se; g->cam.target = st;
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) g->players[i].c.pos = sp[i];
+    g->boss.c.pos = sb; g->cam.eye = se; g->cam.target = st;
 }
 void game_render_at(Game *g, Platform *pf, float alpha) {
     (void)alpha;
@@ -1083,6 +1098,9 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         fp.lights[fp.nlights++] = (PointLight){ .pos = l->pos, .radius = l->radius, .color = l->color, .intensity = l->intensity * fl };
     }
     const Character *pc = &PLAYER(g).c, *bc = &g->boss.c;
+    // Where each seated player is actually drawn: its simulated position plus the network view offset.
+    Vec3 vpos[NET_MAX_PLAYERS];
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) vpos[i] = netgame_view_pos(&g->net, i, g->players[i].c.pos);
     if (bc->tell > 0 && fp.nlights < GFX_MAX_LIGHTS)
         fp.lights[fp.nlights++] = (PointLight){ .pos = v3(bc->pos.x, bc->pos.y + bc->height * 0.6f, bc->pos.z), .radius = 6.0f,
                                                 .color = bc->tell_color, .intensity = 2.5f * bc->tell * bc->tell };
@@ -1106,7 +1124,11 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             draw_level(x, lv, &g->wt);
             if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain); }
             props_draw(x, &g->props, lv, t);
-            if (PLAYER_MODEL(g).loaded && !PLAYER_MODEL(g).is_sprite) charmodel_draw(x, &PLAYER_MODEL(g), pc, v4(1, 1, 1, 1));
+            for (int i = 0; i < NET_MAX_PLAYERS; i++) {
+                if (!g->net.slots[i].active || !g->player_models[i].loaded || g->player_models[i].is_sprite) continue;
+                Character cc = g->players[i].c; cc.pos = vpos[i];
+                charmodel_draw(x, &g->player_models[i], &cc, v4(1, 1, 1, 1));
+            }
             if (g->boss_model.loaded && !g->boss_model.is_sprite) charmodel_draw(x, &g->boss_model, bc, v4(1, 1, 1, 1));
             for (int i = 0; i < g->nnpcs; i++) if (g->npcs[i].ok && !g->npcs[i].model.is_sprite) charmodel_draw(x, &g->npcs[i].model, &g->npcs[i].c, v4(1, 1, 1, 1));
             gfx_shadow_end(x);
@@ -1136,7 +1158,9 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         if (SDL_getenv("HOLLOW_PIX")) sscanf(SDL_getenv("HOLLOW_PIX"), "%f %f %f %f %f", &pxs, &pxl, &pxo, &pxp, &pxi);   // tuning override: "scale levels outline palette inner"
         bool pix_on = pxs >= 1 && !SDL_getenv("HOLLOW_NOPIX");
         gfx_set_pixel_look(x, pix_on ? (int)pxs : 0, pxl, pxo, pxp, pxi);
-        bool player_pix = pix_on && PLAYER_MODEL(g).loaded && !PLAYER_MODEL(g).is_sprite;
+        bool player_pix = false;
+        for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active && g->player_models[i].loaded && !g->player_models[i].is_sprite) { player_pix = true; break; }
+        player_pix = pix_on && player_pix;
         bool boss_pix = pix_on && g->boss_model.loaded && !g->boss_model.is_sprite;
         bool npc_pix = pix_on && g->nnpcs > 0;
         if (player_pix || boss_pix || npc_pix) {
@@ -1148,7 +1172,15 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             float ox = -dr / texel, oy = du / texel;
             if (SDL_getenv("HOLLOW_PIXOFF")) { float mx2 = 1, my2 = 1; sscanf(SDL_getenv("HOLLOW_PIXOFF"), "%f %f", &mx2, &my2); ox *= mx2; oy *= my2; }   // alignment test aid
             gfx_pixel_begin(x, camera_view_proj_offset(&g->cam, (float)INTERNAL_W / INTERNAL_H, off), ox, oy);
-            if (player_pix) { gfx_set_material(x, &pm); charmodel_draw(x, &PLAYER_MODEL(g), pc, pt); }
+            if (player_pix) {
+                gfx_set_material(x, &pm);
+                for (int i = 0; i < NET_MAX_PLAYERS; i++) {
+                    if (!g->net.slots[i].active || !g->player_models[i].loaded || g->player_models[i].is_sprite) continue;
+                    Vec4 tint = v4(pt.x * g->net.slots[i].tint.x, pt.y * g->net.slots[i].tint.y, pt.z * g->net.slots[i].tint.z, 1);
+                    Character cc = g->players[i].c; cc.pos = vpos[i];
+                    charmodel_draw(x, &g->player_models[i], &cc, tint);
+                }
+            }
             if (boss_pix) { gfx_set_material(x, &bm); charmodel_draw(x, &g->boss_model, bc, bt); }
             gfx_set_material(x, &pm);
             for (int i = 0; i < g->nnpcs; i++) if (g->npcs[i].ok && !g->npcs[i].model.is_sprite) charmodel_draw(x, &g->npcs[i].model, &g->npcs[i].c, v4(1, 1, 1, 1));
@@ -1156,10 +1188,17 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             gfx_pixel_end(x);
         }
         if (!npc_pix) { gfx_set_material(x, &pm); for (int i = 0; i < g->nnpcs; i++) if (g->npcs[i].ok && !g->npcs[i].model.is_sprite) charmodel_draw(x, &g->npcs[i].model, &g->npcs[i].c, v4(1, 1, 1, 1)); }
-        if (!player_pix) {
+        {
             gfx_set_material(x, &pm);
-            if (PLAYER_MODEL(g).loaded) charmodel_draw(x, &PLAYER_MODEL(g), pc, pt);
-            else draw_character(x, pc, g->player_def.color, g->player_def.size, false, &g->wt.tex[TEX_PLASTER]);
+            for (int i = 0; i < NET_MAX_PLAYERS; i++) {
+                if (!g->net.slots[i].active) continue;
+                bool drawn_pixelated = player_pix && g->player_models[i].loaded && !g->player_models[i].is_sprite;
+                if (drawn_pixelated) continue;   // already drawn in the pixel pass above
+                Vec4 tint = v4(pt.x * g->net.slots[i].tint.x, pt.y * g->net.slots[i].tint.y, pt.z * g->net.slots[i].tint.z, 1);
+                Character cc = g->players[i].c; cc.pos = vpos[i];
+                if (g->player_models[i].loaded) charmodel_draw(x, &g->player_models[i], &cc, tint);
+                else draw_character(x, &cc, g->player_def.color, g->player_def.size, false, &g->wt.tex[TEX_PLASTER]);
+            }
         }
         if (!boss_pix) {
             gfx_set_material(x, &bm);
@@ -1167,7 +1206,11 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             else draw_character(x, bc, g->boss_def.color, g->boss_def.size, true, &g->wt.tex[TEX_METAL]);
         }
         gfx_set_material(x, NULL);
-        if (!SDL_getenv("HOLLOW_NOBLOB")) { draw_blob_shadow(x, pc->pos, pc->radius * 2.2f, 0.55f); draw_blob_shadow(x, bc->pos, bc->radius * 2.2f, 0.6f); for (int i = 0; i < g->nnpcs; i++) draw_blob_shadow(x, g->npcs[i].c.pos, 0.9f, 0.5f); }
+        if (!SDL_getenv("HOLLOW_NOBLOB")) {
+            for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) draw_blob_shadow(x, vpos[i], g->players[i].c.radius * 2.2f, 0.55f);
+            draw_blob_shadow(x, bc->pos, bc->radius * 2.2f, 0.6f);
+            for (int i = 0; i < g->nnpcs; i++) draw_blob_shadow(x, g->npcs[i].c.pos, 0.9f, 0.5f);
+        }
     }
     if (g->state == GS_BATTLE) battle_draw_world(&g->battle, x);
     if (g->tool_mode == 2 && g->leveled.open) leveled_draw_world(&g->leveled, &g->level, x, &g->props);
