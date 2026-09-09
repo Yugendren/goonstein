@@ -16,6 +16,9 @@ One command per line, `#` starts a comment. The first field is the time in secon
     T letterbox on|off
     T shake amount dur
     T sound NAME                               # footstep swing hit parry hurt stagger roar death blip heart door sting
+    T daytime HOUR [dur]                       # time of day moves to HOUR over dur seconds (6.5 dawn, 13 noon, 18.5 golden, 20.5 dusk, 1 night)
+    T music FILE|stop                          # a file under assets/sprites/ninja/Audio/Musics, cross-faded
     T end
 
-Actors: player, boss.
+Actors: player, boss, and any NPC name from the level's `npc` lines. Speakers named after an NPC get
+that NPC's live portrait; "Hero" and "The Warden" are mapped in assets/portraits.txt.
