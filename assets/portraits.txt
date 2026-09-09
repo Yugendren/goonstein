@@ -3,3 +3,4 @@
 Ninja        model:hero
 Hero         model:hero
 "The Warden" model:boss
+Dez          model:hero

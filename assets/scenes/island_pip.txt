@@ -1,0 +1,5 @@
+# Pip is the small one and the only one who has read anything.
+0.0 say "Right. Main house, pool, the blue striped thing on the hill." 3.6 Pip
+3.8 say "Blue striped thing?" 2.4 Dez emote question
+6.4 say "It is on the satellite picture. It has birds on the roof. Do not ask me." 4.0 Pip
+10.6 end

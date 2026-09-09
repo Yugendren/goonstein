@@ -1,0 +1,62 @@
+# island_intro.txt -- dusk, Pelican Pier. Four men have driven a rented motor boat three miles
+# in the dark to rescue people they are not at all sure exist. ~29 s. Trigger: `intro`.
+#
+# Two engine limits shape this scene (both listed under "Needs code" in ISLAND_BUILD.md):
+#   * the camera's far plane is a hard 80 m (src/camera.c), so there is no wide establishing
+#     shot of the island -- every key here looks at something inside 80 m;
+#   * scene actors can only be the player, the boss and the level's NPCs, and characters are
+#     snapped to the terrain every tick, so nobody can ride a moving boat. The boat is moored
+#     and the camera does the sailing instead.
+
+0.0  music "13 - Mystical.ogg"
+0.0  daytime 18.5
+0.0  letterbox on
+0.0  fade 0 1 2.5
+
+# they are already tying up when we find them (y = 1.60 is the quay: the player is not
+# terrain-snapped inside a cutscene, so a y of 0 would bury him in the deck)
+0.0  actor player teleport -67.5 1.60 -114.8 340
+0.0  actor Marko  teleport -71.0 1.60 -114.6 350
+0.0  actor Pip    teleport -74.0 1.60 -114.4 330
+0.0  actor Bunny  teleport -64.5 1.60 -114.6 355
+0.0  actor player anim idle
+0.0  actor Marko anim idle
+0.0  actor Pip anim idle
+0.0  actor Bunny anim idle
+
+# 1. in off the water, low, the last of the light on the mole
+0.0  cam -118 9.0 -134   -74 3.0 -114   44 cut
+1.2  say "Nobody asked them to come." 3.0
+0.4  cam -94 6.5 -126   -72 3.0 -113   44
+
+# 2. the boat and the men who came in it
+6.0  cam -88 6.2 -127   -69 2.9 -113.5   50 cut
+6.4  say "Remember the plan." 2.6 Dez
+9.2  say "We had a plan?" 2.4 Marko
+
+# 3. they come up onto the quay, arguing, and spread out
+9.6  actor player move -64.0 1.60 -112.0 4.5
+9.8  actor Marko move -70.0 1.60 -110.6 5.0
+10.2 actor Pip move -67.5 1.60 -114.0 5.5
+10.6 actor Bunny move -74.0 1.60 -112.5 5.0
+10.4 cam -56 5.6 -122   -70 2.9 -112   48 cut
+12.0 say "In, look around, out before it gets light. That is the plan." 3.8 Pip
+16.0 say "And if there is nobody here?" 2.8 Bunny
+19.0 cam -62 4.4 -105   -70 2.6 -112   40 cut
+19.2 say "Then we photograph something expensive and go home heroes." 3.8 Dez
+
+# 4. they turn and look up at the compound on the shelf above them
+23.2 cam -72 6.5 -110   -34 16 -84   48 cut
+23.3 actor player face -34 16 -84
+23.4 actor Marko face -34 16 -84
+23.5 actor Pip face -34 16 -84
+23.6 actor Bunny face -34 16 -84
+23.8 sound blip
+24.1 say "That is a lot of house for one guy." 3.4 Pip
+
+# 5. hand it over, behind Dez, facing the road up off the pier
+27.4 cam -71.0 6.6 -116.0   -62 5.2 -110.5   46
+27.6 actor player teleport -64 1.60 -112 62
+27.8 actor player face -52 9 -104
+28.4 letterbox off
+29.0 end

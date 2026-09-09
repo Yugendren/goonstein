@@ -1,0 +1,5 @@
+# Marko at the pier. He is the big one and he is carrying the bag.
+0.0 say "I brought rope, a crowbar and forty metres of extension lead." 3.6 Marko
+3.8 say "You did not bring a torch." 2.6 Dez
+6.6 say "I brought a lamp. The lamp needs the lead." 3.2 Marko emote smug
+10.0 end

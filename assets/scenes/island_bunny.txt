@@ -1,0 +1,5 @@
+# Bunny is having second thoughts, out loud, at volume.
+0.0 say "I want it on record that I said we should call somebody." 3.6 Bunny emote nervous
+3.8 say "Who would you call." 2.4 Dez
+6.4 say "Anybody! That is my whole point!" 3.0 Bunny emote shout
+9.8 end
