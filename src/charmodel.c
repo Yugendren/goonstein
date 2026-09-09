@@ -268,6 +268,12 @@ void charmodel_drive_player(CharModel *cm, const Player *p, float dt) {
     if (cm->is_sprite) { sprite_update(&cm->sprite, dt); sprite_settle(cm); } else anim_update(&cm->player, &cm->model, dt);
 }
 
+void charmodel_drive_simple(CharModel *cm, const Character *c, float dt) {
+    if (!cm->loaded) return;
+    if (anim_changed(cm, c) || (cm->is_sprite ? cm->sprite.anim < 0 : cm->player.clip < 0)) play_binding(cm, c->anim, 0, 0, 0.12f);
+    if (cm->is_sprite) { sprite_update(&cm->sprite, dt); sprite_settle(cm); } else anim_update(&cm->player, &cm->model, dt);
+}
+
 void charmodel_drive_boss(CharModel *cm, const Boss *b, float dt) {
     if (!cm->loaded) return;
     const BossDef *d = &b->def;

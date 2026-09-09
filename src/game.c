@@ -36,8 +36,10 @@ static void debug_snapshot(Game *g) {
 static Character *actor(Game *g, const char *name) {
     if (!strcmp(name, "player")) return &g->player.c;
     if (!strcmp(name, "boss")) return &g->boss.c;
+    for (int i = 0; i < g->nnpcs; i++) if (!strcmp(g->level.npcs[i].name, name)) return &g->npcs[i].c;
     return NULL;
 }
+static int npc_index(Game *g, const char *name) { for (int i = 0; i < g->nnpcs; i++) if (!strcmp(g->level.npcs[i].name, name)) return i; return -1; }
 static void host_move(void *ud, const char *a, Vec3 pos, float dur) { Character *c = actor(ud, a); if (c) character_script_move(c, pos, dur); }
 static void host_face(void *ud, const char *a, Vec3 t) { Character *c = actor(ud, a); if (c) c->yaw = atan2f(t.x - c->pos.x, t.z - c->pos.z); }
 static void host_anim(void *ud, const char *a, const char *anim) { Character *c = actor(ud, a); if (c) character_set_anim(c, anim_from_name(anim)); }
@@ -48,7 +50,18 @@ static void host_sound(void *ud, const char *name) {
     for (int i = 0; i < SND_COUNT; i++) if (!strcmp(name, names[i])) { audio_play((SoundId)i, 0.9f, 1.0f); return; }
     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "scene: unknown sound %s", name);
 }
-static const SceneHost HOST_TEMPLATE = { NULL, host_move, host_face, host_anim, host_teleport, host_sound };
+static void host_daytime(void *ud, float hour, float dur) {
+    Game *g = ud; float cur = g->level.look.daytime;
+    if (cur < 0 || dur <= 0) { g->level.look.daytime = hour; g->daytime_dur = 0; return; }
+    g->daytime_from = cur; g->daytime_to = hour; g->daytime_t = 0; g->daytime_dur = dur;
+}
+static void host_music(void *ud, const char *name) {
+    (void)ud;
+    if (!strcmp(name, "stop")) { audio_music_stop(1.5f); return; }
+    char path[640]; snprintf(path, sizeof path, "%s/sprites/ninja/Audio/Musics/%s", HOLLOW_ASSET_DIR, name);
+    audio_music_play(path, true, 0.28f, 2.0f);
+}
+static const SceneHost HOST_TEMPLATE = { NULL, host_move, host_face, host_anim, host_teleport, host_sound, host_daytime, host_music };
 
 static void play_scene(Game *g, const char *name, GState after) {
     char path[640]; snprintf(path, sizeof path, "%s/scenes/%s", HOLLOW_ASSET_DIR, name);
@@ -85,6 +98,21 @@ static void snap_to_terrain(Game *g) {
     if (!g->terrain.present) return;
     Character *cs[2] = { &g->player.c, &g->boss.c };
     for (int i = 0; i < 2; i++) if (terrain_inside(&g->terrain, cs[i]->pos.x, cs[i]->pos.z)) cs[i]->pos.y = terrain_height(&g->terrain, cs[i]->pos.x, cs[i]->pos.z);
+}
+
+static void setup_npcs(Game *g) {
+    for (int i = 0; i < g->nnpcs; i++) if (g->npcs[i].ok) charmodel_destroy(&g->gfx, &g->npcs[i].model);
+    g->nnpcs = 0; g->talk_npc = -1;
+    for (int i = 0; i < g->level.nnpcs && i < LEVEL_MAX_NPCS; i++) {
+        const Npc *np = &g->level.npcs[i];
+        char path[640]; snprintf(path, sizeof path, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, np->file);
+        memset(&g->npcs[i], 0, sizeof g->npcs[i]);
+        g->npcs[i].ok = charmodel_load(&g->gfx, &g->npcs[i].model, path);
+        Character *c = &g->npcs[i].c; c->pos = np->pos; c->yaw = np->yaw; c->radius = 0.4f; c->height = 1.8f; c->hp = c->hp_max = 1; c->anim = ANIM_IDLE;
+        if (g->terrain.present && terrain_inside(&g->terrain, c->pos.x, c->pos.z)) c->pos.y = terrain_height(&g->terrain, c->pos.x, c->pos.z);
+        g->nnpcs = i + 1;
+        if (!g->npcs[i].ok) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "npc %s: character %s failed to load", np->name, np->file);
+    }
 }
 
 static void setup_level_content(Game *g) {
@@ -124,6 +152,7 @@ static void setup_level_content(Game *g) {
         particles_add_emitter(&g->particles, &e);
     }
     particles_prewarm(&g->particles, 8.0f);
+    setup_npcs(g);
 }
 
 static void load_portraits(Game *g) {
@@ -157,10 +186,12 @@ static void load_portraits(Game *g) {
 
 static int portrait_model_for(Game *g, const char *speaker) {
     for (int i = 0; i < g->nportraits; i++) if (!strcmp(g->portraits[i].name, speaker)) return g->portraits[i].model;
+    int n = npc_index(g, speaker); if (n >= 0 && g->npcs[n].ok) return 3 + n;   // NPCs get live portraits by name
     return 0;
 }
 static const Texture *portrait_for(Game *g, const char *speaker) {
     for (int i = 0; i < g->nportraits; i++) if (!strcmp(g->portraits[i].name, speaker)) return g->portraits[i].model ? (g->gfx.portrait.tex ? &g->gfx.portrait : NULL) : &g->portraits[i].tex;
+    if (npc_index(g, speaker) >= 0) return g->gfx.portrait.tex ? &g->gfx.portrait : NULL;
     return NULL;
 }
 
@@ -380,7 +411,17 @@ static void tick_explore(Game *g, const Input *in, float dt) {
         if (!strcmp(t->name, "intro")) play_scene(g, g->level.scene_intro, GS_EXPLORE);
         else if (!strcmp(t->name, "boss_door")) play_scene(g, g->level.scene_boss, GS_FIGHT);
         else if (!strcmp(t->name, "arena")) audio_play(SND_STING, 0.6f, 0.9f);
+        else { for (int i = 0; i < g->level.nscenes; i++) if (!strcmp(g->level.scenes[i].name, t->name)) { play_scene(g, g->level.scenes[i].file, GS_EXPLORE); break; } }
     }
+    // NPCs: turn toward the player when close, offer a talk within reach
+    g->talk_npc = -1;
+    for (int i = 0; i < g->nnpcs; i++) {
+        Character *c = &g->npcs[i].c; const Npc *np = &g->level.npcs[i];
+        float d = hypotf(g->player.c.pos.x - c->pos.x, g->player.c.pos.z - c->pos.z);
+        if (d < 5.0f && !c->scripted_moving) { float want = atan2f(g->player.c.pos.x - c->pos.x, g->player.c.pos.z - c->pos.z); float diff = want - c->yaw; while (diff > PI) diff -= 2 * PI; while (diff < -PI) diff += 2 * PI; c->yaw += diff * fminf(1, dt * 6); }
+        if (d < np->radius && g->talk_npc < 0) g->talk_npc = i;
+    }
+    if (g->talk_npc >= 0 && in->interact && g->state == GS_EXPLORE) { const Npc *np = &g->level.npcs[g->talk_npc]; dbg_log("talk to %s", np->name); play_scene(g, np->scene, GS_EXPLORE); }
     audio_set_drone(0.45f);
     audio_set_fight(0.0f);
 }
@@ -564,6 +605,8 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     case GS_END:     tick_end(g, in, dt); break;
     case GS_BATTLE:  tick_battle(g, in, g->pf, dt); break;
     }
+    for (int i = 0; i < g->nnpcs; i++) { Character *c = &g->npcs[i].c; character_script_update(c, dt); if (g->npcs[i].ok) charmodel_drive_simple(&g->npcs[i].model, c, dt); if (g->terrain.present && terrain_inside(&g->terrain, c->pos.x, c->pos.z)) c->pos.y = terrain_height(&g->terrain, c->pos.x, c->pos.z); }
+    if (g->daytime_dur > 0) { g->daytime_t += dt; float k = clampf(g->daytime_t / g->daytime_dur, 0, 1); g->level.look.daytime = lerpf(g->daytime_from, g->daytime_to, k * k * (3 - 2 * k)); if (k >= 1) g->daytime_dur = 0; }
     if (g->state != GS_SCENE) {
         g->letterbox = damp(g->letterbox, 0, 6, dt);
         if (g->state != GS_DEAD) g->fade = damp(g->fade, 1, 3, dt);
@@ -625,7 +668,7 @@ static void render_portrait(Game *g, Platform *pf, const FrameParams *fp) {
     if (g->state != GS_SCENE || !g->scene.subtitle[0] || !g->scene.speaker[0]) return;
     int which = portrait_model_for(g, g->scene.speaker);
     if (!which) return;
-    CharModel *cm = which == 2 ? &g->boss_model : &g->player_model;
+    CharModel *cm = which == 2 ? &g->boss_model : which >= 3 ? &g->npcs[which - 3].model : &g->player_model;
     if (!cm->loaded || cm->is_sprite) return;
     Model *m = &cm->model;
     // restart the emotion clip when the line or the speaker changes
@@ -892,6 +935,7 @@ static void draw_hud(Game *g, Platform *pf) {
         if (shown >= total && fmodf(t, 0.8f) < 0.4f) gfx_ui_text(x, bx + bw - 30, by + bh - 22, 1.3f, dim, "v");
     }
     if (g->msg_t > 0) gfx_ui_text(x, 12, H - 16, 1.0f, v4(0.9f, 0.8f, 0.4f, 1), g->msg);
+    if (g->talk_npc >= 0 && g->state == GS_EXPLORE) { char s2[96]; snprintf(s2, sizeof s2, "E   talk to %s", g->level.npcs[g->talk_npc].name); text_center(x, W * 0.5f, H - 70, 1.3f, v4(1, 0.9f, 0.6f, 1), s2); }
     if (g->hint_t > 0 && g->state == GS_EXPLORE) {
         float a = fminf(1, g->hint_t);
         text_center(x, W * 0.5f, 30, 1.0f, v4(0.85f, 0.85f, 0.8f, a), "WASD move   Shift sprint   E interact   walk the path");
@@ -982,6 +1026,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             props_draw(x, &g->props, lv, t);
             if (g->player_model.loaded && !g->player_model.is_sprite) charmodel_draw(x, &g->player_model, pc, v4(1, 1, 1, 1));
             if (g->boss_model.loaded && !g->boss_model.is_sprite) charmodel_draw(x, &g->boss_model, bc, v4(1, 1, 1, 1));
+            for (int i = 0; i < g->nnpcs; i++) if (g->npcs[i].ok && !g->npcs[i].model.is_sprite) charmodel_draw(x, &g->npcs[i].model, &g->npcs[i].c, v4(1, 1, 1, 1));
             gfx_shadow_end(x);
         }
     }
@@ -1022,6 +1067,8 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             gfx_pixel_begin(x, camera_view_proj_offset(&g->cam, (float)INTERNAL_W / INTERNAL_H, off), ox, oy);
             if (player_pix) { gfx_set_material(x, &pm); charmodel_draw(x, &g->player_model, pc, pt); }
             if (boss_pix) { gfx_set_material(x, &bm); charmodel_draw(x, &g->boss_model, bc, bt); }
+            gfx_set_material(x, &pm);
+            for (int i = 0; i < g->nnpcs; i++) if (g->npcs[i].ok && !g->npcs[i].model.is_sprite) charmodel_draw(x, &g->npcs[i].model, &g->npcs[i].c, v4(1, 1, 1, 1));
             gfx_set_material(x, NULL);
             gfx_pixel_end(x);
         }
@@ -1036,7 +1083,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             else draw_character(x, bc, g->boss_def.color, g->boss_def.size, true, &g->wt.tex[TEX_METAL]);
         }
         gfx_set_material(x, NULL);
-        if (!SDL_getenv("HOLLOW_NOBLOB")) { draw_blob_shadow(x, pc->pos, pc->radius * 2.2f, 0.55f); draw_blob_shadow(x, bc->pos, bc->radius * 2.2f, 0.6f); }
+        if (!SDL_getenv("HOLLOW_NOBLOB")) { draw_blob_shadow(x, pc->pos, pc->radius * 2.2f, 0.55f); draw_blob_shadow(x, bc->pos, bc->radius * 2.2f, 0.6f); for (int i = 0; i < g->nnpcs; i++) draw_blob_shadow(x, g->npcs[i].c.pos, 0.9f, 0.5f); }
     }
     if (g->state == GS_BATTLE) battle_draw_world(&g->battle, x);
     if (g->tool_mode == 2 && g->leveled.open) leveled_draw_world(&g->leveled, &g->level, x, &g->props);

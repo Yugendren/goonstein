@@ -67,6 +67,8 @@ void charmodel_destroy(Gfx *g, CharModel *cm);
 void charmodel_drive_player(CharModel *cm, const Player *p, float dt);
 // Advance animation for a boss (uses its move clips and timings).
 void charmodel_drive_boss(CharModel *cm, const Boss *b, float dt);
+// Idle / walk / scripted characters (NPCs): plays the bound clip for c->anim and advances it.
+void charmodel_drive_simple(CharModel *cm, const Character *c, float dt);
 void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint);
 // Draw a 3D character with an explicit pose and world matrix (portraits); attachments included.
 void charmodel_draw_posed(Gfx *g, const CharModel *cm, const ModelPose *pose, Mat4 world, Vec4 tint);

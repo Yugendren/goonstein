@@ -19,6 +19,8 @@ typedef enum SceneCmdType {
     SC_LETTERBOX,  // a = 1 on, 0 off
     SC_SHAKE,      // camera shake amount a for dur
     SC_SOUND,      // play sound named text
+    SC_DAYTIME,    // time of day moves to a over dur seconds
+    SC_MUSIC,      // music file (under assets music folder) named text, or "stop"
     SC_END,        // scene finishes
 } SceneCmdType;
 
@@ -39,6 +41,8 @@ typedef struct SceneHost {
     void (*actor_anim)(void *ud, const char *actor, const char *anim);
     void (*actor_teleport)(void *ud, const char *actor, Vec3 pos, float yaw);
     void (*sound)(void *ud, const char *name);
+    void (*daytime)(void *ud, float hour, float dur);
+    void (*music)(void *ud, const char *name);
 } SceneHost;
 
 typedef struct Scene {

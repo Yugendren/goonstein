@@ -31,6 +31,8 @@ typedef struct Game {
     LevelEd leveled; bool leveled_ready;
     Builder builder; bool builder_ready;
     Terrain terrain; bool gen_done;
+    struct { Character c; CharModel model; bool ok; } npcs[LEVEL_MAX_NPCS]; int nnpcs; int talk_npc;   // talk_npc: the one in reach (-1 none)
+    float daytime_from, daytime_to, daytime_t, daytime_dur;   // scene-driven time of day transition
     Ui ui; int tool_mode;            // 0 none, 1 debugger, 2 environment editor, 3 sprite editor
     float sprite_refresh_t;
     struct { char name[32]; Texture tex; int model; } portraits[16]; int nportraits;   // model: 0 image, 1 hero, 2 boss

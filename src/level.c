@@ -147,6 +147,7 @@ static bool parse_level(Level *out, const char *path) {
             if (strcmp(tok[1], "intro") == 0) SDL_strlcpy(out->scene_intro, tok[2], sizeof out->scene_intro);
             else if (strcmp(tok[1], "boss") == 0) SDL_strlcpy(out->scene_boss, tok[2], sizeof out->scene_boss);
             else if (strcmp(tok[1], "victory") == 0) SDL_strlcpy(out->scene_victory, tok[2], sizeof out->scene_victory);
+            else if (out->nscenes < 16) { SDL_strlcpy(out->scenes[out->nscenes].name, tok[1], 32); SDL_strlcpy(out->scenes[out->nscenes].file, tok[2], 128); out->nscenes++; }
             else SDL_Log("level_load:%d: unknown scene slot '%s'", line_no, tok[1]);
         } else if (strcmp(cmd, "terrain") == 0) {
             // terrain FILE   (base name relative to assets/, e.g. levels/glade_terrain)
@@ -266,6 +267,14 @@ static bool parse_level(Level *out, const char *path) {
             c->target = v3(f[9], f[10], f[11]);
             c->fov = f[12];
 
+        } else if (strcmp(cmd, "npc") == 0) {
+            // npc NAME CHARACTER x y z yaw SCENE [radius]
+            float f[4];
+            if (n < 8 || !parse_floats(tok, 3, 4, f)) { SDL_Log("level_load:%d: bad npc line", line_no); continue; }
+            if (out->nnpcs >= LEVEL_MAX_NPCS) { SDL_Log("level_load:%d: too many npcs", line_no); continue; }
+            Npc *np = &out->npcs[out->nnpcs++]; memset(np, 0, sizeof *np);
+            SDL_strlcpy(np->name, tok[1], sizeof np->name); SDL_strlcpy(np->file, tok[2], sizeof np->file); SDL_strlcpy(np->scene, tok[7], sizeof np->scene);
+            np->pos = v3(f[0], f[1], f[2]); np->yaw = f[3] * DEG2RAD; np->radius = n >= 9 ? (float)atof(tok[8]) : 2.5f;
         } else if (strcmp(cmd, "trigger") == 0) {
             // trigger name minx miny minz maxx maxy maxz [once]
             if (n != 8 && n != 9) { SDL_Log("level_load:%d: bad trigger line", line_no); continue; }
@@ -368,6 +377,8 @@ bool level_save(const Level *lv, const char *path) {
     if (lv->scene_intro[0])   fprintf(f, "scene intro %s\n", lv->scene_intro);
     if (lv->scene_boss[0])    fprintf(f, "scene boss %s\n", lv->scene_boss);
     if (lv->scene_victory[0]) fprintf(f, "scene victory %s\n", lv->scene_victory);
+    for (int i = 0; i < lv->nscenes; i++) fprintf(f, "scene %s %s\n", lv->scenes[i].name, lv->scenes[i].file);
+    for (int i = 0; i < lv->nnpcs; i++) fprintf(f, "npc %s %s %.3f %.3f %.3f %.1f %s %.2f\n", lv->npcs[i].name, lv->npcs[i].file, lv->npcs[i].pos.x, lv->npcs[i].pos.y, lv->npcs[i].pos.z, lv->npcs[i].yaw / DEG2RAD, lv->npcs[i].scene, lv->npcs[i].radius);
     if (lv->terrain_file[0])  fprintf(f, "terrain %s\n", lv->terrain_file);
 
     fprintf(f, "spawn %.3f %.3f %.3f %.3f\n",

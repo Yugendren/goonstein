@@ -54,3 +54,6 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
 
 Legacy `fog r g b near far` and `light dx dy dz ambient r g b` lines still parse but are ignored
 by the renderer once `fogv` / `sun` are present. `cam` lines are ignored (camera is free).
+
+    scene    NAME FILE
+    npc      NAME CHARACTER x y z yaw SCENE [radius]

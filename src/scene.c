@@ -161,6 +161,13 @@ bool scene_load(Scene *sc, const char *path) {
             if (nt < 3) { SDL_Log("scene_load: '%s' line %d: sound needs a name", path, line_no); continue; }
             c.type = SC_SOUND;
             set_text(&c, toks[2]);
+        } else if (strcmp(cmd, "daytime") == 0) {
+            // T daytime HOUR [dur]
+            if (nt < 3) { SDL_Log("scene_load: '%s' line %d: daytime needs an hour", path, line_no); continue; }
+            c.type = SC_DAYTIME; c.a = (float)SDL_atof(toks[2]); c.dur = nt >= 4 ? (float)SDL_atof(toks[3]) : 0;
+        } else if (strcmp(cmd, "music") == 0) {
+            if (nt < 3) { SDL_Log("scene_load: '%s' line %d: music needs a file or stop", path, line_no); continue; }
+            c.type = SC_MUSIC; set_text(&c, toks[2]);
         } else if (strcmp(cmd, "end") == 0) {
             c.type = SC_END;
         } else {
@@ -311,6 +318,12 @@ static void fire(Scene *sc, const SceneCmd *c, const SceneHost *host) {
         break;
     case SC_SOUND:
         if (host && host->sound) host->sound(host->ud, c->text);
+        break;
+    case SC_DAYTIME:
+        if (host && host->daytime) host->daytime(host->ud, c->a, c->dur);
+        break;
+    case SC_MUSIC:
+        if (host && host->music) host->music(host->ud, c->text);
         break;
     case SC_END:
         sc->playing = false;

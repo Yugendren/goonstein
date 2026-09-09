@@ -28,6 +28,10 @@ typedef struct CamVolume {
     float fov;         // degrees
 } CamVolume;
 
+#define LEVEL_MAX_NPCS 12
+// npc NAME CHARACTER x y z yaw SCENE [radius]: a character standing in the world; E within radius plays SCENE
+typedef struct Npc { char name[32], file[128], scene[128]; Vec3 pos; float yaw, radius; } Npc;
+
 typedef struct Trigger {
     char name[32];
     Vec3 vmin, vmax;
@@ -75,6 +79,8 @@ typedef struct Level {
     Block     blocks[LEVEL_MAX_BLOCKS];   int nblocks;
     CamVolume cams[LEVEL_MAX_CAMS];       int ncams;
     Trigger   triggers[LEVEL_MAX_TRIGGERS]; int ntriggers;
+    struct { char name[32], file[128]; } scenes[16]; int nscenes;   // scene NAME FILE: a trigger named NAME plays FILE
+    Npc       npcs[LEVEL_MAX_NPCS]; int nnpcs;
     Vec3  spawn;      float spawn_yaw;    // player start (yaw in radians)
     Vec3  boss_spawn; float boss_yaw;
     Vec3  arena_min, arena_max;           // fight bounds; the follow camera stays inside
