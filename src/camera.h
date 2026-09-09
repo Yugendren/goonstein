@@ -3,6 +3,11 @@
 #include "hmath.h"
 #include "level.h"
 
+// Default far plane. A level asks for its own with `look far METRES` (see level.h Look.view_far):
+// 80 m suits the walled village levels and culls most of their world for free; a 300 m island
+// needs ~600 to read as an island at all.
+#define CAMERA_FAR_DEFAULT 80.0f
+
 typedef enum CamMode { CAM_ORBIT, CAM_SCENE, CAM_ISO, CAM_FIRST } CamMode;
 
 typedef struct Camera {
@@ -13,6 +18,7 @@ typedef struct Camera {
     float dist, height;                // desired distance and pivot height above the player's feet
     float cur_dist;                    // after wall collision
     bool  locked; Vec3 lock_pos; bool has_lock;
+    float view_far;                    // far plane in metres (the level's `look far`); 0 = the 80 m default
     // Scene
     Vec3 goal_eye, goal_target; float goal_fov;
     float shake, shake_t;

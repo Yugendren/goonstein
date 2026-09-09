@@ -16,6 +16,7 @@ void camera_init(Camera *c) {
     c->yaw = 0; c->pitch = 0.32f;
     c->dist = 5.5f; c->height = 1.5f; c->cur_dist = c->dist;
     c->eye = v3(0, 2, -5); c->target = v3(0, 1, 0);
+    c->view_far = CAMERA_FAR_DEFAULT;
 }
 
 static Vec3 orbit_dir(float yaw, float pitch) {
@@ -147,7 +148,7 @@ Mat4 camera_view_proj_offset(const Camera *c, float aspect, Vec3 offset) {
         eye = v3_add(eye, v3(sinf(c->shake_t * 47.0f) * s, cosf(c->shake_t * 61.0f) * s, sinf(c->shake_t * 53.0f) * s * 0.5f));
     }
     Mat4 view = m4_look_at(eye, v3_add(c->target, offset), v3(0, 1, 0));
-    Mat4 proj = m4_perspective(c->fov * DEG2RAD, aspect, 0.1f, 80.0f);
+    Mat4 proj = m4_perspective(c->fov * DEG2RAD, aspect, 0.1f, c->view_far > 1 ? c->view_far : CAMERA_FAR_DEFAULT);
     return m4_mul(proj, view);
 }
 

@@ -411,7 +411,10 @@ static void push_frame_uniforms(Gfx *g, const FrameParams *fp) {
         .fog_height = v4(fp->fog_height_base, fp->fog_height_falloff, fp->fog_scatter, fp->fog_start),
         .toon = v4(fp->toon_softness, fp->shadow_floor, fp->rim_power, 0),
         .counts = { fp->nlights > GFX_MAX_LIGHTS ? GFX_MAX_LIGHTS : fp->nlights, 0, 0, 0 },
-        .sun_vp = g->sun_vp, .shadow = v4(g->shadow_size > 0 ? 1.0f / g->shadow_size : 0, g->shadow_bias, g->shadow_valid ? g->shadow_strength : 0, 0.08f) };
+        .sun_vp = g->sun_vp, .shadow = v4(g->shadow_size > 0 ? 1.0f / g->shadow_size : 0, g->shadow_bias, g->shadow_valid ? g->shadow_strength : 0, 0.075f) };
+    // shadow.w: the shadow fades to nothing over the outer 15% of the map's half-extent (0.5 in
+    // UV), so where the fitted box ends the world simply stops being shadowed instead of showing
+    // a straight line across the ground.
     for (int i = 0; i < u.counts[0]; i++) {
         const PointLight *l = &fp->lights[i];
         u.lights_pos[i] = v4(l->pos.x, l->pos.y, l->pos.z, l->radius);

@@ -41,6 +41,11 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
     lift     r g b                             # added to shadows (cool blue lifts read as night)
     gain     r g b                             # multiplied into highlights
     shadow   strength                          # sun shadow map strength 0..1 (0 = off)
+    look far METRES                            # camera far plane (default 80). Nothing further from the eye is drawn,
+                                               # so a level bigger than a walled village needs its own value (the
+                                               # island uses 600). The sun shadow map is fitted to the visible range
+                                               # and fades out at its own edge, so raising this costs draws, not shadows.
+                                               # Keep `fogv` thick enough to hide whatever the far plane now reveals.
     combat   cards|realtime                    # the boss fight: card battle with rhythm parries (default) or the third-person action fight
     view     top|third                         # overworld view: the fixed camera line (default) or behind the hero with mouse look (third person)
     camera   pitch dist fov [yaw]              # overworld camera: 36 14 32 -35 isometric (default), 25 9 50 closer over the shoulder

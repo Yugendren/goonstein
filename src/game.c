@@ -669,6 +669,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     if (g->msg_t > 0) g->msg_t -= dt;
     if (g->last_hit_text_t > 0) g->last_hit_text_t -= dt;
 
+    g->cam.view_far = g->level.look.view_far > 1 ? g->level.look.view_far : CAMERA_FAR_DEFAULT;   // the level's `look far`
     dbg_set_time(g->time);
     if (in->key_down[SDL_SCANCODE_F8]) debug_snapshot(g);
     // Keys typed into the game window open the tools: [ world editor, ] character builder,
@@ -1123,6 +1124,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     { static Uint64 last = 0; Uint64 now = SDL_GetPerformanceCounter(); if (last) { float ms = (float)((now - last) * 1000.0 / (double)SDL_GetPerformanceFrequency()); g->frame_ms = g->frame_ms > 0 ? g->frame_ms * 0.95f + ms * 0.05f : ms; } last = now; }
 
     const Level *lv = &g->level;
+    g->cam.view_far = lv->look.view_far > 1 ? lv->look.view_far : CAMERA_FAR_DEFAULT;
     Look tod_look; const Look *lk = &lv->look;
     if (lk->daytime >= 0) { tod_look = daylight_apply(&lv->look, lk->daytime); lk = &tod_look; }
     Vec3 fwd = v3_norm(v3_sub(g->cam.target, g->cam.eye));
@@ -1164,13 +1166,21 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     {
         float strength = SDL_getenv("HOLLOW_NOSHADOW") ? 0 : (SDL_getenv("HOLLOW_SHADOW") ? (float)atof(SDL_getenv("HOLLOW_SHADOW")) : lk->shadow);
         Vec3 sd = v3_norm(lk->sun_dir); if (sd.y > -0.05f) strength = 0;   // sun below the horizon: no shadows
-        Vec3 target = g->cam.target; float R = clampf(v3_len(v3_sub(g->cam.target, g->cam.eye)) * 2.2f, 30, 140);
+        // One map, fitted around what the camera looks at: R grows with how far the eye is from
+        // its target, and its ceiling grows with the level's far plane, so an 80 m level keeps the
+        // 140 m box it always had while a 600 m island can shadow a third of itself at once.
+        // Beyond the box nothing is shadowed at all (the cheap far fallback): the shader fades the
+        // shadow out over the outer 15% of R (see gfx.c's shadow.w), so there is no hard edge.
+        Vec3 target = g->cam.target;
+        float R_max = clampf(g->cam.view_far * 0.35f, 140, 320);
+        float R = clampf(v3_len(v3_sub(g->cam.target, g->cam.eye)) * 2.2f, 30, R_max);
         Vec3 sun_up = fabsf(sd.y) > 0.95f ? v3(0, 0, 1) : v3(0, 1, 0);
-        Mat4 view = m4_look_at(v3_sub(target, v3_scale(sd, 120)), target, sun_up);
+        float back = fmaxf(120.0f, R * 1.6f);   // the sun sits this far back, so tall things behind the box still cast into it
+        Mat4 view = m4_look_at(v3_sub(target, v3_scale(sd, back)), target, sun_up);
         // snap the centre to shadow texels so the map does not swim as the camera moves
         float texel = 2 * R / (float)(x->shadow_size > 0 ? x->shadow_size : 2048);
         view.m[12] = roundf(view.m[12] / texel) * texel; view.m[13] = roundf(view.m[13] / texel) * texel;
-        Mat4 sun_vp = m4_mul(m4_ortho(-R, R, -R, R, 1, 260), view);
+        Mat4 sun_vp = m4_mul(m4_ortho(-R, R, -R, R, 1, back + R * 2.0f + 60), view);
         gfx_shadow_begin(x, pf, sun_vp, strength, 0.0022f);
         if (x->in_shadow) {
             draw_level(x, lv, &g->wt);
@@ -1190,8 +1200,13 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     gfx_begin(x, pf, &fp);
     draw_level(x, lv, &g->wt);
     if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain);
-        if (g->terrain.water > -900) {   // flat water: a slab the size of the terrain, a little glow so it reads at night
+        if (g->terrain.water > -900) {   // flat water: a slab well past the terrain, a little glow so it reads at night
+            // Far bigger than the grid: with a long far plane the old terrain-sized slab put a
+            // straight edge of sea across the horizon, and any slab whose edge falls inside the far
+            // plane shows a step where the two meet. At this size the sea is always cut by the far
+            // plane instead, one clean line the fog has closed on long before it.
             float span = (TERRAIN_N - 1) * g->terrain.cell; Vec3 c = v3(g->terrain.origin.x + span * 0.5f, g->terrain.water - 0.5f, g->terrain.origin.z + span * 0.5f);
+            span *= 8.0f;
             Material wm = material_default(); wm.emissive = v3(0.02f, 0.06f, 0.10f); wm.rim = 0.6f; wm.rim_color = v3(0.6f, 0.8f, 1); gfx_set_material(x, &wm);
             gfx_draw_box(x, &x->white, c, v3(span, 1, span), 0, v4(0.16f, 0.33f, 0.48f, 1), 0);
             gfx_set_material(x, NULL);

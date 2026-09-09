@@ -30,13 +30,18 @@
 # sets the bearing the sun swings along, and fog density/shape stay as authored.
 sun      0.14 -0.86 0.49   1.10   1.00 0.95 0.86
 ambient  0.36 0.44 0.58   0.16 0.15 0.12
-fogv     0.56 0.58 0.66   0.0060   0.0  0.020  0.45  34
+# Thicker and taller than the 80 m days: with a 600 m far plane the sea has to fog out to nothing
+# before the far plane cuts it, while the height falloff keeps the island's high ground readable.
+fogv     0.56 0.58 0.66   0.0085   0.0  0.026  0.45  34
 sky      0.14 0.26 0.58   0.88 0.60 0.40   0.14 0.15 0.19   0.80  0.4  0.60
 toon     0.18 0.38 3.0
 grade    1.10 1.14 1.06 0.24 1.10
 lift     0.012 0.014 0.024
 gain     1.00 0.99 0.97
 shadow   1
+# 300 m of island needs a far plane to match: 80 m (the default) never draws more than the next
+# building. Fog still closes the view down long before the edge of the sea.
+look far 600
 style    0 0 0 1
 pixel    0 8 1 0 0.6
 daytime  18.5

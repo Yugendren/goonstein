@@ -73,6 +73,7 @@ typedef struct Look {
     float style_snap, style_outline, style_levels, style_pixel;                    // world style layer (post): palette snap, edge ink, colour levels, pixel size
     float cam_pitch, cam_dist, cam_fov, cam_yaw;                                   // overworld camera (degrees, metres, degrees, degrees)
     float daytime;   // hour of the clock 0..24 driving the sun and sky (see daylight.h); negative = use the values above
+    float view_far;  // camera far plane in metres (`look far F`); 80 is the village default, ~600 for a 300 m island
 } Look;
 
 typedef struct Level {

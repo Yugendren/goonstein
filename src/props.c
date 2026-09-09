@@ -56,9 +56,10 @@ void props_draw(Gfx *g, PropCache *pc, const Level *lv, float time) {
         if (prop_sphere(g, pc, pm, &lc, &lr)) {   // no bounds (a missing piece): always drawn
             Vec3 c = m4_mul_point(world, lc);
             float r = lr * fmaxf(fabsf(s.x), fmaxf(fabsf(s.y), fabsf(s.z)));   // yaw keeps lengths
-            // The shadow pass needs no distance cut of its own: game.c fits the sun's box to at
-            // most a 140 m radius around what the camera looks at, so the frustum test is that
-            // 140 m, exactly. Measuring it from frame.cam_pos instead over-culls once the camera
+            // The shadow pass needs no distance cut of its own: game.c fits the sun's box around
+            // what the camera looks at (at most 140 m radius on an 80 m level, more on a level
+            // with a longer far plane), so the frustum test is that box, exactly. Measuring it
+            // from frame.cam_pos instead over-culls once the camera
             // pulls back, since the eye can sit far outside the box (at dist 120, 116 of 464 props
             // inside the box lost their shadows that way).
             bool keep = frustum_sees_sphere(&fr, c, r);
