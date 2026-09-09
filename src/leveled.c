@@ -8,6 +8,38 @@ static void say(LevelEd *e, const char *s) { snprintf(e->msg, sizeof e->msg, "%s
 
 // ---------------------------------------------------------------- kit
 
+// ---------------------------------------------------------------- model folder scan
+
+typedef struct ScanCtx { LevelEd *e; const char *category; } ScanCtx;
+static bool kit_has_file(const LevelEd *e, const char *rel) { for (int i = 0; i < e->nkit; i++) if (!strcmp(e->kit[i].file, rel)) return true; return false; }
+static void scan_models(LevelEd *e, const char *dir, const char *category);
+static SDL_EnumerationResult scan_cb(void *ud, const char *dirname, const char *fname) {
+    ScanCtx *c = ud; LevelEd *e = c->e;
+    char full[1024]; snprintf(full, sizeof full, "%s%s", dirname, fname);
+    SDL_PathInfo info; if (!SDL_GetPathInfo(full, &info)) return SDL_ENUM_CONTINUE;
+    if (info.type == SDL_PATHTYPE_DIRECTORY) { if (strcmp(c->category, "models") == 0 && !strcmp(fname, "kaykit")) scan_models(e, full, "kaykit"); else scan_models(e, full, fname); return SDL_ENUM_CONTINUE; }
+    size_t n = strlen(fname);
+    bool is_model = (n > 4 && !strcmp(fname + n - 4, ".glb")) || (n > 5 && !strcmp(fname + n - 5, ".gltf"));
+    if (!is_model) return SDL_ENUM_CONTINUE;
+    if (!strcmp(c->category, "kaykit")) return SDL_ENUM_CONTINUE;   // rigged characters live here
+    const char *rel = strstr(full, "/models/"); if (!rel) return SDL_ENUM_CONTINUE; rel += 1;
+    if (kit_has_file(e, rel) || e->nkit >= KIT_MAX) return SDL_ENUM_CONTINUE;
+    KitPiece *k = &e->kit[e->nkit++]; memset(k, 0, sizeof *k);
+    snprintf(k->category, sizeof k->category, "%s", c->category);
+    char nm[64]; snprintf(nm, sizeof nm, "%s", fname); char *dot = strchr(nm, '.'); if (dot) *dot = 0;
+    snprintf(k->name, sizeof k->name, "%s", nm);
+    snprintf(k->file, sizeof k->file, "%s", rel);
+    k->scale = 1; k->collide = 0;
+    bool known = false; for (int i = 0; i < e->ncat; i++) if (!strcmp(e->categories[i], k->category)) known = true;
+    if (!known) { if (e->ncat < LEVELED_MAX_CATS) snprintf(e->categories[e->ncat++], 16, "%s", k->category); else snprintf(k->category, sizeof k->category, "%s", e->categories[e->ncat - 1]); }
+    return SDL_ENUM_CONTINUE;
+}
+static void scan_models(LevelEd *e, const char *dir, const char *category) {
+    char d[1024]; snprintf(d, sizeof d, "%s/", dir);
+    ScanCtx c = { e, category };
+    SDL_EnumerateDirectory(d, scan_cb, &c);
+}
+
 bool leveled_init(LevelEd *e, const char *kit_path) {
     memset(e, 0, sizeof *e);
     e->ghost_scale = 1; e->snap = false; e->cam_speed = 8; e->sel_prop = e->sel_light = e->sel_emitter = -1; e->tool = LT_PIECE;
@@ -29,9 +61,13 @@ bool leveled_init(LevelEd *e, const char *kit_path) {
         k->scale = (float)atof(tok[4]); k->collide = (float)atof(tok[5]); k->glow = v3((float)atof(tok[6]), (float)atof(tok[7]), (float)atof(tok[8]));
         if (nt >= 16 && !strcmp(tok[9], "light")) { k->has_light = true; k->light_color = v3((float)atof(tok[10]), (float)atof(tok[11]), (float)atof(tok[12])); k->light_radius = (float)atof(tok[13]); k->light_intensity = (float)atof(tok[14]); k->light_flicker = (float)atof(tok[15]); }
         bool known = false; for (int i = 0; i < e->ncat; i++) if (!strcmp(e->categories[i], k->category)) known = true;
-        if (!known && e->ncat < 10) snprintf(e->categories[e->ncat++], 16, "%s", k->category);
+        if (!known && e->ncat < LEVELED_MAX_CATS) snprintf(e->categories[e->ncat++], 16, "%s", k->category);
     }
     SDL_free(text);
+    // Every model file under assets/models that kit.txt does not mention becomes a piece too, in a
+    // category named after its folder, so adding an asset is a file copy. The kaykit root holds
+    // rigged characters (character builder), so it is skipped.
+    { char root[640]; snprintf(root, sizeof root, "%s/models", HOLLOW_ASSET_DIR); int before = e->nkit; scan_models(e, root, "models"); if (e->nkit > before) SDL_Log("kit: %d model files added from assets/models", e->nkit - before); }
     e->piece = e->nkit > 0 ? 0 : -1;
     if (e->nkit > 0) { e->ghost_scale = e->kit[0].scale; e->ghost_collide = e->kit[0].collide > 0; }
     return e->nkit > 0;

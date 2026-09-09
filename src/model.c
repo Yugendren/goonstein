@@ -9,6 +9,8 @@
 
 // ---------------------------------------------------------------- loading
 
+// Decoded pixels of the last texture made by texture_from_memory / texture_from_file (kept for recolouring).
+static unsigned char *last_px; static int last_w, last_h;
 static Texture texture_from_memory(Gfx *g, const unsigned char *bytes, size_t size, int max_size) {
     int w, h, n;
     unsigned char *px = stbi_load_from_memory(bytes, (int)size, &w, &h, &n, 4);
@@ -26,10 +28,19 @@ static Texture texture_from_memory(Gfx *g, const unsigned char *bytes, size_t si
         }
     }
     Texture t = gfx_texture_create(g, out, dw, dh);
+    free(last_px); last_px = malloc((size_t)dw * dh * 4); memcpy(last_px, out, (size_t)dw * dh * 4); last_w = dw; last_h = dh;
     if (out != px) free(out);
     stbi_image_free(px);
     return t;
 }
+static Texture texture_from_file(Gfx *g, const char *path, int max_size) {
+    size_t size = 0; void *bytes = SDL_LoadFile(path, &size);
+    if (!bytes) return gfx_texture_load(g, path, max_size);
+    Texture t = texture_from_memory(g, bytes, size, max_size);
+    SDL_free(bytes);
+    return t;
+}
+static void take_px(Model *m, int i) { m->tex_px[i] = last_px; m->tex_w[i] = last_w; m->tex_h[i] = last_h; last_px = NULL; }
 
 static int node_index(const cgltf_data *d, const cgltf_node *n) { return n ? (int)(n - d->nodes) : -1; }
 
@@ -65,13 +76,15 @@ bool model_load(Gfx *g, Model *m, const char *path, int max_tex_size) {
         const cgltf_texture *tex = mat->has_pbr_metallic_roughness ? mat->pbr_metallic_roughness.base_color_texture.texture : NULL;
         if (tex && tex->image && tex->image->buffer_view) {
             const cgltf_buffer_view *bv = tex->image->buffer_view;
-            m->textures[m->ntextures++] = texture_from_memory(g, (const unsigned char *)bv->buffer->data + bv->offset, bv->size, max_tex_size);
+            m->textures[m->ntextures] = texture_from_memory(g, (const unsigned char *)bv->buffer->data + bv->offset, bv->size, max_tex_size);
+            take_px(m, m->ntextures); m->ntextures++;
         } else if (tex && tex->image && tex->image->uri && strncmp(tex->image->uri, "data:", 5) != 0) {
             // External file next to the model
             char dir[512]; snprintf(dir, sizeof dir, "%s", path);
             char *slash = strrchr(dir, '/'); if (slash) slash[1] = 0; else dir[0] = 0;
             char ipath[1024]; snprintf(ipath, sizeof ipath, "%s%s", dir, tex->image->uri);
-            m->textures[m->ntextures++] = gfx_texture_load(g, ipath, max_tex_size);
+            m->textures[m->ntextures] = texture_from_file(g, ipath, max_tex_size);
+            take_px(m, m->ntextures); m->ntextures++;
         } else {
             // Untextured material: a flat colour texture from the base colour factor.
             const float *c = mat->pbr_metallic_roughness.base_color_factor;
@@ -193,7 +206,7 @@ bool model_load(Gfx *g, Model *m, const char *path, int max_tex_size) {
 
 void model_destroy(Gfx *g, Model *m) {
     for (int i = 0; i < m->nmeshes; i++) gfx_mesh_destroy(g, &m->meshes[i].gpu);
-    for (int i = 0; i < m->ntextures; i++) gfx_texture_destroy(g, &m->textures[i]);
+    for (int i = 0; i < m->ntextures; i++) { if (m->textures[i].tex != g->white.tex) gfx_texture_destroy(g, &m->textures[i]); free(m->tex_px[i]); }
     for (int i = 0; i < m->nclips; i++) {
         for (int c = 0; c < m->clips[i].nchannels; c++) { free(m->clips[i].channels[c].times); free(m->clips[i].channels[c].values); }
         free(m->clips[i].channels);
@@ -214,6 +227,65 @@ void model_hide_node(Model *m, const char *name, bool hidden) {
     int i = model_find_node(m, name);
     if (i >= 0) m->nodes[i].hidden = hidden;
     else SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "model: no node named %s", name);
+}
+
+// ---------------------------------------------------------------- recolouring and parts
+
+static int col_dist(const unsigned char *a, const unsigned char *b) { int dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2]; return dr * dr + dg * dg + db * db; }
+
+int model_palette(const Model *m, ModelColor *out, int max) {
+    // Gather distinct colours, merging near-identical ones (anti-aliased edges and downsampling
+    // blends make thousands of near-duplicates around a couple of dozen real paint colours).
+    enum { CAP = 512 };
+    ModelColor tmp[CAP]; int n = 0;
+    for (int t = 0; t < m->ntextures; t++) {
+        const unsigned char *px = m->tex_px[t]; if (!px) continue;
+        int total = m->tex_w[t] * m->tex_h[t];
+        for (int i = 0; i < total; i++) {
+            const unsigned char *p = px + i * 4;
+            if (p[3] < 128) continue;
+            int best = -1, bd = 1 << 30;
+            for (int k = 0; k < n; k++) { int d = col_dist(tmp[k].rgb, p); if (d < bd) { bd = d; best = k; } }
+            if (best >= 0 && bd <= 12 * 12) { tmp[best].count++; continue; }
+            if (n >= CAP) continue;
+            tmp[n].rgb[0] = p[0]; tmp[n].rgb[1] = p[1]; tmp[n].rgb[2] = p[2]; tmp[n].count = 1; n++;
+        }
+    }
+    for (int i = 1; i < n; i++) { ModelColor c = tmp[i]; int j = i - 1; while (j >= 0 && tmp[j].count < c.count) { tmp[j + 1] = tmp[j]; j--; } tmp[j + 1] = c; }
+    int keep = n < max ? n : max;
+    memcpy(out, tmp, (size_t)keep * sizeof *out);
+    return keep;
+}
+
+void model_recolor(Gfx *g, Model *m, const unsigned char (*from)[3], const unsigned char (*to)[3], int n) {
+    // Every pixel belongs to its nearest `from` colour (within a tolerance); it moves by the same
+    // offset as that colour, so shading and anti-aliased edges follow the recolour.
+    for (int t = 0; t < m->ntextures; t++) {
+        const unsigned char *px = m->tex_px[t]; if (!px) continue;
+        int total = m->tex_w[t] * m->tex_h[t];
+        unsigned char *out = malloc((size_t)total * 4); if (!out) continue;
+        memcpy(out, px, (size_t)total * 4);
+        for (int i = 0; i < total; i++) {
+            unsigned char *p = out + i * 4;
+            int best = -1, bd = 1 << 30;
+            for (int k = 0; k < n; k++) { int d = col_dist(from[k], p); if (d < bd) { bd = d; best = k; } }
+            if (best < 0 || bd > 40 * 40) continue;
+            for (int c = 0; c < 3; c++) { int v = p[c] + (int)to[best][c] - (int)from[best][c]; p[c] = (unsigned char)(v < 0 ? 0 : v > 255 ? 255 : v); }
+        }
+        if (m->textures[t].tex != g->white.tex) gfx_texture_destroy(g, &m->textures[t]);
+        m->textures[t] = gfx_texture_create(g, out, m->tex_w[t], m->tex_h[t]);
+        free(out);
+    }
+}
+
+int model_part_names(const Model *m, const char **out, int max) {
+    int n = 0;
+    for (int i = 0; i < m->nmeshes && n < max; i++) {
+        const char *nm = m->nodes[m->meshes[i].node].name;
+        bool dup = false; for (int k = 0; k < n; k++) if (!strcmp(out[k], nm)) dup = true;
+        if (!dup) out[n++] = nm;
+    }
+    return n;
 }
 
 // ---------------------------------------------------------------- playback

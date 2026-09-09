@@ -11,8 +11,8 @@ requiring attribution we cannot satisfy in-game.
 | src/vendor/stb_easy_font.h | https://github.com/nothings/stb | MIT / public domain | debug and subtitle font |
 | src/vendor/stb_truetype.h | https://github.com/nothings/stb | MIT / public domain | tool UI font rasteriser |
 | assets/fonts/VT323-Regular.ttf | https://github.com/google/fonts/tree/main/ofl/vt323 (Peter Hull) | OFL 1.1 (assets/fonts/VT323-OFL.txt) | tool window UI font |
-| assets/models/kaykit/Knight.glb, Barbarian.glb | https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0 | CC0 | rigged, 76 animations |
-| assets/models/kaykit/Skeleton_Warrior.glb | https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0 | CC0 | rigged, 95 animations, same rig family |
+| assets/models/kaykit/Knight.glb, Barbarian.glb, Mage.glb, Rogue.glb, Rogue_Hooded.glb | https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0 | CC0 | rigged |
+| assets/models/kaykit/Skeleton_Warrior.glb, Skeleton_Mage.glb, Skeleton_Minion.glb, Skeleton_Rogue.glb | https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0 | CC0 | rigged, same rig family |
 | src/vendor/cgltf.h | https://github.com/jkuhlmann/cgltf | MIT | glTF parser |
 | assets/models/kaykit/dungeon/*.glb | https://github.com/KayKit-Game-Assets/KayKit-Dungeon-Remastered-1.0 | CC0 | 40 static props (floors, walls, pillars, stairs, torches/candles, banners, barrels, crates, chest, rubble, arch/gate); embedded textures; see assets/models/kaykit/CATALOG.md |
 | assets/models/kaykit/halloween/*.gltf, *.bin | https://github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0 | CC0 | 29 static props (dead trees, lanterns, fences, gravestones, pumpkins, crypt, paths, arch/gate, skull/bone/coffin decor); shared external texture halloweenbits_texture.png; see assets/models/kaykit/CATALOG.md |

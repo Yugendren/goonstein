@@ -41,8 +41,18 @@ typedef struct Model {
     int  joints[MODEL_MAX_JOINTS]; Mat4 inv_bind[MODEL_MAX_JOINTS]; int njoints;
     AnimClip *clips; int nclips;
     Texture textures[MODEL_MAX_TEX]; int ntextures;
+    unsigned char *tex_px[MODEL_MAX_TEX]; int tex_w[MODEL_MAX_TEX], tex_h[MODEL_MAX_TEX];   // CPU copies for recolouring
     Vec3 bmin, bmax;         // rest-pose bounds
 } Model;
+
+// Recolouring: the flat-colour atlases of low-poly packs have a handful of distinct colours, so a
+// character is recoloured by remapping those. model_palette lists them by pixel count.
+typedef struct ModelColor { unsigned char rgb[3]; int count; } ModelColor;
+int  model_palette(const Model *m, ModelColor *out, int max);
+// Rebuild the textures with every `from` colour replaced by `to` (exact matches). n pairs.
+void model_recolor(Gfx *g, Model *m, const unsigned char (*from)[3], const unsigned char (*to)[3], int n);
+// Names of nodes that carry meshes (the parts a character is made of), in file order.
+int  model_part_names(const Model *m, const char **out, int max);
 
 // Two-segment playback so a clip's contact moment can be pinned to a gameplay timing.
 typedef struct AnimPlayer {

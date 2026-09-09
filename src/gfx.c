@@ -304,11 +304,16 @@ void gfx_shutdown(Gfx *g) {
     for (int i = 0; i < g->nfonts; i++) { gfx_texture_destroy(g, &g->fonts[i].tex); free(g->fonts[i].cdata); }
     if (g->ttf) SDL_free(g->ttf);
     if (g->tool_shot) SDL_ReleaseGPUTexture(g->dev, g->tool_shot);
+    if (g->por_hdr) SDL_ReleaseGPUTexture(g->dev, g->por_hdr); if (g->por_depth) SDL_ReleaseGPUTexture(g->dev, g->por_depth);
+    if (g->por_comp) SDL_ReleaseGPUTexture(g->dev, g->por_comp); if (g->por_comp_depth) SDL_ReleaseGPUTexture(g->dev, g->por_comp_depth);
+    if (g->portrait.tex) SDL_ReleaseGPUTexture(g->dev, g->portrait.tex);
     SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_pixcomp);
 }
 
 // ---------------------------------------------------------------- world pass
 
+static void push_frame_uniforms(Gfx *g, const FrameParams *fp);
+static void fullscreen_pass(Gfx *g, SDL_GPUCommandBuffer *cmd, SDL_GPUGraphicsPipeline *pipe, SDL_GPUTexture *dst, const SDL_GPUTextureSamplerBinding *samplers, Uint32 nsamplers, const void *uniforms, Uint32 usize, const SDL_GPUViewport *vpt);
 static void push_material(Gfx *g, Vec4 tint) {
     const Material *m = &g->material;
     MaterialUniforms u = { .tint = v4(tint.x * m->tint.x, tint.y * m->tint.y, tint.z * m->tint.z, tint.w * m->tint.w),
@@ -327,7 +332,10 @@ void gfx_begin(Gfx *g, Platform *pf, const FrameParams *fp) {
         .stencil_load_op = SDL_GPU_LOADOP_DONT_CARE, .stencil_store_op = SDL_GPU_STOREOP_DONT_CARE, .clear_depth = 1.0f, .cycle = true };
     g->pass = SDL_BeginGPURenderPass(pf->cmd, &ct, 1, &dt);
     g->in_pix = false; g->main_vp = fp->view_proj;
+    push_frame_uniforms(g, fp);
+}
 
+static void push_frame_uniforms(Gfx *g, const FrameParams *fp) {
     FrameUniforms u = {
         .cam_pos = v4(fp->cam_pos.x, fp->cam_pos.y, fp->cam_pos.z, 0),
         .sun_dir = v4(fp->sun_dir.x, fp->sun_dir.y, fp->sun_dir.z, fp->sun_intensity),
@@ -343,9 +351,65 @@ void gfx_begin(Gfx *g, Platform *pf, const FrameParams *fp) {
         u.lights_pos[i] = v4(l->pos.x, l->pos.y, l->pos.z, l->radius);
         u.lights_color[i] = v4(l->color.x * l->intensity, l->color.y * l->intensity, l->color.z * l->intensity, 0);
     }
-    SDL_PushGPUFragmentUniformData(pf->cmd, 0, &u, sizeof u);
+    SDL_PushGPUFragmentUniformData(g->cmd, 0, &u, sizeof u);
     memcpy(g->frame_uniforms, &u, sizeof u); g->frame_uniforms_size = sizeof u;
     push_material(g, v4(1, 1, 1, 1));
+}
+
+// ---------------------------------------------------------------- portrait camera
+
+void gfx_portrait_begin(Gfx *g, Platform *pf, const FrameParams *fp, int size, Vec3 backdrop) {
+    if (!pf->cmd || g->in_portrait) return;
+    if (size < 16) size = 16; if (size > 256) size = 256;
+    if (size != g->por_size) {
+        if (g->por_hdr) SDL_ReleaseGPUTexture(g->dev, g->por_hdr); if (g->por_depth) SDL_ReleaseGPUTexture(g->dev, g->por_depth);
+        if (g->por_comp) SDL_ReleaseGPUTexture(g->dev, g->por_comp); if (g->por_comp_depth) SDL_ReleaseGPUTexture(g->dev, g->por_comp_depth);
+        if (g->portrait.tex) SDL_ReleaseGPUTexture(g->dev, g->portrait.tex);
+        g->por_hdr = make_target(g, HDR_FMT, size, size, false);
+        g->por_comp = make_target(g, HDR_FMT, size, size, false);
+        g->portrait.tex = make_target(g, LDR_FMT, size, size, false); g->portrait.w = g->portrait.h = size;
+        SDL_GPUTextureCreateInfo di = { .type = SDL_GPU_TEXTURETYPE_2D, .format = DEPTH_FMT, .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+                                        .width = (Uint32)size, .height = (Uint32)size, .layer_count_or_depth = 1, .num_levels = 1 };
+        g->por_depth = SDL_CreateGPUTexture(g->dev, &di);
+        di.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET; g->por_comp_depth = SDL_CreateGPUTexture(g->dev, &di);
+        g->por_size = size;
+    }
+    g->cmd = pf->cmd; g->frame = *fp; g->material = material_default(); g->bound_pipe = NULL; g->bound_tex = NULL;
+    g->cam_right = fp->cam_right; g->cam_up = fp->cam_up;
+    SDL_GPUColorTargetInfo ct = { .texture = g->por_hdr, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE, .clear_color = { 0, 0, 0, 0 }, .cycle = true };
+    SDL_GPUDepthStencilTargetInfo dt = { .texture = g->por_depth, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE,
+        .stencil_load_op = SDL_GPU_LOADOP_DONT_CARE, .stencil_store_op = SDL_GPU_STOREOP_DONT_CARE, .clear_depth = 1.0f, .cycle = true };
+    g->pass = SDL_BeginGPURenderPass(pf->cmd, &ct, 1, &dt);
+    g->in_portrait = true;
+    g->por_backdrop_lin = v3(powf(backdrop.x, 2.2f), powf(backdrop.y, 2.2f), powf(backdrop.z, 2.2f));
+    push_frame_uniforms(g, fp);
+}
+
+void gfx_portrait_end(Gfx *g) {
+    if (!g->in_portrait || !g->pass) return;
+    SDL_EndGPURenderPass(g->pass); g->pass = NULL; g->in_portrait = false;
+    // composite with outline and palette onto the backdrop
+    {
+        SDL_GPUColorTargetInfo ct = { .texture = g->por_comp, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE, .clear_color = { g->por_backdrop_lin.x, g->por_backdrop_lin.y, g->por_backdrop_lin.z, 1 }, .cycle = true };
+        SDL_GPUDepthStencilTargetInfo dt = { .texture = g->por_comp_depth, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_DONT_CARE,
+            .stencil_load_op = SDL_GPU_LOADOP_DONT_CARE, .stencil_store_op = SDL_GPU_STOREOP_DONT_CARE, .clear_depth = 1.0f, .cycle = true };
+        SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(g->cmd, &ct, 1, &dt);
+        PixUniforms u = { .res = v4((float)g->por_size, (float)g->por_size, 1.0f / g->por_size, 1.0f / g->por_size), .offset = v4(0, 0, 0, 0),
+                          .params = v4(g->pix_levels, g->pix_outline, g->pix_palette, g->pix_inner) };
+        SDL_BindGPUGraphicsPipeline(pass, g->pipe_pixcomp);
+        SDL_PushGPUFragmentUniformData(g->cmd, 0, &u, sizeof u);
+        SDL_GPUTextureSamplerBinding sb[2] = { { .texture = g->por_hdr, .sampler = g->samp_nearest }, { .texture = g->por_depth, .sampler = g->samp_nearest } };
+        SDL_BindGPUFragmentSamplers(pass, 0, sb, 2);
+        SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+        SDL_EndGPURenderPass(pass);
+    }
+    // tone map into the UI texture (neutral grade)
+    {
+        PostUniforms u = { .params = v4(0, 0, 0, 1), .res = v4((float)g->por_size, (float)g->por_size, 0, 0), .flash = v4(0, 0, 0, 0),
+                           .grade = v4(1, 1, 1, 0), .lift = v4(0, 0, 0, 0), .gain = v4(1, 1, 1, 0) };
+        SDL_GPUTextureSamplerBinding sb[2] = { { .texture = g->por_comp, .sampler = g->samp_nearest }, { .texture = g->por_comp, .sampler = g->samp_nearest } };
+        fullscreen_pass(g, g->cmd, g->pipe_post, g->portrait.tex, sb, 2, &u, sizeof u, NULL);
+    }
 }
 
 // ---------------------------------------------------------------- pixel-art layer

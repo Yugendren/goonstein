@@ -1,3 +1,5 @@
 # Speaker name (quote it if it has spaces) and portrait image, relative to assets/
-Ninja        sprites/ninja/Actor/Character/NinjaGreen/Faceset.png
-"The Warden" sprites/ninja/Actor/Boss/GiantRedSamurai/Faceset.png
+# model:hero / model:boss render the 3D character's face live through the pixel pass
+Ninja        model:hero
+Hero         model:hero
+"The Warden" model:boss

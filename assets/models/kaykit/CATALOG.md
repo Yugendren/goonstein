@@ -553,3 +553,18 @@ the flame position — the geometry itself does not glow.
 
 **Medieval Hexagon Pack**
 
+## Rigged characters
+
+Animatable character models with embedded textures (embedded in .glb files).
+
+| Name | File | Notes |
+|------|------|-------|
+| Knight | Knight.glb | Adventure character; rigged |
+| Barbarian | Barbarian.glb | Adventure character; rigged |
+| Mage | Mage.glb | Adventure character; rigged |
+| Rogue | Rogue.glb | Adventure character; rigged |
+| Rogue_Hooded | Rogue_Hooded.glb | Adventure character; rigged |
+| Skeleton_Warrior | Skeleton_Warrior.glb | Skeleton character; rigged |
+| Skeleton_Mage | Skeleton_Mage.glb | Skeleton character; rigged |
+| Skeleton_Minion | Skeleton_Minion.glb | Skeleton character; rigged |
+| Skeleton_Rogue | Skeleton_Rogue.glb | Skeleton character; rigged |

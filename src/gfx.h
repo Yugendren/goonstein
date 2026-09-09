@@ -53,6 +53,8 @@ typedef struct Gfx {
     float pix_levels, pix_outline, pix_palette, pix_inner;
     SDL_GPUGraphicsPipeline *pipe_pixcomp;
     Mat4 main_vp; float pix_off_x, pix_off_y; bool in_pix;
+    // portrait camera: a character head rendered through the pixel pass into a small UI texture
+    SDL_GPUTexture *por_hdr, *por_depth, *por_comp, *por_comp_depth; int por_size; Texture portrait; bool in_portrait; Vec3 por_backdrop_lin;
     SDL_GPUTextureFormat swap_format;
     SDL_GPUGraphicsPipeline *pipe_world, *pipe_skin, *pipe_sky, *pipe_particle_add, *pipe_particle_alpha,
                             *pipe_bright, *pipe_blur, *pipe_post, *pipe_ui, *pipe_blit;
@@ -139,6 +141,11 @@ void gfx_ui_image(Gfx *g, const Texture *t, float x, float y, float w, float h, 
 // composites the layer over the world with a one-pixel outline and crunched colours, depth-tested.
 void gfx_set_pixel_look(Gfx *g, int scale, float levels, float outline, float palette, float inner);
 void gfx_pixel_begin(Gfx *g, Mat4 view_proj, float off_x, float off_y);
+// Portrait: call before gfx_begin. Opens a pass on a size x size art-pixel target using fp's
+// lighting and view; draw the character; end composites it (outline, palette) and tone-maps it into
+// g->portrait, a UI texture. backdrop is the colour behind the character (sRGB-ish 0..1).
+void gfx_portrait_begin(Gfx *g, Platform *pf, const FrameParams *fp, int size, Vec3 backdrop);
+void gfx_portrait_end(Gfx *g);
 void gfx_pixel_end(Gfx *g);
 bool gfx_screenshot(Gfx *g, const char *path);
 void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time);

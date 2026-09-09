@@ -13,6 +13,7 @@
 #include "battle.h"
 #include "editor.h"
 #include "leveled.h"
+#include "builder.h"
 #include "terrain.h"
 #include "widgets.h"
 
@@ -30,11 +31,13 @@ typedef struct Game {
     PropCache props; Particles particles; Battle battle; Uifx fx; bool battle_loaded;
     Editor editor; bool editor_open;
     LevelEd leveled; bool leveled_ready;
+    Builder builder; bool builder_ready;
     Terrain terrain;
     bool hero_was_model;   // the sprite editor swapped a 3D hero for its document; restore on close
     Ui ui; int tool_mode;            // 0 none, 1 debugger, 2 environment editor, 3 sprite editor
     float sprite_refresh_t;
-    struct { char name[32]; Texture tex; } portraits[16]; int nportraits;
+    struct { char name[32]; Texture tex; int model; } portraits[16]; int nportraits;   // model: 0 image, 1 hero, 2 boss
+    AnimPlayer portrait_player; ModelPose portrait_pose; char portrait_emote[16]; float portrait_start; int portrait_model;
     Texture emotes[31];                       // pack emote bubbles by number, 1..30
     float dlg_shown_chars; float dlg_blip_t; char dlg_last_line[200];
     char hero_config[128];        // override for assets/characters/<name>.txt

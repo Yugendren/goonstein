@@ -4,70 +4,143 @@ static void sprite_settle(CharModel *cm);
 #include <stdlib.h>
 #include <string.h>
 
-bool charmodel_load(Gfx *g, CharModel *cm, const char *config_path) {
-    memset(cm, 0, sizeof *cm);
-    cm->scale = 1.0f; cm->player.clip = -1; cm->player.prev = -1; cm->last_anim = ANIM_COUNT; cm->last_move = -1;
-    for (int i = 0; i < ANIM_COUNT; i++) cm->bind[i].clip = -1;
+static void spec_defaults(CharSpec *sp) { memset(sp, 0, sizeof *sp); sp->scale = 1; sp->tex_size = 256; for (int a = 0; a < ANIM_COUNT; a++) sp->anims[a].contact = -1, sp->anims[a].rate = 1; }
+
+bool charmodel_spec_load(CharSpec *sp, const char *config_path) {
+    spec_defaults(sp);
     size_t n; char *text = SDL_LoadFile(config_path, &n);
     if (!text) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "character config missing: %s", config_path); return false; }
-    int tex_size = 256;
     char *cur = text; int ln = 0;
-    // First pass: model line must load before anims can resolve, so collect lines.
-    char *lines[256]; int nlines = 0;
-    while (*cur && nlines < 256) {
-        char *line = cur; char *nl = strchr(cur, '\n');
-        if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
+    while (*cur) {
+        char *line = cur; char *nl = strchr(cur, '\n'); if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
+        ln++;
         char *hash = strchr(line, '#'); if (hash) *hash = 0;
-        lines[nlines++] = line;
-    }
-    for (int i = 0; i < nlines; i++) {
-        char buf[512]; snprintf(buf, sizeof buf, "%s", lines[i]);
-        char *key = strtok(buf, " \t"); if (!key) continue;
-        if (!strcmp(key, "texture_size")) tex_size = atoi(strtok(NULL, " \t"));
-        else if (!strcmp(key, "scale")) cm->scale = (float)atof(strtok(NULL, " \t"));
-        else if (!strcmp(key, "yaw_offset")) cm->yaw_offset = (float)atof(strtok(NULL, " \t")) * DEG2RAD;
-    }
-    for (int i = 0; i < nlines; i++) {
-        char buf[512]; snprintf(buf, sizeof buf, "%s", lines[i]);
-        char *key = strtok(buf, " \t"); if (!key) continue;
-        if (!strcmp(key, "model")) {
-            char path[512]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, strtok(NULL, " \t"));
-            if (!model_load(g, &cm->model, path, tex_size)) { SDL_free(text); return false; }
-            cm->loaded = true;
-        } else if (!strcmp(key, "sprite")) {
-            char path[512]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, strtok(NULL, " \t"));
-            if (!sprite_def_load(g, &cm->sdef, path)) { SDL_free(text); return false; }
-            sprite_actor_init(&cm->sprite, &cm->sdef);
-            cm->is_sprite = true; cm->loaded = true;
+        char *key = strtok(line, " \t\r"); if (!key) continue;
+        if (!strcmp(key, "model")) { char *v = strtok(NULL, " \t\r"); if (v) snprintf(sp->model, sizeof sp->model, "%s", v); }
+        else if (!strcmp(key, "sprite")) { char *v = strtok(NULL, " \t\r"); if (v) snprintf(sp->sprite, sizeof sp->sprite, "%s", v); }
+        else if (!strcmp(key, "texture_size")) { char *v = strtok(NULL, " \t\r"); if (v) sp->tex_size = atoi(v); }
+        else if (!strcmp(key, "scale")) { char *v = strtok(NULL, " \t\r"); if (v) sp->scale = (float)atof(v); }
+        else if (!strcmp(key, "yaw_offset")) { char *v = strtok(NULL, " \t\r"); if (v) sp->yaw_offset_deg = (float)atof(v); }
+        else if (!strcmp(key, "hide")) { char *nm; while ((nm = strtok(NULL, " \t\r")) && sp->nhidden < SPEC_MAX_HIDDEN) snprintf(sp->hidden[sp->nhidden++], 48, "%s", nm); }
+        else if (!strcmp(key, "recolor")) {   // recolor r g b  r2 g2 b2   (0-255)
+            int v[6], k = 0; char *t; while (k < 6 && (t = strtok(NULL, " \t\r"))) v[k++] = atoi(t);
+            if (k == 6 && sp->nrecolor < SPEC_MAX_RECOLOR) { for (int c = 0; c < 3; c++) { sp->rc_from[sp->nrecolor][c] = (unsigned char)v[c]; sp->rc_to[sp->nrecolor][c] = (unsigned char)v[3 + c]; } sp->nrecolor++; }
+            else SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d bad recolor line", config_path, ln);
         }
-    }
-    if (!cm->loaded) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: no model or sprite line", config_path); SDL_free(text); return false; }
-    for (int i = 0; i < nlines; i++) {
-        ln = i + 1;
-        char buf[512]; snprintf(buf, sizeof buf, "%s", lines[i]);
-        char *key = strtok(buf, " \t"); if (!key) continue;
-        if (!strcmp(key, "hide")) { char *nm; while ((nm = strtok(NULL, " \t"))) model_hide_node(&cm->model, nm, true); }
         else if (!strcmp(key, "anim")) {
-            char *nm = strtok(NULL, " \t"), *clip = strtok(NULL, " \t");
+            char *nm = strtok(NULL, " \t\r"), *clip = strtok(NULL, " \t\r");
             if (!nm || !clip) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d bad anim line", config_path, ln); continue; }
             Anim a = anim_from_name(nm);
             if (strcmp(anim_name(a), nm) != 0) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d unknown anim %s", config_path, ln, nm); continue; }
-            AnimBinding b = { .clip = cm->is_sprite ? sprite_find_anim(&cm->sdef, clip) : model_find_clip(&cm->model, clip), .contact = -1, .rate = 1 };
-            if (b.clip < 0) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d clip %s not found", config_path, ln, clip);
+            snprintf(sp->anims[a].clip, sizeof sp->anims[a].clip, "%s", clip); sp->anims[a].set = true;
             char *k;
-            while ((k = strtok(NULL, " \t"))) {
-                if (!strcmp(k, "loop")) b.loop = true;
-                else if (!strcmp(k, "hold")) b.hold = true;
-                else if (!strcmp(k, "contact")) b.contact = (float)atof(strtok(NULL, " \t"));
-                else if (!strcmp(k, "rate")) b.rate = (float)atof(strtok(NULL, " \t"));
+            while ((k = strtok(NULL, " \t\r"))) {
+                if (!strcmp(k, "loop")) sp->anims[a].loop = true;
+                else if (!strcmp(k, "hold")) sp->anims[a].hold = true;
+                else if (!strcmp(k, "contact")) { char *v = strtok(NULL, " \t\r"); if (v) sp->anims[a].contact = (float)atof(v); }
+                else if (!strcmp(k, "rate")) { char *v = strtok(NULL, " \t\r"); if (v) sp->anims[a].rate = (float)atof(v); }
             }
-            cm->bind[a] = b;
         }
-        else if (strcmp(key, "model") && strcmp(key, "sprite") && strcmp(key, "scale") && strcmp(key, "texture_size") && strcmp(key, "yaw_offset"))
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d unknown key %s", config_path, ln, key);
+        else SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d unknown key %s", config_path, ln, key);
     }
     SDL_free(text);
+    if (!sp->model[0] && !sp->sprite[0]) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: no model or sprite line", config_path); return false; }
     return true;
+}
+
+bool charmodel_spec_save(const CharSpec *sp, const char *config_path) {
+    FILE *f = fopen(config_path, "wb");
+    if (!f) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "cannot write %s", config_path); return false; }
+    fprintf(f, "# Character built in the character builder. model / hide / recolor / anim lines; see src/charmodel.h\n");
+    if (sp->model[0]) fprintf(f, "model %s\n", sp->model); else fprintf(f, "sprite %s\n", sp->sprite);
+    fprintf(f, "scale %.3f\ntexture_size %d\nyaw_offset %.1f\n", sp->scale, sp->tex_size, sp->yaw_offset_deg);
+    if (sp->nhidden) { fprintf(f, "hide"); for (int i = 0; i < sp->nhidden; i++) fprintf(f, " %s", sp->hidden[i]); fprintf(f, "\n"); }
+    for (int i = 0; i < sp->nrecolor; i++) fprintf(f, "recolor %d %d %d  %d %d %d\n", sp->rc_from[i][0], sp->rc_from[i][1], sp->rc_from[i][2], sp->rc_to[i][0], sp->rc_to[i][1], sp->rc_to[i][2]);
+    for (int a = 0; a < ANIM_COUNT; a++) {
+        if (!sp->anims[a].set) continue;
+        fprintf(f, "anim %-10s %s", anim_name((Anim)a), sp->anims[a].clip);
+        if (sp->anims[a].loop) fprintf(f, " loop");
+        if (sp->anims[a].hold) fprintf(f, " hold");
+        if (sp->anims[a].contact >= 0) fprintf(f, " contact %.2f", sp->anims[a].contact);
+        if (sp->anims[a].rate != 1) fprintf(f, " rate %.2f", sp->anims[a].rate);
+        fprintf(f, "\n");
+    }
+    fclose(f);
+    return true;
+}
+
+bool charmodel_apply(Gfx *g, CharModel *cm, const CharSpec *sp) {
+    memset(cm, 0, sizeof *cm);
+    cm->spec = *sp;
+    cm->scale = sp->scale; cm->yaw_offset = sp->yaw_offset_deg * DEG2RAD;
+    cm->player.clip = -1; cm->player.prev = -1; cm->last_anim = ANIM_COUNT; cm->last_move = -1;
+    for (int i = 0; i < ANIM_COUNT; i++) cm->bind[i].clip = -1;
+    if (sp->model[0]) {
+        char path[640]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, sp->model);
+        if (!model_load(g, &cm->model, path, sp->tex_size)) return false;
+    } else {
+        char path[640]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, sp->sprite);
+        if (!sprite_def_load(g, &cm->sdef, path)) return false;
+        sprite_actor_init(&cm->sprite, &cm->sdef);
+        cm->is_sprite = true;
+    }
+    cm->loaded = true;
+    for (int i = 0; i < sp->nhidden; i++) model_hide_node(&cm->model, sp->hidden[i], true);
+    if (!cm->is_sprite && sp->nrecolor) model_recolor(g, &cm->model, sp->rc_from, sp->rc_to, sp->nrecolor);
+    for (int a = 0; a < ANIM_COUNT; a++) {
+        if (!sp->anims[a].set) continue;
+        AnimBinding b = { .clip = cm->is_sprite ? sprite_find_anim(&cm->sdef, sp->anims[a].clip) : model_find_clip(&cm->model, sp->anims[a].clip),
+                          .loop = sp->anims[a].loop, .hold = sp->anims[a].hold, .contact = sp->anims[a].contact, .rate = sp->anims[a].rate };
+        if (b.clip < 0) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "character: clip %s not found for %s", sp->anims[a].clip, anim_name((Anim)a));
+        cm->bind[a] = b;
+    }
+    return true;
+}
+
+bool charmodel_load(Gfx *g, CharModel *cm, const char *config_path) {
+    CharSpec sp;
+    memset(cm, 0, sizeof *cm);
+    if (!charmodel_spec_load(&sp, config_path)) return false;
+    return charmodel_apply(g, cm, &sp);
+}
+
+// Clip-name matching for the packs we ship. Each action tries its candidates in order.
+int charmodel_spec_autobind(CharSpec *sp, const Model *m, int style) {
+    static const char *ATK[4][3] = { { "1H_Melee_Attack_Slice_Horizontal", "1H_Melee_Attack_Slice_Diagonal", "1H_Melee_Attack_Chop" },
+                                     { "2H_Melee_Attack_Slice", "2H_Melee_Attack_Chop", "2H_Melee_Attack_Stab" },
+                                     { "Spellcast_Shoot", "Spellcast_Raise", "Spellcast_Long" },
+                                     { "Unarmed_Melee_Attack_Punch_A", "Unarmed_Melee_Attack_Punch_B", "Unarmed_Melee_Attack_Kick" } };
+    static const float ATK_CONTACT[4] = { 0.42f, 0.45f, 0.5f, 0.4f };
+    struct { Anim a; const char *cands[4]; bool loop, hold; float contact; } T[] = {
+        { ANIM_IDLE,      { "Idle", "Idle_A", "Idle_Loop", NULL }, true, false, -1 },
+        { ANIM_WALK,      { "Walking_A", "Walking_B", "Walk", NULL }, true, false, -1 },
+        { ANIM_RUN,       { "Running_A", "Running_B", "Run", NULL }, true, false, -1 },
+        { ANIM_PARRY,     { "Block", "Blocking", NULL, NULL }, false, false, 0.25f },
+        { ANIM_PARRY_HIT, { "Block_Hit", "Blocking_Hit", NULL, NULL }, false, false, 0.15f },
+        { ANIM_DODGE,     { "Dodge_Backward", "Dodge_Left", "Roll", NULL }, false, false, -1 },
+        { ANIM_HURT,      { "Hit_A", "Hit", "HitReact", NULL }, false, false, -1 },
+        { ANIM_STAGGER,   { "Hit_B", "Hit_A", NULL, NULL }, false, false, -1 },
+        { ANIM_KNEEL,     { "Sit_Floor_Down", "Sit_Chair_Down", "Kneel", NULL }, false, true, -1 },
+        { ANIM_DEAD,      { "Death_A", "Death_B", "Death", NULL }, false, true, -1 },
+        { ANIM_ROAR,      { "Cheer", "Taunt", "Yes", NULL }, false, false, -1 },
+    };
+    int bound = 0;
+    for (size_t i = 0; i < sizeof T / sizeof *T; i++) {
+        for (int c = 0; c < 4 && T[i].cands[c]; c++) if (model_find_clip(m, T[i].cands[c]) >= 0) {
+            snprintf(sp->anims[T[i].a].clip, 64, "%s", T[i].cands[c]); sp->anims[T[i].a].set = true; sp->anims[T[i].a].loop = T[i].loop; sp->anims[T[i].a].hold = T[i].hold; sp->anims[T[i].a].contact = T[i].contact; sp->anims[T[i].a].rate = 1;
+            bound++; break;
+        }
+    }
+    if (style < 0 || style > 3) style = 0;
+    Anim atk[3] = { ANIM_ATTACK, ANIM_ATTACK2, ANIM_ATTACK3 };
+    for (int k = 0; k < 3; k++) {
+        const char *pick = NULL;
+        for (int s2 = 0; s2 < 4 && !pick; s2++) { int st = (style + s2) % 4; if (model_find_clip(m, ATK[st][k]) >= 0) pick = ATK[st][k]; }
+        if (!pick) continue;
+        snprintf(sp->anims[atk[k]].clip, 64, "%s", pick); sp->anims[atk[k]].set = true; sp->anims[atk[k]].loop = false; sp->anims[atk[k]].hold = false; sp->anims[atk[k]].contact = ATK_CONTACT[style]; sp->anims[atk[k]].rate = 1;
+        bound++;
+    }
+    return bound;
 }
 
 void charmodel_destroy(Gfx *g, CharModel *cm) { if (cm->loaded && cm->is_sprite) sprite_def_destroy(g, &cm->sdef); else if (cm->loaded) model_destroy(g, &cm->model); cm->loaded = false; }

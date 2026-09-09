@@ -77,7 +77,8 @@ so a bug report is: press F8 when it happens, paste.
 
 ## Editors (second window, live in the game)
 
-In the game, `[` opens the environment editor, `]` the sprite editor and `\` the debugger;
+In the game, `[` opens the environment editor, `]` the character builder and `\` the debugger
+(Ctrl+P opens the pixel sprite editor);
 `Esc` closes the open tool (with nothing selected in it), and Esc quits only when no tool is
 open. Ctrl+E / Ctrl+P (or F6 / F7) also work. On a Mac, Cmd
 works in place of Ctrl, and the function keys need Fn unless you change the keyboard setting.
@@ -122,10 +123,29 @@ PIXEL CHARACTERS sliders on the LOOK tab tune it; scale 0 turns it off. The Ninj
 sprite versions stay as `hero_sprite.txt` / `warden_sprite.txt` (`--hero hero_sprite`).
 Tuning from the command line: `HOLLOW_PIX="3 8 1 1 0.6"` overrides the look, `HOLLOW_NOPIX=1` disables the pass.
 
-**Sprite editor.** Draws in the tool window while the game keeps running with your character as
+**Character builder** (`]`). Makes a character from a rigged model without drawing anything.
+BODY & PARTS lists every rigged `.glb` under `assets/models/kaykit`, `characters` and `import`
+(KayKit knight, barbarian, mage, rogues and four skeletons ship, all CC0) and every part of the chosen
+one (weapons, shields, hats, capes, limbs) as toggles. COLOURS lists the model's paint colours, most
+used first; pick one and move the sliders to repaint it, shading and edges follow. ANIMATION picks a
+fighting style (one-handed, two-handed, spellcaster, unarmed), AUTO BIND fills every game action
+from the clip names, and any clip can be previewed on the hero. The hero in the game window shows
+every change live. SAVE writes `assets/characters/NAME.txt` (`model`, `hide`, `recolor`, `anim`
+lines); SAVE + USE AS HERO also sets it as the hero in `assets/settings.txt`. `--hero NAME` plays it.
+
+**Portraits from the models.** Dialogue portraits are rendered live from the speaker's 3D model
+through the pixel pass: a head camera, an emotion-driven clip (happy cheers, angry taunts, sad
+slumps, surprised flinches) and the same palette and outline as the world. `assets/portraits.txt`
+maps a speaker to `model:hero`, `model:boss` or an image file.
+
+**Drop-in models.** Any `.glb` or `.gltf` under `assets/models` that `assets/kit.txt` does not
+list appears in the environment editor's palette under a category named after its folder; see
+`assets/models/import/README.md`.
+
+**Sprite editor** (Ctrl+P). Draws in the tool window while the game keeps running with your character as
 the hero: every stroke updates the sprite in the world within a tenth of a second, so walk
-around or fight with it between edits. `]` opens it on a copy of the current hero (its sheets are
-imported the first time, and Ctrl+S saves the copy as `HERO_own`, which `]` reopens afterwards);
+around or fight with it between edits. It opens on a copy of the current hero (its sheets are
+imported the first time, and Ctrl+S saves the copy as `HERO_own`, which it reopens afterwards);
 `--edit NAME` starts straight into a document by name.
 
 ## Sprite editor

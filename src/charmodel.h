@@ -17,17 +17,37 @@
 
 typedef struct AnimBinding { int clip; bool loop, hold; float contact, rate; } AnimBinding;
 
+// A character file in memory: what the builder edits and what charmodel_apply turns into a model.
+#define SPEC_MAX_HIDDEN 32
+#define SPEC_MAX_RECOLOR 32
+typedef struct CharSpec {
+    char model[256], sprite[256];        // one of the two is set (relative to assets/)
+    float scale, yaw_offset_deg; int tex_size;
+    char hidden[SPEC_MAX_HIDDEN][48]; int nhidden;
+    unsigned char rc_from[SPEC_MAX_RECOLOR][3], rc_to[SPEC_MAX_RECOLOR][3]; int nrecolor;
+    struct { char clip[64]; bool set, loop, hold; float contact, rate; } anims[ANIM_COUNT];
+} CharSpec;
+
+
 typedef struct CharModel {
     Model model; bool loaded;
     bool is_sprite; SpriteDef sdef; SpriteActor sprite;
     AnimPlayer player; ModelPose pose;
     AnimBinding bind[ANIM_COUNT];
     float scale, yaw_offset;
+    CharSpec spec;                       // what this character was built from
     // change detection
     Anim last_anim; float last_anim_t; int last_move;
 } CharModel;
 
 bool charmodel_load(Gfx *g, CharModel *cm, const char *config_path);
+bool charmodel_spec_load(CharSpec *sp, const char *config_path);
+bool charmodel_spec_save(const CharSpec *sp, const char *config_path);
+// Build (or rebuild) the model from a spec. On failure cm is left unloaded.
+bool charmodel_apply(Gfx *g, CharModel *cm, const CharSpec *sp);
+// Fill the anim table by matching the model's clip names against the usual KayKit / Quaternius names.
+// style: 0 one-handed, 1 two-handed, 2 spellcaster, 3 unarmed. Returns how many actions were bound.
+int  charmodel_spec_autobind(CharSpec *sp, const Model *m, int style);
 void charmodel_destroy(Gfx *g, CharModel *cm);
 // Advance animation for a player-controlled character (uses PlayerDef timings for fitted clips).
 void charmodel_drive_player(CharModel *cm, const Player *p, float dt);

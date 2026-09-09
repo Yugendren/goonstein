@@ -10,7 +10,8 @@
 #include "widgets.h"
 #include "terrain.h"
 
-#define KIT_MAX 160
+#define KIT_MAX 256
+#define LEVELED_MAX_CATS 16
 #define ED_UNDO_LEVELS 8
 
 typedef struct KitPiece {
@@ -24,7 +25,7 @@ typedef enum EdTool2 { LT_SELECT, LT_PIECE, LT_LIGHT, LT_EMITTER } EdTool2;
 typedef struct LevelEd {
     bool open; int tab;
     KitPiece kit[KIT_MAX]; int nkit;
-    char categories[10][16]; int ncat; int cat;
+    char categories[LEVELED_MAX_CATS][16]; int ncat; int cat;
     int list_sel; int piece;            // selection in the category list, and the kit index it maps to
     EdTool2 tool;
     float ghost_yaw, ghost_scale; bool ghost_collide, snap;

@@ -111,17 +111,25 @@ static void load_portraits(Game *g) {
         while (*path == ' ' || *path == '\t') path++;
         char *end = path + strlen(path); while (end > path && (end[-1] == ' ' || end[-1] == '\r' || end[-1] == '\t')) *--end = 0;
         if (g->nportraits >= 16) break;
-        char full[640]; snprintf(full, sizeof full, "%s/%s", HOLLOW_ASSET_DIR, path);
         snprintf(g->portraits[g->nportraits].name, 32, "%s", name);
-        g->portraits[g->nportraits].tex = gfx_texture_load_exact(&g->gfx, full);
+        if (!strncmp(path, "model:", 6)) {   // rendered live from the 3D character: model:hero or model:boss
+            g->portraits[g->nportraits].model = !strcmp(path + 6, "boss") ? 2 : 1;
+        } else {
+            char full[640]; snprintf(full, sizeof full, "%s/%s", HOLLOW_ASSET_DIR, path);
+            g->portraits[g->nportraits].tex = gfx_texture_load_exact(&g->gfx, full);
+        }
         g->nportraits++;
     }
     SDL_free(text);
     for (int i = 1; i <= 30; i++) { char full[640]; snprintf(full, sizeof full, "%s/sprites/ninja/Ui/Emote/emote%d.png", HOLLOW_ASSET_DIR, i); g->emotes[i] = gfx_texture_load_exact(&g->gfx, full); }
 }
 
+static int portrait_model_for(Game *g, const char *speaker) {
+    for (int i = 0; i < g->nportraits; i++) if (!strcmp(g->portraits[i].name, speaker)) return g->portraits[i].model;
+    return 0;
+}
 static const Texture *portrait_for(Game *g, const char *speaker) {
-    for (int i = 0; i < g->nportraits; i++) if (!strcmp(g->portraits[i].name, speaker)) return &g->portraits[i].tex;
+    for (int i = 0; i < g->nportraits; i++) if (!strcmp(g->portraits[i].name, speaker)) return g->portraits[i].model ? (g->gfx.portrait.tex ? &g->gfx.portrait : NULL) : &g->portraits[i].tex;
     return NULL;
 }
 
@@ -202,6 +210,7 @@ bool game_init_gfx(Game *g, Platform *pf) {
     uifx_init(&g->fx);
     load_portraits(g);
     g->leveled_ready = leveled_init(&g->leveled, ASSET("kit.txt"));
+    builder_init(&g->builder); g->builder_ready = g->builder.nfiles > 0;
     g->battle_loaded = battle_load(&g->battle, ASSET("cards/cards.txt"), ASSET("decks/knight.txt"), ASSET("enemies/warden_battle.txt"));
     if (!g->battle_loaded) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "battle data failed to load; boss door falls back to real-time fight");
     battle_load_fx(&g->battle, &g->gfx, ASSET("sprites/fx.txt"));
@@ -476,7 +485,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     bool tool_esc = in->tool_key_down[SDL_SCANCODE_ESCAPE], tool_bs = in->tool_key_down[SDL_SCANCODE_BACKSLASH] || in->tool_key_down[SDL_SCANCODE_GRAVE];
     if (in->key_down[SDL_SCANCODE_BACKSLASH] || in->key_down[SDL_SCANCODE_GRAVE] || tool_bs) game_set_tool(g, 1);
     if (g->tool_mode != 2 && in->key_down[SDL_SCANCODE_LEFTBRACKET]) game_set_tool(g, 2);
-    if (g->tool_mode != 2 && in->key_down[SDL_SCANCODE_RIGHTBRACKET]) game_set_tool(g, 3);
+    if (g->tool_mode != 2 && in->key_down[SDL_SCANCODE_RIGHTBRACKET]) game_set_tool(g, 4);
     if (in->key_down[SDL_SCANCODE_F6] || (in->ctrl && (in->key_down[SDL_SCANCODE_E] || in->tool_key_down[SDL_SCANCODE_E]))) game_set_tool(g, 2);
     if (in->key_down[SDL_SCANCODE_F7] || (in->ctrl && (in->key_down[SDL_SCANCODE_P] || in->tool_key_down[SDL_SCANCODE_P]))) game_set_tool(g, 3);
     if ((in->key_down[SDL_SCANCODE_ESCAPE] || tool_esc) && g->tool_mode != 0) {
@@ -494,6 +503,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
         g->sprite_refresh_t += dt;
         if (g->editor.dirty && g->sprite_refresh_t > 0.12f) { charmodel_refresh_from_doc(&g->player_model, &g->gfx, &g->editor.doc); g->sprite_refresh_t = 0; }
     }
+    if (g->tool_mode == 4) { charmodel_drive_player(&g->player_model, &g->player, dt); }
     if (g->tool_mode == 2 && g->leveled.open && g->state != GS_BATTLE && g->state != GS_SCENE) {
         float mx, my; platform_mouse_ui(g->pf, INTERNAL_W, INTERNAL_H, &mx, &my);
         leveled_tick(&g->leveled, &g->level, &g->terrain, &g->cam, in, mx, my, dt, &g->gfx, &g->props);
@@ -572,6 +582,53 @@ static void ctext(Gfx *x, float lx, float y, float maxw, float scale, Vec4 c, co
     gfx_ui_text(x, lx, y, scale, c, buf);
 }
 
+static void apply_builder(Game *g, int flags);
+
+// Dialogue portrait: the speaking character's head, posed by its emotion, through the pixel pass.
+static const char *emote_clip(const Model *m, const char *e) {
+    const char *c = NULL;
+    if (!strcmp(e, "happy") || !strcmp(e, "laugh") || !strcmp(e, "smile") || !strcmp(e, "cheeky") || !strcmp(e, "wink") || !strcmp(e, "love") || !strcmp(e, "smug")) c = "Cheer";
+    else if (!strcmp(e, "angry") || !strcmp(e, "furious") || !strcmp(e, "shout") || !strcmp(e, "annoyed") || !strcmp(e, "grit")) c = "Taunt";
+    else if (!strcmp(e, "sad") || !strcmp(e, "cry") || !strcmp(e, "down") || !strcmp(e, "heartbreak") || !strcmp(e, "bored") || !strcmp(e, "sleep")) c = "Sit_Floor_Idle";
+    else if (!strcmp(e, "surprise") || !strcmp(e, "shock") || !strcmp(e, "alert") || !strcmp(e, "confused") || !strcmp(e, "question") || !strcmp(e, "nervous")) c = "Hit_A";
+    else if (!strcmp(e, "think")) c = "Interact";
+    if (c && model_find_clip(m, c) >= 0) return c;
+    if (model_find_clip(m, "Idle") >= 0) return "Idle";
+    return m->nclips > 0 ? m->clips[0].name : NULL;
+}
+static void render_portrait(Game *g, Platform *pf, const FrameParams *fp) {
+    if (g->state != GS_SCENE || !g->scene.subtitle[0] || !g->scene.speaker[0]) return;
+    int which = portrait_model_for(g, g->scene.speaker);
+    if (!which) return;
+    CharModel *cm = which == 2 ? &g->boss_model : &g->player_model;
+    if (!cm->loaded || cm->is_sprite) return;
+    Model *m = &cm->model;
+    // restart the emotion clip when the line or the speaker changes
+    if (strcmp(g->portrait_emote, g->scene.emote) != 0 || g->portrait_start != g->scene.say_start || g->portrait_model != which) {
+        snprintf(g->portrait_emote, sizeof g->portrait_emote, "%s", g->scene.emote); g->portrait_start = g->scene.say_start; g->portrait_model = which;
+        const char *clip = emote_clip(m, g->scene.emote); int ci = clip ? model_find_clip(m, clip) : -1;
+        g->portrait_player.clip = -1; g->portrait_player.prev = -1;
+        if (ci >= 0) anim_play(&g->portrait_player, m, ci, 1, true, false, 0);
+    }
+    anim_update(&g->portrait_player, m, 1.0f / 60.0f);
+    model_pose(m, &g->portrait_player, &g->portrait_pose);
+    // camera on the face: the model stands at the origin facing +Z; the head is near the top of its bounds
+    float top = m->bmax.y * cm->scale, head_y = top * 0.80f, size = fmaxf(top * 0.34f, 0.35f);
+    Vec3 target = v3(0, head_y, 0), eye = v3(0.28f * size, head_y + 0.05f * size, 3.6f * size);
+    Vec3 fwd = v3_norm(v3_sub(target, eye)), right = v3_norm(v3_cross(fwd, v3(0, 1, 0))), up = v3_cross(right, fwd);
+    Mat4 view = m4_look_at(eye, target, v3(0, 1, 0)), proj = m4_perspective(26.0f * DEG2RAD, 1.0f, 0.05f, 20.0f);
+    FrameParams pp = *fp; pp.view_proj = m4_mul(proj, view); pp.cam_pos = eye; pp.cam_right = right; pp.cam_up = up;
+    pp.fog_density = 0; pp.nlights = 0;
+    pp.sun_dir = v3_norm(v3(-0.4f, -0.5f, -0.75f));   // key light from the camera side
+    pp.sun_intensity = fmaxf(pp.sun_intensity, 1.0f);
+    Vec3 backdrop = which == 2 ? v3(0.16f, 0.09f, 0.09f) : v3(0.10f, 0.13f, 0.11f);
+    gfx_portrait_begin(&g->gfx, pf, &pp, 64, backdrop);
+    Material pm = material_default(); pm.rim = 0.3f; pm.rim_color = v3(0.7f, 0.8f, 1.0f); gfx_set_material(&g->gfx, &pm);
+    model_draw(&g->gfx, m, &g->portrait_pose, m4_trs(v3(0, 0, 0), 0, v3(cm->scale, cm->scale, cm->scale)), v4(1, 1, 1, 1));
+    gfx_set_material(&g->gfx, NULL);
+    gfx_portrait_end(&g->gfx);
+}
+
 static void draw_console(Game *g, Platform *pf) {
     if (!pf->console || g->tool_mode != 1) return;
     Gfx *x = &g->gfx;
@@ -646,6 +703,20 @@ static void draw_tool_window(Game *g, Platform *pf) {
         leveled_panel(&g->leveled, &g->level, &g->terrain, &g->ui, w, h);
         ui_end(&g->ui);
         gfx_ui_target(x, 0);
+        return;
+    }
+    if (g->tool_mode == 4 && g->builder_ready) {
+        float w = windowed ? (float)pf->tool_w : 720, h = windowed ? (float)pf->tool_h : 800;
+        gfx_ui_target(x, windowed ? 1 : 0);
+        if (!windowed) gfx_ui_rect(x, 560, 0, 720, 800, v4(0.03f, 0.03f, 0.05f, 0.92f));
+        UiInput uin = { .mx = windowed ? pf->input.tool_mx : 0, .my = windowed ? pf->input.tool_my : 0, .down = pf->input.tool_down, .pressed = pf->input.tool_pressed, .released = pf->input.tool_released, .wheel = pf->input.tool_wheel };
+        if (!windowed) { float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my); uin.mx = mx - 560; uin.my = my; uin.down = pf->input.mouse_held; uin.pressed = pf->input.click; uin.released = false; uin.wheel = pf->input.wheel; }
+        Input keys = pf->input; memcpy(keys.key_down, pf->input.tool_key_down, sizeof keys.key_down);
+        ui_begin(&g->ui, x, uin);
+        int flags = builder_panel(&g->builder, &g->ui, &keys, w, h, g->player_model.loaded && !g->player_model.is_sprite ? &g->player_model.model : NULL);
+        ui_end(&g->ui);
+        gfx_ui_target(x, 0);
+        apply_builder(g, flags);
         return;
     }
     if (g->tool_mode == 3 && g->editor_open) {
@@ -743,7 +814,7 @@ static void draw_hud(Game *g, Platform *pf) {
         // Dialogue: JRPG box with the speaker's portrait, emotion bubble and typed text
         float t = g->scene.time - g->scene.say_start;
         const char *e = g->scene.emote; int en = emote_number(e);
-        bool is_player = !strcmp(g->scene.speaker, "Ninja") || !strcmp(g->scene.speaker, "player");
+        bool is_player = !strcmp(g->scene.speaker, "Ninja") || !strcmp(g->scene.speaker, "player") || portrait_model_for(g, g->scene.speaker) == 1;
         float bw = 900, bh = 150, bx = (W - bw) * 0.5f, by = H - bh - 60;
         // portrait motion by emotion
         float ox = 0, oy = 0, sc = 1.0f;
@@ -791,7 +862,7 @@ static void draw_hud(Game *g, Platform *pf) {
     if (g->hint_t > 0 && g->state == GS_EXPLORE) {
         float a = fminf(1, g->hint_t);
         text_center(x, W * 0.5f, 30, 1.0f, v4(0.85f, 0.85f, 0.8f, a), "WASD move   Shift sprint   E interact   walk the path");
-        text_center(x, W * 0.5f, 44, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "[ environment editor   ] sprite editor   \\ debugger   Esc quit");
+        text_center(x, W * 0.5f, 44, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "[ environment editor   ] character builder   \\ debugger   Esc quit");
     }
     if (g->state == GS_FIGHT && g->cam.locked && g->boss.state != BS_DEAD) {
         // lock-on marker: a small diamond over the boss, projected
@@ -854,6 +925,7 @@ void game_render(Game *g, Platform *pf, float alpha) {
         fp.lights[fp.nlights++] = (PointLight){ .pos = v3(pc->pos.x, pc->pos.y + 1.2f, pc->pos.z), .radius = 7.0f, .color = g->flash_color, .intensity = 2.5f * g->flash };
 
     Gfx *x = &g->gfx;
+    render_portrait(g, pf, &fp);
     gfx_begin(x, pf, &fp);
     draw_level(x, lv, &g->wt);
     if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain); }
@@ -997,6 +1069,39 @@ static void open_sprite_editor_doc(Game *g) {
     say(g, msg); snprintf(g->editor.msg, sizeof g->editor.msg, "%s", msg); g->editor.msg_t = 4;
 }
 
+// The builder edits a spec; the hero is rebuilt from it so every change shows in the world.
+static void apply_builder(Game *g, int flags) {
+    Builder *b = &g->builder; CharModel *cm = &g->player_model;
+    if (flags & BLD_RELOAD) {
+        charmodel_destroy(&g->gfx, cm);
+        if (!charmodel_apply(&g->gfx, cm, &b->spec)) { snprintf(b->msg, sizeof b->msg, "model failed to load: %s", b->spec.model); b->msg_t = 4; }
+        builder_model_loaded(b, cm->loaded && !cm->is_sprite ? &cm->model : NULL);
+    }
+    if ((flags & BLD_HIDE) && cm->loaded && !cm->is_sprite) {
+        for (int i = 0; i < cm->model.nnodes; i++) cm->model.nodes[i].hidden = false;
+        for (int i = 0; i < b->spec.nhidden; i++) model_hide_node(&cm->model, b->spec.hidden[i], true);
+        cm->spec = b->spec;
+    }
+    if ((flags & BLD_RECOLOR) && cm->loaded && !cm->is_sprite) { model_recolor(&g->gfx, &cm->model, b->spec.rc_from, b->spec.rc_to, b->spec.nrecolor); cm->spec = b->spec; }
+    if ((flags & BLD_PLAY_CLIP) && cm->loaded && !cm->is_sprite && b->clip_sel >= 0) { anim_play(&cm->player, &cm->model, b->clip_sel, 1, true, false, 0.1f); cm->last_anim = g->player.c.anim; cm->last_anim_t = g->player.c.anim_t; }
+    if (flags & BLD_SAVE) {
+        if (!b->name[0]) snprintf(b->name, sizeof b->name, "%s", "my_hero");
+        char path[640]; snprintf(path, sizeof path, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, b->name);
+        if (charmodel_spec_save(&b->spec, path)) { snprintf(b->msg, sizeof b->msg, "saved characters/%s.txt", b->name); b->msg_t = 3; dbg_log("builder: saved %s", path); }
+        else { snprintf(b->msg, sizeof b->msg, "save failed (see hollow.log)"); b->msg_t = 4; }
+    }
+    if (flags & BLD_USE) {
+        snprintf(g->hero_config, sizeof g->hero_config, "%s", b->name);
+        // settings.txt: replace or add the hero line
+        char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR);
+        size_t n = 0; char *st = SDL_LoadFile(sp, &n); char out[4096] = {0}; size_t on = 0; bool had = false;
+        if (st) { char *cur = st; while (*cur) { char *nl = strchr(cur, '\n'); size_t len = nl ? (size_t)(nl - cur) : strlen(cur); if (!strncmp(cur, "hero ", 5)) { on += (size_t)snprintf(out + on, sizeof out - on, "hero %s\n", b->name); had = true; } else if (len) on += (size_t)snprintf(out + on, sizeof out - on, "%.*s\n", (int)len, cur); cur = nl ? nl + 1 : cur + len; } SDL_free(st); }
+        if (!had) on += (size_t)snprintf(out + on, sizeof out - on, "hero %s\n", b->name);
+        FILE *f = fopen(sp, "wb"); if (f) { fwrite(out, 1, on, f); fclose(f); snprintf(b->msg, sizeof b->msg, "%s is now the hero (settings.txt)", b->name); b->msg_t = 3; }
+    }
+    if (flags & BLD_OPEN_SPRITE) game_set_tool(g, 3);
+}
+
 void game_set_tool(Game *g, int mode) {
     if (mode == g->tool_mode) mode = 0;
     if (g->tool_mode == 3 && mode != 3 && g->hero_was_model) {   // put the 3D hero back
@@ -1014,6 +1119,14 @@ void game_set_tool(Game *g, int mode) {
         if (g->state == GS_SCENE) { SceneHost host = HOST_TEMPLATE; host.ud = g; scene_skip(&g->scene, &host); }   // the editor needs the overworld
         leveled_open(&g->leveled, &g->level, &g->cam);
         if (g->state == GS_BATTLE) say(g, "editor works in the overworld; finish the battle first");
+    }
+    if (mode == 4) {
+        platform_tool_window(g->pf, true, 720, 820, "hollow character builder");
+        if (!g->builder_ready) { say(g, "character builder: no rigged .glb files found under assets/models"); return; }
+        if (g->player_model.loaded && g->player_model.is_sprite) say(g, "the hero is a sprite; pick a base model to build a 3D hero");
+        builder_open(&g->builder, &g->player_model.spec, g->hero_config[0] && strcmp(g->hero_config, "hero") ? g->hero_config : "my_hero");
+        builder_model_loaded(&g->builder, g->player_model.loaded && !g->player_model.is_sprite ? &g->player_model.model : NULL);
+        if (g->state == GS_SCENE) { SceneHost host = HOST_TEMPLATE; host.ud = g; scene_skip(&g->scene, &host); }
     }
     if (mode == 3) {
         platform_tool_window(g->pf, true, 1280, 800, "hollow sprite editor");
