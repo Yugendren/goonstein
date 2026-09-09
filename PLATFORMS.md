@@ -13,8 +13,8 @@ only read-and-believed, and what crossplay demands of the two ends.
 | Ubuntu 24.04, arm64 (Docker) | verified | not run | headless container, no GPU; configures, compiles and links |
 | Ubuntu / SteamOS on x86-64 | untested | untested | same code path as the arm64 container; needs real hardware |
 | Steam Deck | untested | untested | see below |
+| Windows x86-64, MinGW | verified | untested | cross-compiled from macOS with mingw-w64; links `goonstein.exe` |
 | Windows, MSVC | untested | untested | no Windows machine here; CMake written from the docs, CI covers it |
-| Windows, MinGW | see below | untested | cross-compiled from macOS as a portability probe |
 
 "Verified" means a command was run on this machine and its output checked. Everything else is
 honest guesswork until someone runs it.
@@ -61,6 +61,14 @@ MinGW (MSYS2 UCRT64, `pacman -S mingw-w64-ucrt-x86_64-{gcc,cmake,ninja}`):
 
 The executable is a console subsystem app so `--frames N` runs can print. Flip `WIN32_EXECUTABLE`
 to `TRUE` in CMakeLists.txt for a shipping build.
+
+The MinGW path was checked for real by cross-compiling from the Mac (`brew install mingw-w64`,
+a toolchain file setting `CMAKE_SYSTEM_NAME Windows` and the `x86_64-w64-mingw32-*` tools). SDL3
+builds from source under mingw without any option changes, the `if(WIN32)` block links `ws2_32`,
+`winmm` and `-static-libgcc`, `HOLLOW_PORTABLE` compiles in, and the link produces a PE32+ console
+executable. Only two things in the game's own code stood in the way, both of them `sscanf`/
+`snprintf` used without `<stdio.h>` -- a warning under GCC on Linux and a hard error under GCC 16
+on Windows -- and both are fixed. The binary has never been *run* on Windows.
 
 ### Presets
 
@@ -263,15 +271,23 @@ Clang on macOS is clean for the files changed here. GCC on Linux is stricter and
 pre-existing code: `-Wmisleading-indentation` in `gfx.c`, `leveled.c`, `terrain.c`, `builder.c`,
 `model.c`, `terrain_io.c`; `-Wformat-truncation` in `battle.c`, `charmodel.c`, `leveled.c`,
 `sprite.c`, `builder.c`; two `-Wpedantic` pointer-qualifier notes in `game.c` and `props.c`; and
-unused parameters in `gfx.c` and `debug.c`. None are errors. The two `-Wimplicit-function-declaration`
-warnings GCC found (`sscanf` in `platform.c`, `snprintf` in `uifx.c`) were real bugs and are fixed.
+unused parameters in `gfx.c` and `debug.c`. None are errors.
+
+The two `-Wimplicit-function-declaration` diagnostics GCC found -- `sscanf` in `platform.c` and
+`snprintf` in `uifx.c`, both missing `<stdio.h>` that Apple's headers had been providing by accident
+-- were real bugs. They were warnings under GCC 13 on Ubuntu and hard **errors** under GCC 16 for
+mingw, so they blocked the Windows build outright. Fixed, plus the same include added defensively
+to `audio.c`.
 
 ## What still has to be tested on real hardware
 
-1. **Windows, MSVC** — configure, build, run, and that D3D12 picks up the DXIL from CI. Nothing
-   about the Windows CMake has ever been executed.
-2. **Windows sockets** — `net_sys.h` compiles for Windows but has never bound a socket there.
-3. **Linux x86-64 with a GPU** — the container build has no GPU, so the Vulkan swapchain, gamepad
+1. **Windows, MSVC** — configure, build and run. The MinGW cross-compile exercises the same
+   `if(WIN32)` CMake branch, but MSVC's compiler flags (`/W4 /fp:precise /utf-8`), the Visual Studio
+   generator and the static-SDL3 runtime pairing have never been executed.
+2. **Running on Windows at all** — the cross-compiled `goonstein.exe` links but has not been
+   launched, so D3D12 device creation, DXIL loading, the window and the audio backend are unproven.
+3. **Windows sockets** — `net_sys.h` compiles for Windows but has never bound a socket there.
+4. **Linux x86-64 with a GPU** — the container build has no GPU, so the Vulkan swapchain, gamepad
    hotplug and audio backends are unexercised on real Linux.
-4. **Steam Deck** — see above.
-5. **A real cross-platform session** — Mac host with a Windows client, and the reverse.
+5. **Steam Deck** — see above.
+6. **A real cross-platform session** — Mac host with a Windows client, and the reverse.
