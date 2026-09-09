@@ -1,0 +1,12 @@
+# lantern_child.txt - the Child has done the counting. ~13s.
+0.0 letterbox on
+0.0 cam -5.3 2.2 29.0   -5.3 1.00 37.0   36 cut
+0.2 actor Child face 0 0 36
+0.3 actor player face -6 0 37
+0.6 say "Are you the one who fights the Warden?" 3.0 Child emote question
+3.7 say "I am the one who asks it questions." 2.8 Hero emote neutral
+6.6 cam -4.2 2.0 31.0   -5.5 1.05 37.1   36 cut
+6.7 say "I counted the lanterns. I got ninety." 3.2 Child emote happy
+10.0 say "It is supposed to be ninety-one." 3.0 Hero emote alert
+13.1 letterbox off
+13.7 end

@@ -23,7 +23,7 @@ int main(int argc, char **argv) {
     // --bot           let a simple bot play the fight (with --start fight)
     // --volume V      master volume 0..1;  --quiet = 0.15;  --debug starts with the overlay on
     // --hero NAME     play with assets/characters/NAME.txt as the player
-    int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
+    int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *shot_every_dir = NULL; int shot_every = 0; bool spawn_set = false; float spawn_x = 0, spawn_z = 0; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
     bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1;
     static Game game;   // large; static keeps it off the stack (and zeroed)
     // settings.txt next to the assets folder: volume V, debug 0|1, hero NAME, fps N (0 = display rate), vsync 0|1, level NAME. Command-line flags override it.
@@ -38,6 +38,8 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) shot = argv[++i];
         else if (!strcmp(argv[i], "--tool-shot") && i + 1 < argc) tool_shot = argv[++i];   // PNG of the tool window's UI before exiting
+        else if (!strcmp(argv[i], "--shot-every") && i + 2 < argc) { shot_every = atoi(argv[++i]); shot_every_dir = argv[++i]; }   // N DIR: a PNG every N frames
+        else if (!strcmp(argv[i], "--spawn") && i + 2 < argc) { spawn_set = true; spawn_x = (float)atof(argv[++i]); spawn_z = (float)atof(argv[++i]); }   // start the hero at x z (captures)
         else if (!strcmp(argv[i], "--start") && i + 1 < argc) start = argv[++i];
         else if (!strcmp(argv[i], "--bot")) bot = true;
         else if (!strcmp(argv[i], "--level") && i + 1 < argc) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, argv[++i]);
@@ -65,6 +67,7 @@ int main(int argc, char **argv) {
     if (console_on) game_set_tool(&game, 1);
     if (start) game_start_at(&game, start);
     pf.fps_cap = fps_cap; if (!vsync) platform_set_vsync(&pf, false); else pf.vsync = true;
+    if (spawn_set) { game.player.c.pos.x = spawn_x; game.player.c.pos.z = spawn_z; }
     if (tool_mode) game_set_tool(&game, tool_mode);
     game.bot = bot;
     audio_set_master(volume * 0.8f);
@@ -97,6 +100,8 @@ int main(int argc, char **argv) {
         game_render(&game, &pf, (float)alpha);
         platform_end_frame(&pf);
         platform_clear_frame_edges(&pf);
+        if (shot_every > 0 && game.frames_total % shot_every == 0) { char sp[640]; snprintf(sp, sizeof sp, "%s/f%06u.png", shot_every_dir, game.frames_total); game_screenshot(&game, sp); }
+        game.frames_total++;
         if (max_frames >= 0 && --max_frames == 0) running = false;
         if (shot_when && shot && game_shot_moment(&game, shot_when)) { game_screenshot(&game, shot); shot = NULL; running = false; }
     }

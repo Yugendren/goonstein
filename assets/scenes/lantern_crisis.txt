@@ -1,0 +1,26 @@
+# lantern_crisis.txt - at the shrine: the count starts at midday and dusk falls. ~25s.
+0.0 letterbox on
+0.0 cam 4.0 2.4 41.0   0 1.7 46.0   45 cut
+0.0 sound heart
+0.3 actor player face 0 0 46
+0.4 actor Elder anim walk
+0.4 actor Elder move -2 0 44 6.0
+0.6 shake 0.30 0.8
+1.0 say "The count has begun." 2.4 Elder emote alert
+1.4 sound heart
+3.4 daytime 19.5 8
+3.6 cam 2.2 3.2 43.4   0 2.2 47.0   45
+3.8 say "In the middle of the day." 2.6 Elder emote nervous
+6.4 actor Elder anim idle
+6.5 actor Elder face 0 0 46
+6.6 sound heart
+6.9 say "The lanterns are going out, one at a time." 3.4 Elder emote sad
+10.4 shake 0.35 1.0
+10.6 say "It takes one of us each night." 3.0 Elder emote neutral
+13.7 say "Tonight it is counting you." 3.0 Elder emote alert
+14.0 music "17 - Fight.ogg"
+16.8 cam -2.6 2.0 49.0   0 1.8 58.0   45
+16.9 say "Then it can count out loud." 2.8 Hero emote neutral
+19.9 say "North. Past the gate. The old arena." 3.4 Elder emote alert
+23.6 letterbox off
+24.4 end

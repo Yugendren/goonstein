@@ -4,3 +4,4 @@ debug 0         # 1 starts with the F1 overlay on
 # hero demo     # play a character made in the sprite editor
 fps 0           # frame cap: 0 = your display's rate, or 30 60 90 120 144 240
 vsync 1         # 0 lets the frame rate exceed the display (tearing possible)
+level lantern   # the level to start in (assets/levels/NAME.txt)

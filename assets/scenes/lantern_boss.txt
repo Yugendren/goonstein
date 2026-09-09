@@ -1,0 +1,18 @@
+# lantern_boss.txt - the Warden waits in the ruined arena. ~18s.
+0.0 letterbox on
+0.0 cam 0 5 56   0 2.4 74   58 cut
+0.3 actor boss teleport 0 0 74 180
+0.5 actor boss anim idle
+1.0 actor player face 0 0 74
+2.8 say "Ninety-one lanterns. I have counted them all." 3.4 "The Warden" emote annoyed
+6.4 cam -1.5 1.7 62.5   0 2.0 72   40
+6.6 say "I hear you take one a night." 2.8 Hero emote neutral
+9.6 say "One a night keeps the number honest." 3.2 "The Warden" emote neutral
+12.9 actor boss anim roar
+12.9 sound roar
+12.9 shake 0.5 1.0
+13.0 say "You are extra. Extra is how counts go wrong." 3.4 "The Warden" emote furious
+14.2 cam -3.5 1.7 68   0 1.7 74   40 cut
+16.5 say "Then let us do the arithmetic." 2.6 Hero emote smug
+19.2 letterbox off
+19.8 end

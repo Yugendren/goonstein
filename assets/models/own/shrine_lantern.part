@@ -1,0 +1,18 @@
+# shrine_lantern -- the count's shrine: stone plinth, carved pillars, tiled cap, brass diya
+piece models/shapes/box.obj       0 0 0        3.20 0.35 2.60  0 0 0   0.50 0.49 0.46
+piece models/shapes/box.obj       0 0.35 0     2.60 0.30 2.10  0 0 0   0.56 0.55 0.51
+piece models/shapes/box.obj       0 0.65 0     1.90 0.85 1.50  0 0 0   0.46 0.45 0.43
+# pillars and lintel
+piece models/shapes/cylinder.obj -1.05 0.65 -0.85  0.26 2.10 0.26  0 0 0  0.58 0.56 0.52
+piece models/shapes/cylinder.obj  1.05 0.65 -0.85  0.26 2.10 0.26  0 0 0  0.58 0.56 0.52
+piece models/shapes/cylinder.obj -1.05 0.65  0.85  0.26 2.10 0.26  0 0 0  0.58 0.56 0.52
+piece models/shapes/cylinder.obj  1.05 0.65  0.85  0.26 2.10 0.26  0 0 0  0.58 0.56 0.52
+piece models/shapes/box.obj       0 2.75 0     2.60 0.24 2.00  0 0 0   0.52 0.50 0.47
+# tiled cap
+piece models/shapes/wedge.obj     0 2.99 -0.70  2.90 0.80 1.40   0 0 0  0.45 0.20 0.16
+piece models/shapes/wedge.obj     0 2.99  0.70  2.90 0.80 1.40 180 0 0  0.45 0.20 0.16
+piece models/shapes/box.obj       0 3.75 0     3.00 0.16 0.30   0 0 0  0.36 0.16 0.13
+piece models/shapes/sphere.obj    0 3.83 0     0.34 0.42 0.34  0 0 0   0.85 0.70 0.32
+# the lantern that is counted, on its offering stone
+piece models/shapes/cylinder.obj  0 1.50 0     0.55 0.22 0.55  0 0 0   0.62 0.60 0.55
+piece models/polyhaven/brass_diya_lantern/brass_diya_lantern_1k.gltf  0 1.72 0  1.6 1.6 1.6  0 0 0

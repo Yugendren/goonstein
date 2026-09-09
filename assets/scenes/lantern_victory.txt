@@ -1,0 +1,19 @@
+# lantern_victory.txt - the Warden kneels, then goes out with the light. ~25s.
+0.0 letterbox on
+0.0 actor boss anim kneel
+0.0 actor player anim idle
+0.0 cam 5.0 2.4 68.0   0 1.8 73.4   48 cut
+0.4 actor player face 0 0 74
+2.0 say "I counted so the village would be spared." 3.8 "The Warden" emote sad
+5.2 cam 2.4 1.9 69.6   0 1.6 73.6   40
+6.2 say "The count needs a keeper." 3.0 "The Warden" emote neutral
+9.6 actor boss anim dead
+9.6 sound death
+9.8 shake 0.25 0.6
+10.0 daytime 22 10
+10.4 cam -4.5 2.6 68.0   0 1.4 73.0   50
+13.6 say "Ninety-one. I will count them once." 3.4 Hero emote sad
+17.4 cam 0 3.6 65.5   0 1.2 73.0   45
+20.0 fade 1 0 3.0
+23.2 music stop
+24.6 end

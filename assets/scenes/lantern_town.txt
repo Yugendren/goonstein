@@ -1,0 +1,9 @@
+# lantern_town.txt - the plaza; the Elder notices the stranger. ~10s.
+0.0 letterbox on
+0.0 cam -1.6 3.0 21.0   -2.0 1.30 29.4   42 cut
+0.3 actor Elder face 0 0 32
+0.5 actor player face -4 0 30
+1.2 say "You came up the north road. Nobody uses it." 3.6 Elder emote surprise
+5.2 say "It was the only one with a sign." 3.2 Hero emote neutral
+8.6 letterbox off
+9.4 end

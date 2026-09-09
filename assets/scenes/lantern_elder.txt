@@ -1,0 +1,12 @@
+# lantern_elder.txt - the Elder explains the count. ~13s.
+0.0 letterbox on
+0.0 cam -3.2 2.6 22.0   -3.2 1.15 30.0   38 cut
+0.2 actor Elder face 0 0 33
+0.3 actor player face -4 0 30
+0.6 say "We light ninety-one lanterns. We count them twice." 3.6 Elder emote neutral
+4.3 say "And if one is out?" 2.2 Hero emote question
+6.6 cam -2.0 2.3 23.8   -3.4 1.20 30.1   38 cut
+6.7 say "Then the Warden has taken the name off it." 3.4 Elder emote sad
+10.2 say "It took my brother. I still light his." 3.2 Elder emote cry
+13.0 letterbox off
+13.6 end

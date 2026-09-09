@@ -1,0 +1,4 @@
+# The Lantern Count valley
+cell 1.5
+origin -96 0 -96
+water -1.5

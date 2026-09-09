@@ -1,0 +1,25 @@
+# Village smith: KayKit Barbarian with the weapons put down, soot-grey shirt and a leather apron.
+model models/kaykit/Barbarian.glb
+scale 1.1
+texture_size 256
+yaw_offset 0
+hide 1H_Axe_Offhand 1H_Axe 2H_Axe Mug Barbarian_Round_Shield Barbarian_Cape Barbarian_Hat
+recolor 151 143 134   118 114 110
+recolor 168 162 157   136 132 128
+recolor 202 210 214   170 168 166
+recolor 109 96 92     72 66 62
+recolor 77 107 130    122 80 48
+recolor 155 90 69     128 88 56
+recolor 178 112 82    150 110 70
+recolor 89 96 100     78 74 72
+recolor 121 131 136   100 96 92
+anim idle       Idle loop
+anim walk       Walking_A loop
+anim run        Running_A loop
+anim attack     1H_Melee_Attack_Chop contact 0.45
+anim parry      Block contact 0.25
+anim hurt       Hit_A
+anim kneel      Sit_Floor_Down hold
+anim dead       Death_A hold
+anim roar       Cheer
+anim stagger    Hit_B

@@ -1,0 +1,12 @@
+# lantern_smith.txt - the Smith, blunt, at his bench. ~13s.
+0.0 letterbox on
+0.0 cam 5.2 2.6 20.0   5.2 1.20 28.0   38 cut
+0.2 actor Smith face 0 0 30
+0.3 actor player face 6 0 28
+0.6 say "You want the shrine. Straight on, past the well." 3.4 Smith emote neutral
+4.1 say "You are not going to warn me?" 2.6 Hero emote question
+6.8 cam 3.6 2.3 22.0   5.4 1.25 28.1   38 cut
+6.9 say "I sharpened your sword. That was the warning." 3.4 Smith emote annoyed
+10.4 say "Come back and I will do it again." 2.8 Smith emote neutral
+13.0 letterbox off
+13.6 end

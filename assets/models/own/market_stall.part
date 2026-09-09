@@ -1,0 +1,18 @@
+# market_stall -- four poles, a striped awning, a plank counter and goods
+piece models/shapes/box.obj      -1.60 0 -1.00  0.14 2.30 0.14  0 0 0   0.35 0.22 0.12
+piece models/shapes/box.obj       1.60 0 -1.00  0.14 2.30 0.14  0 0 0   0.35 0.22 0.12
+piece models/shapes/box.obj      -1.60 0  1.00  0.14 2.30 0.14  0 0 0   0.35 0.22 0.12
+piece models/shapes/box.obj       1.60 0  1.00  0.14 2.30 0.14  0 0 0   0.35 0.22 0.12
+piece models/shapes/box.obj       0 2.24 -1.00  3.40 0.14 0.14  0 0 0   0.35 0.22 0.12
+piece models/shapes/box.obj       0 2.24  1.00  3.40 0.14 0.14  0 0 0   0.35 0.22 0.12
+# awning
+piece models/shapes/wedge.obj     0 2.30 -0.85  3.80 0.55 1.70   0 0 0  0.72 0.30 0.24
+piece models/shapes/wedge.obj     0 2.30  0.85  3.80 0.55 1.70 180 0 0  0.66 0.62 0.54
+piece models/shapes/box.obj       0 2.81 0      3.90 0.12 0.22   0 0 0  0.35 0.22 0.12
+# counter and shelf
+piece models/shapes/box.obj       0 0 -1.15     3.20 0.95 0.55   0 0 0  0.46 0.32 0.19
+piece models/shapes/plate.obj     0 0.95 -1.15  3.40 1.00 0.75   0 0 0  0.58 0.44 0.28
+# goods
+piece models/polyhaven/old_military_crate/old_military_crate_1k.gltf  -1.05 0 0.55  1 1 1   18 0 0
+piece models/polyhaven/old_military_crate/old_military_crate_1k.gltf   -0.9 0.36 0.5  0.8 0.8 0.8  -35 0 0
+piece models/polyhaven/barrel_03/barrel_03_1k.gltf                     1.15 0 0.55  1 1 1   40 0 0

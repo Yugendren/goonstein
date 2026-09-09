@@ -366,6 +366,12 @@ void scene_skip(Scene *sc, const SceneHost *host) {
         case SC_ACTOR_MOVE:
             if (host && host->actor_move) host->actor_move(host->ud, c->actor, c->pos, 0.0f);
             break;
+        case SC_DAYTIME:   // the world state a scene leaves behind still applies when it is skipped
+            if (host && host->daytime) host->daytime(host->ud, c->a, 0.0f);
+            break;
+        case SC_MUSIC:
+            if (host && host->music) host->music(host->ud, c->text);
+            break;
         default:
             break; // sounds, says, camera, fade, letterbox, shake: skipped
         }

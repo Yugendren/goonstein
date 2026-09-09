@@ -298,6 +298,7 @@ void game_tool_screenshot(Game *g, const char *path) { if (!gfx_tool_screenshot_
 
 void game_start_at(Game *g, const char *where) {
     if (!strncmp(where, "level:", 6)) { snprintf(g->level_path, sizeof g->level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, where + 6); load_defs(g); setup_level_content(g); reset_to_start(g); return; }
+    if (!strncmp(where, "scene:", 6)) { play_scene(g, where + 6, GS_EXPLORE); return; }   // play a scene file straight away (captures)
     if (!strcmp(where, "fight")) restart_fight(g);
     else if (!strcmp(where, "battle")) { if (g->battle_loaded) start_battle(g); }
     else if (!strcmp(where, "end")) { g->state = GS_END; g->state_t = 0; }
@@ -326,6 +327,10 @@ static void bot_input(Game *g, Input *in) {
         if (talked_level != (int)g->level.nnpcs) { memset(talked, 0, sizeof talked); talked_level = (int)g->level.nnpcs; }
         if (g->talk_npc >= 0 && !talked[g->talk_npc]) { in->interact = true; talked[g->talk_npc] = true; want = v3(0, 0, 0); }
         else for (int i = 0; i < g->nnpcs; i++) if (!talked[i]) { Vec3 d = v3_sub(g->npcs[i].c.pos, p->c.pos); d.y = 0; float dist = v3_len(d); if (dist < 12 && dist > 0.1f) { want = v3_scale(d, 1.0f / dist); break; } }
+        // stuck against something (a shrine on the path): sidestep for a moment, alternating sides
+        static Vec3 last_pos; static unsigned last_tick, stuck_until; static int side = 1;
+        if (g->tick - last_tick >= 30) { if (v3_len(v3_sub(p->c.pos, last_pos)) < 0.25f && v3_len(want) > 0.1f) { stuck_until = g->tick + 60; side = -side; } last_pos = p->c.pos; last_tick = g->tick; }
+        if (g->tick < stuck_until) want = v3((float)side, 0, 0.3f);
         in->move_x = v3_dot(want, r); in->move_y = -v3_dot(want, f);
         if (g->tick % 90 == 0) in->skip = false;
         return;
