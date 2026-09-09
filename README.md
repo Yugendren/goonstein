@@ -134,11 +134,23 @@ clip names, and any clip previews on the hero. SAVE writes `assets/characters/NA
 (`model`, `hide`, `recolor`, `attach`, `anim` lines); SAVE + USE AS HERO also sets it as the hero
 in `assets/settings.txt`. `--hero NAME` plays it.
 
+### Lighting
+
+Cheap classic stack, no ray tracing: a sun shadow map (one depth pass from the sun, fitted around
+what the camera looks at, hard-edged to match the toon bands; `shadow` look line 0..1), banded sun
+plus hemisphere ambient, up to sixteen point lights without shadows, height fog, bloom, tonemap and
+grading. Time of day: a `daytime` look line (hours, `-1` off) or the TIME OF DAY slider on the
+LOOK tab moves the sun along the author's noon bearing and blends sky, ambient, fog colour and
+stars through night, dawn, noon, golden hour and dusk (`src/daylight.c`). Everything runs at full
+speed on the Steam Deck class of hardware. `assets/levels/showcase.txt` demonstrates it with the
+Poly Haven scans: `--start level:showcase`, `HOLLOW_NOSHADOW=1` to compare.
+
 ### The art pipeline in one paragraph
 
 Characters and props are 3D, drawn through the pixel-art pass (small layer, grid-snapped camera,
 Endesga 32 palette, one-pixel outline, depth-composited), so nothing is drawn by hand and
-everything matches. Models come from CC0 packs or from your CAD tool: export OBJ with materials
+everything matches. Models come from CC0 packs (KayKit, Quaternius, Kenney, and photoscanned Poly Haven models with
+textures in `assets/models/polyhaven`) or from your CAD tool: export OBJ with materials
 into `assets/models/import` and it is in the palette (millimetre files scale themselves). Dialogue
 portraits render live from the speaker's model with an emotion-driven clip (`assets/portraits.txt`
 maps a speaker to `model:hero`, `model:boss` or an image). Tuning: the `pixel` look line, the LOOK
