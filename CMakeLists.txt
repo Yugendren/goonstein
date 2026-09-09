@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(hollow LANGUAGES C)
+project(goonstein LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
