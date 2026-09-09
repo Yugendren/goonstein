@@ -35,13 +35,53 @@ typedef struct PixUniforms { Vec4 res, offset, params; Vec4 pal[64]; Sint32 npal
 
 // ---------------------------------------------------------------- shaders and helpers
 
+// Which compiled shader files a device can eat, best first. tools/shaders.sh writes .spv, .msl and
+// .hlsl on any Unix; .metallib needs the full Xcode Metal toolchain; .dxil comes from
+// tools/shaders.ps1 on Windows (signed DXIL needs Microsoft's dxil.dll and cannot be produced on
+// macOS or Linux). A format the driver accepts but that is not on disk is skipped, so a partial
+// asset set still boots wherever it is complete.
+typedef struct ShaderKind { SDL_GPUShaderFormat fmt; const char *ext, *entry, *label; } ShaderKind;
+
+static const ShaderKind SHADER_KINDS[] = {
+    // Metal: a prebuilt library first (no runtime MSL compile at startup), then MSL source.
+    { SDL_GPU_SHADERFORMAT_METALLIB, "metallib", "main0", "Metal library" },
+    { SDL_GPU_SHADERFORMAT_MSL,      "msl",      "main0", "MSL source" },
+    { SDL_GPU_SHADERFORMAT_SPIRV,    "spv",      "main",  "SPIR-V" },
+    { SDL_GPU_SHADERFORMAT_DXIL,     "dxil",     "main",  "DXIL" },
+    { SDL_GPU_SHADERFORMAT_DXBC,     "dxbc",     "main",  "DXBC" },
+};
+#define SHADER_KIND_COUNT ((int)(sizeof SHADER_KINDS / sizeof *SHADER_KINDS))
+
+// Decided once, on the first shader, and logged: the startup log always names the live path.
+static int shader_kind_index(SDL_GPUDevice *dev) {
+    static int chosen = -2;
+    if (chosen != -2) return chosen;
+    SDL_GPUShaderFormat formats = SDL_GetGPUShaderFormats(dev);
+    chosen = -1;
+    for (int i = 0; i < SHADER_KIND_COUNT; i++) {
+        if (!(formats & SHADER_KINDS[i].fmt)) continue;
+        char probe[512]; SDL_PathInfo info;
+        snprintf(probe, sizeof probe, "%s/shaders/blit.frag.%s", HOLLOW_ASSET_DIR, SHADER_KINDS[i].ext);
+        if (!SDL_GetPathInfo(probe, &info)) continue;   // format supported, but not shipped
+        chosen = i;
+        break;
+    }
+    if (chosen < 0)
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "no usable shaders: driver '%s' accepts formats 0x%x but none of them are in "
+                     "%s/shaders (run tools/shaders.sh, or tools/shaders.ps1 for DXIL on Windows)",
+                     SDL_GetGPUDeviceDriver(dev), (unsigned)formats, HOLLOW_ASSET_DIR);
+    else
+        SDL_Log("shaders: %s (.%s) on GPU driver %s", SHADER_KINDS[chosen].label,
+                SHADER_KINDS[chosen].ext, SDL_GetGPUDeviceDriver(dev));
+    return chosen;
+}
+
 static SDL_GPUShader *load_shader(Gfx *g, const char *name, SDL_GPUShaderStage stage, Uint32 samplers, Uint32 uniforms) {
-    SDL_GPUShaderFormat formats = SDL_GetGPUShaderFormats(g->dev);
-    const char *ext, *entry; SDL_GPUShaderFormat fmt;
-    if (formats & SDL_GPU_SHADERFORMAT_MSL)        { ext = "msl";  entry = "main0"; fmt = SDL_GPU_SHADERFORMAT_MSL; }
-    else if (formats & SDL_GPU_SHADERFORMAT_SPIRV) { ext = "spv";  entry = "main";  fmt = SDL_GPU_SHADERFORMAT_SPIRV; }
-    else if (formats & SDL_GPU_SHADERFORMAT_DXIL)  { ext = "dxil"; entry = "main";  fmt = SDL_GPU_SHADERFORMAT_DXIL; }
-    else { SDL_SetError("no supported shader format"); return NULL; }
+    int k = shader_kind_index(g->dev);
+    if (k < 0) { SDL_SetError("no supported shader format"); return NULL; }
+    const char *ext = SHADER_KINDS[k].ext, *entry = SHADER_KINDS[k].entry;
+    SDL_GPUShaderFormat fmt = SHADER_KINDS[k].fmt;
     char path[512]; snprintf(path, sizeof path, "%s/shaders/%s.%s", HOLLOW_ASSET_DIR, name, ext);
     size_t size = 0; void *code = SDL_LoadFile(path, &size);
     if (!code) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "shader missing: %s", path); return NULL; }
