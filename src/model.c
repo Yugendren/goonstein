@@ -1,4 +1,5 @@
 #include "model.h"
+#include "part.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,49 +66,38 @@ static int load_mtl(const char *objpath, const char *mtlname, ObjMat *mats, int 
     return count;
 }
 
-typedef struct ObjBuild { Vertex *v; Uint32 nv, cap; Uint16 *idx; Uint32 ni, icap; } ObjBuild;
-static void obj_flush(Gfx *g, Model *m, ObjBuild *b, int tex) {
-    if (b->ni == 0 || m->nmeshes >= MODEL_MAX_MESHES) { b->nv = b->ni = 0; return; }
-    ModelMesh *mm = &m->meshes[m->nmeshes++];
-    mm->node = 0; mm->tex = tex; mm->skinned = false;
-    mm->gpu = gfx_mesh_create(g, b->v, b->nv, b->idx, b->ni);
-    b->nv = b->ni = 0;
-}
-static void obj_push_tri(ObjBuild *b, const Vertex *tri) {
-    if (b->nv + 3 > b->cap) { b->cap = b->cap ? b->cap * 2 : 4096; b->v = realloc(b->v, b->cap * sizeof *b->v); }
-    if (b->ni + 3 > b->icap) { b->icap = b->icap ? b->icap * 2 : 4096; b->idx = realloc(b->idx, b->icap * sizeof *b->idx); }
-    for (int k = 0; k < 3; k++) { b->v[b->nv] = tri[k]; b->idx[b->ni++] = (Uint16)b->nv; b->nv++; }
+typedef struct TriList { Vertex *v; Uint32 n, cap; } TriList;
+static void tri_push(TriList *b, const Vertex *tri) {
+    if (b->n + 3 > b->cap) { b->cap = b->cap ? b->cap * 2 : 4096; b->v = realloc(b->v, b->cap * sizeof *b->v); }
+    for (int k = 0; k < 3; k++) b->v[b->n++] = tri[k];
 }
 
-static bool model_load_obj(Gfx *g, Model *m, const char *path) {
+Vertex *model_obj_read(const char *path, Uint32 *nverts, Vec3 *obmin, Vec3 *obmax) {
+    *nverts = 0;
     size_t n = 0; char *text = SDL_LoadFile(path, &n);
-    if (!text) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "obj missing: %s", path); return false; }
-    // pass 1: count positions / normals / uvs
+    if (!text) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "obj missing: %s", path); return NULL; }
     size_t np = 0, nn = 0, nt = 0;
     for (char *c = text; *c; ) { if (c[0] == 'v' && c[1] == ' ') np++; else if (c[0] == 'v' && c[1] == 'n') nn++; else if (c[0] == 'v' && c[1] == 't') nt++; char *nl = strchr(c, '\n'); if (!nl) break; c = nl + 1; }
     float *P = malloc((np + 1) * 3 * sizeof *P), *N = malloc((nn + 1) * 3 * sizeof *N), *T = malloc((nt + 1) * 2 * sizeof *T);
     size_t ip = 0, in = 0, it = 0;
-    ObjMat mats[MODEL_MAX_TEX]; int nmats = 0; int cur_tex = -1;
-    ObjBuild b = {0};
-    m->nodes[0].parent = -1; m->nodes[0].r = (Quat){0, 0, 0, 1}; m->nodes[0].s = v3(1, 1, 1); snprintf(m->nodes[0].name, sizeof m->nodes[0].name, "obj"); m->nnodes = 1;
-    m->bmin = v3(1e9f, 1e9f, 1e9f); m->bmax = v3(-1e9f, -1e9f, -1e9f);
-    Vec3 bmin = m->bmin, bmax = m->bmax;
-    char *cur = text;
-    while (*cur) {
-        char *line = cur; char *nl = strchr(cur, '\n'); if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
+    ObjMat mats[64]; int nmats = 0; int cur = -1;
+    TriList b = {0};
+    Vec3 bmin = v3(1e9f, 1e9f, 1e9f), bmax = v3(-1e9f, -1e9f, -1e9f);
+    char *curp = text;
+    while (*curp) {
+        char *line = curp; char *nl = strchr(curp, '\n'); if (nl) { *nl = 0; curp = nl + 1; } else curp += strlen(curp);
         if (line[0] == 'v' && line[1] == ' ') { float x = 0, y = 0, z = 0; sscanf(line + 2, "%f %f %f", &x, &y, &z); P[ip * 3] = x; P[ip * 3 + 1] = y; P[ip * 3 + 2] = z; ip++;
             bmin = v3(fminf(bmin.x, x), fminf(bmin.y, y), fminf(bmin.z, z)); bmax = v3(fmaxf(bmax.x, x), fmaxf(bmax.y, y), fmaxf(bmax.z, z)); }
         else if (line[0] == 'v' && line[1] == 'n') { float x = 0, y = 1, z = 0; sscanf(line + 2, "%f %f %f", &x, &y, &z); N[in * 3] = x; N[in * 3 + 1] = y; N[in * 3 + 2] = z; in++; }
         else if (line[0] == 'v' && line[1] == 't') { float u = 0, v = 0; sscanf(line + 2, "%f %f", &u, &v); T[it * 2] = u; T[it * 2 + 1] = 1 - v; it++; }
-        else if (!strncmp(line, "mtllib ", 7)) { char *nm = line + 7; char *e = nm + strlen(nm); while (e > nm && (e[-1] == '\r' || e[-1] == ' ')) *--e = 0; nmats = load_mtl(path, nm, mats, MODEL_MAX_TEX); }
+        else if (!strncmp(line, "mtllib ", 7)) { char *nm = line + 7; char *e = nm + strlen(nm); while (e > nm && (e[-1] == '\r' || e[-1] == ' ')) *--e = 0; nmats = load_mtl(path, nm, mats, 64); }
         else if (!strncmp(line, "usemtl ", 7)) {
             char *nm = line + 7; char *e = nm + strlen(nm); while (e > nm && (e[-1] == '\r' || e[-1] == ' ')) *--e = 0;
             int mi = obj_mat_find(mats, nmats, nm);
-            if (mi < 0 && nmats < MODEL_MAX_TEX) { snprintf(mats[nmats].name, sizeof mats[nmats].name, "%s", nm); mats[nmats].rgb[0] = mats[nmats].rgb[1] = mats[nmats].rgb[2] = 180; mi = nmats++; }
-            if (mi != cur_tex) { obj_flush(g, m, &b, cur_tex < 0 ? 0 : cur_tex); cur_tex = mi; }
+            if (mi < 0 && nmats < 64) { snprintf(mats[nmats].name, sizeof mats[nmats].name, "%s", nm); mats[nmats].rgb[0] = mats[nmats].rgb[1] = mats[nmats].rgb[2] = 180; mi = nmats++; }
+            cur = mi;
         }
         else if (line[0] == 'f' && line[1] == ' ') {
-            // polygon: fan-triangulate. Each corner is v, v/t, v//n or v/t/n; negative indices count from the end.
             Vertex corners[64]; int nc = 0;
             char *tok = strtok(line + 2, " \t\r");
             while (tok && nc < 64) {
@@ -119,44 +109,64 @@ static bool model_load_obj(Gfx *g, Model *m, const char *path) {
                 if (vi >= 1 && (size_t)vi <= ip) { c->pos[0] = P[(vi - 1) * 3]; c->pos[1] = P[(vi - 1) * 3 + 1]; c->pos[2] = P[(vi - 1) * 3 + 2]; }
                 if (ni_ >= 1 && (size_t)ni_ <= in) { c->normal[0] = N[(ni_ - 1) * 3]; c->normal[1] = N[(ni_ - 1) * 3 + 1]; c->normal[2] = N[(ni_ - 1) * 3 + 2]; }
                 if (ti >= 1 && (size_t)ti <= it) { c->uv[0] = T[(ti - 1) * 2]; c->uv[1] = T[(ti - 1) * 2 + 1]; }
-                c->color[0] = c->color[1] = c->color[2] = c->color[3] = 1;
+                const unsigned char *rgb = cur >= 0 ? mats[cur].rgb : (const unsigned char[3]){ 180, 180, 180 };
+                c->color[0] = powf(rgb[0] / 255.0f, 2.2f); c->color[1] = powf(rgb[1] / 255.0f, 2.2f); c->color[2] = powf(rgb[2] / 255.0f, 2.2f); c->color[3] = 1;
                 nc++; tok = strtok(NULL, " \t\r");
             }
             for (int k = 1; k + 1 < nc; k++) {
                 Vertex tri[3] = { corners[0], corners[k], corners[k + 1] };
                 bool no_normal = tri[0].normal[0] == 0 && tri[0].normal[1] == 0 && tri[0].normal[2] == 0;
-                if (no_normal) {   // flat normal from the winding
+                if (no_normal) {
                     Vec3 a = v3(tri[0].pos[0], tri[0].pos[1], tri[0].pos[2]), bq = v3(tri[1].pos[0], tri[1].pos[1], tri[1].pos[2]), cq = v3(tri[2].pos[0], tri[2].pos[1], tri[2].pos[2]);
                     Vec3 nrm = v3_norm(v3_cross(v3_sub(bq, a), v3_sub(cq, a)));
                     for (int q = 0; q < 3; q++) { tri[q].normal[0] = nrm.x; tri[q].normal[1] = nrm.y; tri[q].normal[2] = nrm.z; }
                 }
-                if (b.nv + 3 > 65535) obj_flush(g, m, &b, cur_tex < 0 ? 0 : cur_tex);
-                obj_push_tri(&b, tri);
+                tri_push(&b, tri);
             }
         }
     }
-    obj_flush(g, m, &b, cur_tex < 0 ? 0 : cur_tex);
-    free(b.v); free(b.idx); free(P); free(N); free(T); SDL_free(text);
-    // CAD exports are usually millimetres: bring them to metres
+    free(P); free(N); free(T); SDL_free(text);
+    if (b.n == 0) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "obj %s: no faces", path); free(b.v); return NULL; }
     float extent = fmaxf(fmaxf(bmax.x - bmin.x, bmax.y - bmin.y), bmax.z - bmin.z);
     float unit = extent > 50.0f ? 0.001f : 1.0f;
     if (unit != 1.0f) SDL_Log("obj %s: %.0f units across, taking it as millimetres", path, extent);
-    m->nodes[0].s = v3(unit, unit, unit);
-    // stand on the ground: shift so the lowest point is y = 0
-    m->nodes[0].t = v3(0, -bmin.y * unit, 0);
-    m->bmin = v3(bmin.x * unit, 0, bmin.z * unit); m->bmax = v3(bmax.x * unit, (bmax.y - bmin.y) * unit, bmax.z * unit);
-    // one flat colour texture per material
-    if (nmats == 0) { unsigned char px[4] = { 180, 180, 180, 255 }; m->textures[0] = gfx_texture_create(g, px, 1, 1); m->ntextures = 1; }
-    for (int i = 0; i < nmats; i++) { unsigned char px[4] = { mats[i].rgb[0], mats[i].rgb[1], mats[i].rgb[2], 255 }; m->textures[i] = gfx_texture_create(g, px, 1, 1); m->tex_px[i] = malloc(4); memcpy(m->tex_px[i], px, 4); m->tex_w[i] = m->tex_h[i] = 1; }
-    if (nmats) m->ntextures = nmats;
-    if (m->nmeshes == 0) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "obj %s: no faces", path); return false; }
-    SDL_Log("obj %s: %d meshes, %d materials, %.2f m tall", path, m->nmeshes, m->ntextures, m->bmax.y);
-    return true;
+    for (Uint32 i = 0; i < b.n; i++) { b.v[i].pos[0] *= unit; b.v[i].pos[1] = (b.v[i].pos[1] - bmin.y) * unit; b.v[i].pos[2] *= unit; }
+    if (obmin) *obmin = v3(bmin.x * unit, 0, bmin.z * unit);
+    if (obmax) *obmax = v3(bmax.x * unit, (bmax.y - bmin.y) * unit, bmax.z * unit);
+    *nverts = b.n;
+    return b.v;
+}
+
+bool model_from_triangles(Gfx *g, Model *m, const Vertex *v, Uint32 nverts) {
+    m->nodes[0].parent = -1; m->nodes[0].r = (Quat){0, 0, 0, 1}; m->nodes[0].s = v3(1, 1, 1); snprintf(m->nodes[0].name, sizeof m->nodes[0].name, "mesh"); m->nnodes = 1;
+    m->textures[0] = g->white; m->ntextures = 1;
+    m->bmin = v3(1e9f, 1e9f, 1e9f); m->bmax = v3(-1e9f, -1e9f, -1e9f);
+    for (Uint32 i = 0; i < nverts; i++) { m->bmin = v3(fminf(m->bmin.x, v[i].pos[0]), fminf(m->bmin.y, v[i].pos[1]), fminf(m->bmin.z, v[i].pos[2])); m->bmax = v3(fmaxf(m->bmax.x, v[i].pos[0]), fmaxf(m->bmax.y, v[i].pos[1]), fmaxf(m->bmax.z, v[i].pos[2])); }
+    const Uint32 CHUNK = 65535 - 65535 % 3;
+    for (Uint32 start = 0; start < nverts && m->nmeshes < MODEL_MAX_MESHES; start += CHUNK) {
+        Uint32 count = nverts - start < CHUNK ? nverts - start : CHUNK;
+        Uint16 *idx = malloc(count * sizeof *idx); for (Uint32 i = 0; i < count; i++) idx[i] = (Uint16)i;
+        ModelMesh *mm = &m->meshes[m->nmeshes++];
+        mm->node = 0; mm->tex = 0; mm->skinned = false;
+        mm->gpu = gfx_mesh_create(g, v + start, count, idx, count);
+        free(idx);
+    }
+    return m->nmeshes > 0;
+}
+
+static bool model_load_obj(Gfx *g, Model *m, const char *path) {
+    Uint32 n = 0; Vertex *v = model_obj_read(path, &n, NULL, NULL);
+    if (!v) return false;
+    bool ok = model_from_triangles(g, m, v, n);
+    free(v);
+    if (ok) SDL_Log("obj %s: %u triangles, %.2f m tall", path, n / 3, m->bmax.y);
+    return ok;
 }
 
 bool model_load(Gfx *g, Model *m, const char *path, int max_tex_size) {
     memset(m, 0, sizeof *m);
-    { size_t L = strlen(path); if (L > 4 && (!strcmp(path + L - 4, ".obj") || !strcmp(path + L - 4, ".OBJ"))) return model_load_obj(g, m, path); }
+    { size_t L = strlen(path); if (L > 4 && (!strcmp(path + L - 4, ".obj") || !strcmp(path + L - 4, ".OBJ"))) return model_load_obj(g, m, path);
+      if (L > 5 && !strcmp(path + L - 5, ".part")) return part_load_model(g, m, path); }
     cgltf_options opt = {0};
     cgltf_data *d = NULL;
     if (cgltf_parse_file(&opt, path, &d) != cgltf_result_success) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "model parse failed: %s", path); return false; }

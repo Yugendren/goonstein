@@ -19,7 +19,7 @@ static SDL_EnumerationResult scan_cb(void *ud, const char *dirname, const char *
     SDL_PathInfo info; if (!SDL_GetPathInfo(full, &info)) return SDL_ENUM_CONTINUE;
     if (info.type == SDL_PATHTYPE_DIRECTORY) { if (strcmp(c->category, "models") == 0 && !strcmp(fname, "kaykit")) scan_models(e, full, "kaykit"); else scan_models(e, full, fname); return SDL_ENUM_CONTINUE; }
     size_t n = strlen(fname);
-    bool is_model = (n > 4 && !strcmp(fname + n - 4, ".glb")) || (n > 5 && !strcmp(fname + n - 5, ".gltf")) || (n > 4 && !strcmp(fname + n - 4, ".obj"));
+    bool is_model = (n > 4 && !strcmp(fname + n - 4, ".glb")) || (n > 5 && !strcmp(fname + n - 5, ".gltf")) || (n > 4 && !strcmp(fname + n - 4, ".obj")) || (n > 5 && !strcmp(fname + n - 5, ".part"));
     if (!is_model) return SDL_ENUM_CONTINUE;
     if (!strcmp(c->category, "kaykit")) return SDL_ENUM_CONTINUE;   // rigged characters live here
     const char *rel = strstr(full, "/models/"); if (!rel) return SDL_ENUM_CONTINUE; rel += 1;
@@ -114,7 +114,7 @@ static void pop_undo(LevelEd *e, Level *lv) {
 
 static Vec3 fly_forward(const LevelEd *e) { return v3(sinf(e->cam_yaw) * cosf(e->cam_pitch), sinf(e->cam_pitch), cosf(e->cam_yaw) * cosf(e->cam_pitch)); }
 
-static bool ground_hit(const Camera *cam, const Terrain *tr, float mx, float my, Vec3 *out) {
+bool leveled_ground_hit(const Camera *cam, const Terrain *tr, float mx, float my, Vec3 *out) {
     Mat4 inv = m4_inverse(camera_view_proj(cam, 1280.0f / 800.0f));
     float nx = mx / 1280.0f * 2 - 1, ny = 1 - my / 800.0f * 2;
     // clip -> world for near and far points
@@ -224,7 +224,7 @@ void leveled_tick(LevelEd *e, Level *lv, Terrain *tr, Camera *cam, const Input *
     camera_set_scene(cam, e->cam_pos, v3_add(e->cam_pos, f), 50, true);
 
     // Ground point under the mouse
-    Vec3 hit; e->ghost_valid = ground_hit(cam, tr, mx, my, &hit);
+    Vec3 hit; e->ghost_valid = leveled_ground_hit(cam, tr, mx, my, &hit);
     if (e->ghost_valid) e->ghost_pos = snap3(e, hit);
 
     // Keys

@@ -14,6 +14,7 @@
 #include "editor.h"
 #include "leveled.h"
 #include "builder.h"
+#include "parted.h"
 #include "terrain.h"
 #include "widgets.h"
 
@@ -32,6 +33,7 @@ typedef struct Game {
     Editor editor; bool editor_open;
     LevelEd leveled; bool leveled_ready;
     Builder builder; bool builder_ready;
+    PartEd parted; Model part_model; bool part_model_ok, part_dirty; Vec3 bench;
     Terrain terrain;
     bool hero_was_model;   // the sprite editor swapped a 3D hero for its document; restore on close
     Ui ui; int tool_mode;            // 0 none, 1 debugger, 2 environment editor, 3 sprite editor

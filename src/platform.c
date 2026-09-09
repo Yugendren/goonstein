@@ -224,8 +224,8 @@ void platform_tool_window_share(Platform *pf, bool open, float share, const char
             if (tiled) SDL_SetWindowPosition(pf->console_win, x, y);
             SDL_GetWindowSize(pf->console_win, &pf->tool_w, &pf->tool_h);
         } else {
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "tool window failed: %s (falling back to in-game panel)", SDL_GetError());
-            pf->tool_w = w; pf->tool_h = h;
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "tool window failed: %s", SDL_GetError());
+            pf->tool_w = w; pf->tool_h = h; pf->console = false; return;
         }
         SDL_RaiseWindow(pf->window);
     } else if (!open && pf->console_win) {

@@ -77,7 +77,7 @@ so a bug report is: press F8 when it happens, paste.
 
 ## Editors (second window, live in the game)
 
-In the game, `[` opens the environment editor, `]` the character builder and `\` the debugger
+In the game, `[` opens the environment editor, `]` the character builder, `=` the part editor and `\` the debugger
 (Ctrl+P opens the pixel sprite editor);
 `Esc` closes the open tool (with nothing selected in it), and Esc quits only when no tool is
 open. Ctrl+E / Ctrl+P (or F6 / F7) also work. On a Mac, Cmd
@@ -144,6 +144,15 @@ millimetre files scaled to metres, the model stood on the ground. Any `.obj`, `.
 under `assets/models` that `assets/kit.txt` does not list appears in the environment editor's
 palette under a category named after its folder. `cad_lamp_post.obj` in that folder is a small
 example of the format CAD tools write.
+
+**Part editor** (`=`): the simplest CAD, inside the game. A workbench appears beside the hero.
+Add boxes, cylinders, spheres, wedges and your OBJ imports; click a shape in the game window and
+drag it around the bench; set size, rotation and colour in the tool window (snap to 5 cm and 5
+degrees is on by default; X deletes, D duplicates, MIRROR X makes the other half, Ctrl+Z undoes).
+Everything shows in the final pixel look as you build. SAVE writes `assets/models/own/NAME.part`
+(one `shape` line per piece, see `src/part.h`), which immediately appears in the environment
+editor under `own` and in the builder's attach list. Open an import, add shapes around it and
+recolour it to turn a scanned object into a game piece. `shrine.part` is an example.
 
 **Your own parts on a character.** In the builder's BODY & PARTS tab, ATTACH puts any file from
 `assets/models/import` (or `parts`) on a bone of the rigged body: a helmet on `head`, a weapon on

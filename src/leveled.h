@@ -50,6 +50,8 @@ bool leveled_init(LevelEd *e, const char *kit_path);
 void leveled_shutdown(LevelEd *e);
 void leveled_open(LevelEd *e, const Level *lv, const Camera *cam);   // enter editing from the current camera
 // Game-window side: fly camera, ghost, picking, placement. mx/my are the game window's UI mouse.
+// Where the cursor meets the ground (terrain or y = 0) in the game window; shared with the part editor.
+bool leveled_ground_hit(const Camera *cam, const Terrain *tr, float mx, float my, Vec3 *out);
 void leveled_tick(LevelEd *e, Level *lv, Terrain *tr, Camera *cam, const Input *in, float mx, float my, float dt, Gfx *g, PropCache *pc);
 void leveled_draw_world(LevelEd *e, const Level *lv, Gfx *g, PropCache *pc);
 // Tool-window side: the control panel (draws with widgets into the current UI target).

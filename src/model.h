@@ -45,6 +45,12 @@ typedef struct Model {
     Vec3 bmin, bmax;         // rest-pose bounds
 } Model;
 
+// OBJ as a plain triangle list (3 vertices per triangle, material colour in the vertex colour,
+// millimetre files scaled to metres, stood on y = 0). malloc'd; caller frees. For part files.
+Vertex *model_obj_read(const char *path, Uint32 *nverts, Vec3 *bmin, Vec3 *bmax);
+// Build a static model from a triangle list (white texture, vertex colours).
+bool model_from_triangles(Gfx *g, Model *m, const Vertex *v, Uint32 nverts);
+
 // Recolouring: the flat-colour atlases of low-poly packs have a handful of distinct colours, so a
 // character is recoloured by remapping those. model_palette lists them by pixel count.
 typedef struct ModelColor { unsigned char rgb[3]; int count; } ModelColor;

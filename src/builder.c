@@ -25,7 +25,7 @@ static SDL_EnumerationResult scan_cb(void *ud, const char *dirname, const char *
 static SDL_EnumerationResult scan_parts_cb(void *ud, const char *dirname, const char *fname) {
     Builder *b = ud;
     size_t n = strlen(fname);
-    bool ok = (n > 4 && !strcmp(fname + n - 4, ".obj")) || (n > 4 && !strcmp(fname + n - 4, ".glb")) || (n > 5 && !strcmp(fname + n - 5, ".gltf"));
+    bool ok = (n > 4 && !strcmp(fname + n - 4, ".obj")) || (n > 4 && !strcmp(fname + n - 4, ".glb")) || (n > 5 && !strcmp(fname + n - 5, ".gltf")) || (n > 5 && !strcmp(fname + n - 5, ".part"));
     if (!ok || b->npart_files >= BLD_MAX_FILES) return SDL_ENUM_CONTINUE;
     char full[1024]; snprintf(full, sizeof full, "%s%s", dirname, fname);
     const char *rel = strstr(full, "/models/"); if (!rel) return SDL_ENUM_CONTINUE;
@@ -39,7 +39,7 @@ static SDL_EnumerationResult scan_parts_cb(void *ud, const char *dirname, const 
 void builder_init(Builder *b) {
     memset(b, 0, sizeof *b);
     // parts you can attach to a bone: your own exports in import/ and parts/
-    { const char *pd[] = { "models/import", "models/parts" }; for (size_t i = 0; i < 2; i++) { char d[640]; snprintf(d, sizeof d, "%s/%s/", HOLLOW_ASSET_DIR, pd[i]); SDL_EnumerateDirectory(d, scan_parts_cb, b); } }
+    { const char *pd[] = { "models/import", "models/parts", "models/own" }; for (size_t i = 0; i < 3; i++) { char d[640]; snprintf(d, sizeof d, "%s/%s/", HOLLOW_ASSET_DIR, pd[i]); SDL_EnumerateDirectory(d, scan_parts_cb, b); } }
     b->bone_sel = -1; b->attach_sel = -1;
     // rigged characters: the kaykit root and assets/models/characters (yours)
     const char *dirs[] = { "models/kaykit", "models/characters", "models/import" };
