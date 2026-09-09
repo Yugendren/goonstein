@@ -40,7 +40,7 @@ shadow   1
 style    0 0 0 1
 pixel    0 8 1 0 0.6
 daytime  18.5
-view     third
+view     first
 camera   28 12 46 -35
 
 terrain levels/island_terrain
