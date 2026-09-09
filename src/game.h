@@ -76,6 +76,10 @@ void game_render(Game *g, Platform *pf, float alpha);
 void game_shutdown(Game *g);
 // Loads the hero character model into player_models[slot] if not already loaded.
 void game_ensure_player_model(Game *g, int slot);
+// Resolve one character's footing against the terrain, the level's blocks and any prop deck:
+// step up onto what is within LEVEL_STEP_UP of the feet, fall with gravity off anything else.
+// dt <= 0 snaps straight to the ground (spawns, teleports, level loads).
+void game_ground_character(Game *g, Character *c, float dt);
 // Puts players[slot] at the level spawn, spread out.
 void game_spawn_player(Game *g, int slot);
 // Re-seat the camera on the local player for the level's view mode (spawns, restarts, joining).

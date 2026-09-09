@@ -12,10 +12,13 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
     block    x y z  sx sy sz  tex  r g b  tile  [solid|pass]
              # box: centre, size, texture (stone tile wood metal flesh plaster flat), tint, repeats per metre
              # tex "flat" is untextured: the tint is the colour. Blocks are solid unless "pass".
-    prop     FILE x y z yaw scale [tint r g b] [glow r g b] [collide R]
+    prop     FILE x y z yaw scale [tint r g b] [glow r g b] [stretch sx sy sz] [collide R [H] [deck]]
              # FILE is relative to assets/, e.g. models/kaykit/hex/tree_single_A.gltf
              # glow adds emissive colour (bloom picks it up). collide R adds an invisible solid
-             # cylinder of radius R (3 m tall) at the prop's base.
+             # box 2R across at the prop's base, H metres tall (default 5, tall enough that the
+             # camera cannot peek over a wall). `deck` makes it a floor instead of a wall: the top
+             # face at y+H is walkable and the box never blocks movement -- piers, boat decks,
+             # anything you are meant to stand on.
     collider x y z sx sy sz                    # invisible solid box
     light    x y z  r g b  radius intensity [flicker F]   # point light; F ~0.3 for torches
     emitter  TYPE x y z  ex ey ez  rate  r g b  size life
@@ -26,6 +29,17 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
     scene    intro|boss|victory  FILE          # cutscene file under assets/scenes/ for that beat
     terrain  FILE                              # heightmap base name relative to assets/, e.g. levels/glade_terrain
              # (files FILE_h.png, FILE_c.png, FILE.txt)
+
+## Standing on things
+
+Characters resolve their footing once a tick: the ground is the terrain (or y = 0 where the level
+has none), or the top of any solid block or `deck` collider whose xz contains them and whose top is
+within 0.5 m of their feet. Walking onto something that high steps up onto it; walking off the edge
+drops with gravity. There is no jump, so anything more than 0.5 m tall is a wall, not a step.
+
+Inside a cutscene the y in `actor NAME move x y z dur` is a *floor*, not the final answer: the
+actor is still lifted onto whatever ground is under them (write 0 to hug the terrain) but never
+sinks below what the scene asked for, which is how an actor climbs out of a boat onto a quay.
 
 ## Look
 

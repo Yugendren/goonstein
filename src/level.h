@@ -19,6 +19,7 @@ typedef struct Block {
     Vec4 tint;       // rgb multiply, a = 1
     float uv_tile;   // texture repeats per world unit; 0 = stretch once
     bool solid;      // blocks the player and boss
+    bool platform;   // walkable top face that never blocks movement (a prop's `collide R H deck`)
 } Block;
 
 typedef struct CamVolume {
@@ -43,7 +44,10 @@ typedef struct Prop {
     char  file[128];         // relative to assets/
     Vec3  pos; float yaw, scale; Vec3 stretch;   // stretch: per-axis size multiplier (default 1 1 1)
     Vec4  tint; Vec3 glow;   // glow = emissive colour
-    float collide;           // radius of an invisible solid cylinder (0 = none)
+    float collide;           // radius of an invisible solid box at the prop's base (0 = none)
+    float collide_h;         // its height in metres (0 = the 5 m default, tall enough to hide behind)
+    bool  collide_deck;      // `deck`: the top face is walkable and the box never blocks movement
+    int   collide_block;     // index of that block in `blocks`, or -1 (rebuilt on every load)
 } Prop;
 
 typedef struct LevelLight {
@@ -107,6 +111,16 @@ bool level_load(Level *lv, const char *path);
 bool level_save(const Level *lv, const char *path);
 // Reload if the file changed on disk. Returns true if it was reloaded.
 bool level_reload_if_changed(Level *lv);
+// How high a character steps up without jumping. Also the height a block has to exceed before it
+// blocks movement at all: anything shorter is a step, not a wall.
+#define LEVEL_STEP_UP 0.5f
+
+// Highest walkable surface under `pos` that is no more than LEVEL_STEP_UP above its feet, starting
+// from `base` (the terrain, or 0 on a level without one). Solid blocks and decks both hold a
+// character up; only the xz centre is tested. *block, if given, receives the block index that won,
+// or -1 for `base` itself.
+float level_ground(const Level *lv, Vec3 pos, float base, int *block);
+
 // Move a capsule-ish character (xz circle of radius r, y extent 0..height above pos.y)
 // by delta, sliding along solid blocks. Returns the new position. Y is passed through.
 Vec3 level_move(const Level *lv, Vec3 pos, float radius, float height, Vec3 delta);

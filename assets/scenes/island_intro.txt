@@ -4,21 +4,20 @@
 # Two engine limits shape this scene (both listed under "Needs code" in ISLAND_BUILD.md):
 #   * the camera's far plane is a hard 80 m (src/camera.c), so there is no wide establishing
 #     shot of the island -- every key here looks at something inside 80 m;
-#   * scene actors can only be the player, the boss and the level's NPCs, and characters are
-#     snapped to the terrain every tick, so nobody can ride a moving boat. The boat is moored
-#     and the camera does the sailing instead.
+#   * scene actors can only be the player, the boss and the level's NPCs, so nobody can ride a
+#     moving boat. The boat is moored and the camera does the sailing instead.
 
 0.0  music "13 - Mystical.ogg"
 0.0  daytime 18.5
 0.0  letterbox on
 0.0  fade 0 1 2.5
 
-# they are already tying up when we find them (y = 1.60 is the quay: the player is not
-# terrain-snapped inside a cutscene, so a y of 0 would bury him in the deck)
-0.0  actor player teleport -67.5 1.60 -114.8 340
-0.0  actor Marko  teleport -71.0 1.60 -114.6 350
-0.0  actor Pip    teleport -74.0 1.60 -114.4 330
-0.0  actor Bunny  teleport -64.5 1.60 -114.6 355
+# they are still in the boat when we find them. The deck is a real floor now (island.txt gives the
+# boat a `collide ... deck` box, top at y = 0.72), so these four are standing on it, not beside it.
+0.0  actor player teleport -69.3 0.72 -117.9 340
+0.0  actor Marko  teleport -70.8 0.72 -117.9 350
+0.0  actor Pip    teleport -70.8 0.72 -119.3 330
+0.0  actor Bunny  teleport -69.3 0.72 -119.3 355
 0.0  actor player anim idle
 0.0  actor Marko anim idle
 0.0  actor Pip anim idle
@@ -34,7 +33,8 @@
 6.4  say "Remember the plan." 2.6 Dez
 9.2  say "We had a plan?" 2.4 Marko
 
-# 3. they come up onto the quay, arguing, and spread out
+# 3. they climb out onto the quay, arguing, and spread out. A scene's `move` y is a floor, not an
+# answer: it carries them up the 0.9 m from the deck to the quay and the ground takes over after.
 9.6  actor player move -64.0 1.60 -112.0 4.5
 9.8  actor Marko move -70.0 1.60 -110.6 5.0
 10.2 actor Pip move -67.5 1.60 -114.0 5.5
@@ -56,7 +56,7 @@
 
 # 5. hand it over, behind Dez, facing the road up off the pier
 27.4 cam -71.0 6.6 -116.0   -62 5.2 -110.5   46
-27.6 actor player teleport -64 1.60 -112 62
+27.6 actor player teleport -64 0 -112 62
 27.8 actor player face -52 9 -104
 28.4 letterbox off
 29.0 end

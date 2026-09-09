@@ -232,21 +232,31 @@ static bool parse_level(Level *out, const char *path) {
             memset(pr, 0, sizeof *pr);
             SDL_strlcpy(pr->file, tok[1], sizeof pr->file);
             pr->pos = v3(f[0], f[1], f[2]); pr->yaw = f[3] * DEG2RAD; pr->scale = f[4]; pr->tint = v4(1, 1, 1, 1); pr->stretch = v3(1, 1, 1);
+            pr->collide_block = -1;
             int i = 7;
             while (i < n) {
                 float g3[3];
                 if (strcmp(tok[i], "tint") == 0 && i + 3 < n && parse_floats(tok, i + 1, 3, g3)) { pr->tint = v4(g3[0], g3[1], g3[2], 1); i += 4; }
                 else if (strcmp(tok[i], "glow") == 0 && i + 3 < n && parse_floats(tok, i + 1, 3, g3)) { pr->glow = v3(g3[0], g3[1], g3[2]); i += 4; }
-                else if (strcmp(tok[i], "collide") == 0 && i + 1 < n && parse_floats(tok, i + 1, 1, g3)) { pr->collide = g3[0]; i += 2; }
+                else if (strcmp(tok[i], "collide") == 0 && i + 1 < n && parse_floats(tok, i + 1, 1, g3)) {
+                    // collide R [H] [deck]: R is the half-width of an invisible box at the prop's
+                    // base, H its height (default 5), `deck` makes its top face a floor instead of
+                    // a wall (piers, boat decks, anything you are meant to walk on).
+                    pr->collide = g3[0]; i += 2;
+                    if (i < n && parse_floats(tok, i, 1, g3)) { pr->collide_h = g3[0]; i += 1; }
+                    if (i < n && strcmp(tok[i], "deck") == 0) { pr->collide_deck = true; i += 1; }
+                }
                 else if (strcmp(tok[i], "stretch") == 0 && i + 3 < n && parse_floats(tok, i + 1, 3, g3)) { pr->stretch = v3(g3[0], g3[1], g3[2]); i += 4; }
                 else { SDL_Log("level_load:%d: bad prop option '%s'", line_no, tok[i]); break; }
             }
             if (pr->collide > 0 && out->nblocks < LEVEL_MAX_BLOCKS) {
-                // Invisible solid box for the trunk / body of the prop
+                // Invisible box for the trunk / body / deck of the prop
+                float h = pr->collide_h > 0 ? pr->collide_h : 5.0f;   // default: tall enough that the camera cannot peek over a wall
                 Block *b = &out->blocks[out->nblocks++];
                 memset(b, 0, sizeof *b);
-                b->center = v3(pr->pos.x, pr->pos.y + 2.5f, pr->pos.z); b->size = v3(pr->collide * 2, 5.0f, pr->collide * 2);   // tall enough that the camera cannot peek over a wall
-                b->tex = -1; b->solid = true; b->tint = v4(1, 1, 1, 0);
+                b->center = v3(pr->pos.x, pr->pos.y + h * 0.5f, pr->pos.z); b->size = v3(pr->collide * 2, h, pr->collide * 2);
+                b->tex = -1; b->solid = !pr->collide_deck; b->platform = pr->collide_deck; b->tint = v4(1, 1, 1, 0);
+                pr->collide_block = out->nblocks - 1;
             }
         } else if (strcmp(cmd, "light") == 0 && n >= 9 && n != 8) {
             // light x y z r g b radius intensity [flicker F]
@@ -357,8 +367,9 @@ static bool is_auto_prop_collider(const Level *lv, const Block *b) {
     for (int i = 0; i < lv->nprops; i++) {
         const Prop *pr = &lv->props[i];
         if (pr->collide <= 0.0f) continue;
+        float h = pr->collide_h > 0 ? pr->collide_h : 5.0f;
         if (fabsf(b->center.x - pr->pos.x) < 1e-3f && fabsf(b->center.z - pr->pos.z) < 1e-3f &&
-            fabsf(b->size.x - pr->collide * 2.0f) < 1e-3f)
+            fabsf(b->size.x - pr->collide * 2.0f) < 1e-3f && fabsf(b->size.y - h) < 1e-3f)
             return true;
     }
     return false;
@@ -442,8 +453,11 @@ bool level_save(const Level *lv, const char *path) {
             fprintf(f, " glow %.3f %.3f %.3f", pr->glow.x, pr->glow.y, pr->glow.z);
         if (pr->stretch.x != 1.0f || pr->stretch.y != 1.0f || pr->stretch.z != 1.0f)
             fprintf(f, " stretch %.3f %.3f %.3f", pr->stretch.x, pr->stretch.y, pr->stretch.z);
-        if (pr->collide > 0.0f)
+        if (pr->collide > 0.0f) {
             fprintf(f, " collide %.3f", pr->collide);
+            if (pr->collide_h > 0.0f || pr->collide_deck) fprintf(f, " %.3f", pr->collide_h > 0 ? pr->collide_h : 5.0f);
+            if (pr->collide_deck) fprintf(f, " deck");
+        }
         fprintf(f, "\n");
     }
 
@@ -513,8 +527,9 @@ static float move_axis(const Level *lv, float primary, float secondary, float y0
         for (int i = 0; i < lv->nblocks; i++) {
             const Block *b = &lv->blocks[i];
             if (!b->solid || !y_overlaps(b, y0, y1)) continue;
-            // Thin floors and low steps are walked over, not collided with.
-            if (b->center.y + b->size.y * 0.5f <= y0 + 0.35f) continue;
+            // Thin floors and low steps are walked over, not collided with: anything whose top is
+            // within a step of the feet is climbed by level_ground instead of stopping the move.
+            if (b->center.y + b->size.y * 0.5f <= y0 + LEVEL_STEP_UP) continue;
 
             float pmin, pmax, smin, smax;
             if (axis == 0) {
@@ -549,6 +564,22 @@ static float move_axis(const Level *lv, float primary, float secondary, float y0
         if (hit) break; // stopped by a wall; discard the rest of this axis's motion
     }
     return primary;
+}
+
+float level_ground(const Level *lv, Vec3 pos, float base, int *block) {
+    float best = base; int bi = -1;
+    float reach = pos.y + LEVEL_STEP_UP;   // a surface higher than this is something to walk into, not onto
+    for (int i = 0; i < lv->nblocks; i++) {
+        const Block *b = &lv->blocks[i];
+        if (!b->solid && !b->platform) continue;
+        float top = b->center.y + b->size.y * 0.5f;
+        if (top > reach || top <= best) continue;
+        if (fabsf(pos.x - b->center.x) > b->size.x * 0.5f) continue;
+        if (fabsf(pos.z - b->center.z) > b->size.z * 0.5f) continue;
+        best = top; bi = i;
+    }
+    if (block) *block = bi;
+    return best;
 }
 
 Vec3 level_move(const Level *lv, Vec3 pos, float radius, float height, Vec3 delta) {

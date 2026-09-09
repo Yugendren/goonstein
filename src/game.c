@@ -117,15 +117,48 @@ static void hero_hot_reload(Game *g) {
     else say(g, "hero reload failed (see hollow.log)");
 }
 
-// Characters stand on the terrain surface wherever the level has one.
-static void snap_to_terrain(Game *g) {
-    if (!g->terrain.present) return;
+// Characters stand on whatever is under them: the terrain where the level has one, or the top of a
+// block, a prop collider or a boat deck within a step of their feet. Walking off the edge of one
+// drops them at 1 g until the ground catches them again. There is no jump yet, so vy is only ever
+// spent falling.
+#define GAME_GRAVITY   18.0f    // m/s^2: heavier than real gravity, which is how a game falls
+#define GAME_FALL_MAX  40.0f    // terminal speed, so a long drop cannot tunnel through the floor
+
+void game_ground_character(Game *g, Character *c, float dt) {
+    bool terrain = g->terrain.present;
+    // Outside the grid there is no ground at all: whatever is parked out there (the boss on a
+    // level with no fight) stays exactly where the level put it.
+    if (terrain && !terrain_inside(&g->terrain, c->pos.x, c->pos.z)) { c->vy = 0; c->grounded = false; c->ground_block = -1; return; }
+    float base = terrain ? terrain_height(&g->terrain, c->pos.x, c->pos.z) : 0.0f;
+    int block = -1;
+    float ground = level_ground(&g->level, c->pos, base, &block);
+    // A cutscene's `move` interpolates a y of its own. Treat it as a floor rather than an answer:
+    // the actor is lifted onto whatever ground is under them (so `move x 0 z` hugs the hill and
+    // nobody is buried in it), and never falls below the height the script asked for (so stepping
+    // off a boat onto a quay is a line in the scene file, not a jump the engine has to have).
+    if (c->scripted_moving) {
+        c->vy = 0;
+        if (c->pos.y < ground) { c->pos.y = ground; c->grounded = true; c->ground_block = block; }
+        else { c->grounded = false; c->ground_block = -1; }
+        return;
+    }
+    if (dt <= 0 || c->pos.y <= ground) {   // dt <= 0: a spawn or a teleport, put them down now
+        c->pos.y = ground; c->vy = 0; c->grounded = true; c->ground_block = block;
+        return;
+    }
+    c->vy = fmaxf(c->vy - GAME_GRAVITY * dt, -GAME_FALL_MAX);
+    c->pos.y += c->vy * dt;
+    if (c->pos.y <= ground) { c->pos.y = ground; c->vy = 0; c->grounded = true; c->ground_block = block; }
+    else { c->grounded = false; c->ground_block = -1; }
+}
+
+// Every character the game owns, once a tick. NPCs are done separately, after their scripts run.
+static void resolve_ground(Game *g, float dt) {
     for (int i = 0; i < NET_MAX_PLAYERS; i++) {
         if (!g->net.slots[i].active) continue;
-        Character *c = &g->players[i].c;
-        if (terrain_inside(&g->terrain, c->pos.x, c->pos.z)) c->pos.y = terrain_height(&g->terrain, c->pos.x, c->pos.z);
+        game_ground_character(g, &g->players[i].c, dt);
     }
-    if (terrain_inside(&g->terrain, g->boss.c.pos.x, g->boss.c.pos.z)) g->boss.c.pos.y = terrain_height(&g->terrain, g->boss.c.pos.x, g->boss.c.pos.z);
+    game_ground_character(g, &g->boss.c, dt);
 }
 
 static void setup_npcs(Game *g) {
@@ -137,7 +170,8 @@ static void setup_npcs(Game *g) {
         memset(&g->npcs[i], 0, sizeof g->npcs[i]);
         g->npcs[i].ok = charmodel_load(&g->gfx, &g->npcs[i].model, path);
         Character *c = &g->npcs[i].c; c->pos = np->pos; c->yaw = np->yaw; c->radius = 0.4f; c->height = 1.8f; c->hp = c->hp_max = 1; c->anim = ANIM_IDLE;
-        if (g->terrain.present && terrain_inside(&g->terrain, c->pos.x, c->pos.z)) c->pos.y = terrain_height(&g->terrain, c->pos.x, c->pos.z);
+        c->ground_block = -1;
+        game_ground_character(g, c, 0);
         g->nnpcs = i + 1;
         if (!g->npcs[i].ok) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "npc %s: character %s failed to load", np->name, np->file);
     }
@@ -173,7 +207,7 @@ static void setup_level_content(Game *g) {
         snprintf(g->terrain.file, sizeof g->terrain.file, "%s", "levels/demo_terrain");
         if (!strcmp(SDL_getenv("HOLLOW_TERRAIN_DEMO"), "save")) terrain_save(&g->terrain, HOLLOW_ASSET_DIR);
     }
-    snap_to_terrain(g);
+    resolve_ground(g, 0);
     particles_clear(&g->particles);
     for (int i = 0; i < g->level.nemitters; i++) {
         const LevelEmitter *le = &g->level.emitters[i];
@@ -261,8 +295,9 @@ void game_snap_camera(Game *g) {
 // Puts players[slot] at the level spawn, spread out so seated players don't stack.
 void game_spawn_player(Game *g, int slot) {
     Vec3 pos = v3_add(g->level.spawn, v3(((float)slot - 1.5f) * 1.5f, 0, 0));
-    if (g->terrain.present && terrain_inside(&g->terrain, pos.x, pos.z)) pos.y = terrain_height(&g->terrain, pos.x, pos.z);
     player_init(&g->players[slot], &g->player_def, pos, g->level.spawn_yaw);
+    g->players[slot].c.ground_block = -1;
+    game_ground_character(g, &g->players[slot].c, 0);
 }
 
 static void reset_to_start(Game *g) {
@@ -507,7 +542,7 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     CombatEvents ev = {0};
     Vec3 dir = netgame_local_input(g, camera_move_dir(&g->cam, in->move_x, in->move_y), in);
     player_update(&PLAYER(g), in, dir, &g->level, NULL, dt, &ev);
-    snap_to_terrain(g);
+    resolve_ground(g, dt);
     apply_events(g, &ev);
     { const Look *ck = &g->level.look; camera_iso_set(ck->cam_pitch, ck->cam_dist, ck->cam_fov, ck->cam_yaw); if (SDL_getenv("HOLLOW_CAM")) { float a = ck->cam_pitch, b = ck->cam_dist, c = ck->cam_fov, d = ck->cam_yaw; sscanf(SDL_getenv("HOLLOW_CAM"), "%f %f %f %f", &a, &b, &c, &d); camera_iso_set(a, b, c, d); } }
     if (g->level.view == VIEW_FIRST) {
@@ -547,6 +582,9 @@ static void tick_scene(Game *g, const Input *in, float dt) {
     else scene_update(&g->scene, dt, &host);
     character_script_update(&PLAYER(g).c, dt);
     character_script_update(&g->boss.c, dt);
+    // Scripted actors stand on the world like anyone else. Before this a scene's `teleport x y z`
+    // was the character's final y, so every scene written on a flat level buried its hero in a hill.
+    resolve_ground(g, dt);
     if (g->scene.cam_valid) camera_set_scene(&g->cam, g->scene.cam_eye, g->scene.cam_target, g->scene.cam_fov, true);
     if (g->scene.shake > 0) camera_add_shake(&g->cam, g->scene.shake);
     g->fade = g->scene.fade;
@@ -592,7 +630,7 @@ static void tick_fight(Game *g, const Input *in, float dt) {
     player_update(&PLAYER(g), in, dir, &g->level, &g->boss, dt, &ev);
     boss_update(&g->boss, &PLAYER(g), &g->level, dt, &ev);
     if (g->boss.state != BS_DEAD) character_separate(&PLAYER(g).c, &g->boss.c, &g->level);
-    snap_to_terrain(g);
+    resolve_ground(g, dt);
     apply_events(g, &ev);
     if (in->lockon) camera_toggle_lock(&g->cam);
     camera_orbit(&g->cam, PLAYER(g).c.pos, in->look_x, in->look_y, g->boss.state != BS_DEAD, g->boss.c.pos, &g->level, dt);
@@ -698,7 +736,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
         leveled_tick(&g->leveled, &g->level, &g->terrain, &g->cam, in, mx, my, dt, &g->gfx, &g->props);
         if (g->leveled.props_stale) { props_clear(&g->gfx, &g->props); g->leveled.props_stale = false; }
         props_load_level(&g->gfx, &g->props, &g->level);
-        snap_to_terrain(g);
+        resolve_ground(g, dt);
         charmodel_drive_player(&PLAYER_MODEL(g), &PLAYER(g), dt);
         uifx_update(&g->fx, dt); update_particles(g, dt);
         netgame_pre_tick(g, dt); netgame_post_tick(g, dt);
@@ -735,7 +773,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     case GS_BATTLE:  tick_battle(g, in, g->pf, dt); break;
     }
     netgame_post_tick(g, dt);
-    for (int i = 0; i < g->nnpcs; i++) { Character *c = &g->npcs[i].c; character_script_update(c, dt); if (g->npcs[i].ok) charmodel_drive_simple(&g->npcs[i].model, c, dt); if (g->terrain.present && terrain_inside(&g->terrain, c->pos.x, c->pos.z)) c->pos.y = terrain_height(&g->terrain, c->pos.x, c->pos.z); }
+    for (int i = 0; i < g->nnpcs; i++) { Character *c = &g->npcs[i].c; character_script_update(c, dt); game_ground_character(g, c, dt); if (g->npcs[i].ok) charmodel_drive_simple(&g->npcs[i].model, c, dt); }
     if (g->daytime_dur > 0) { g->daytime_t += dt; float k = clampf(g->daytime_t / g->daytime_dur, 0, 1); g->level.look.daytime = lerpf(g->daytime_from, g->daytime_to, k * k * (3 - 2 * k)); if (k >= 1) g->daytime_dur = 0; }
     if (g->state != GS_SCENE) {
         g->letterbox = damp(g->letterbox, 0, 6, dt);

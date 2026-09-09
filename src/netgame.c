@@ -372,7 +372,7 @@ static void host_simulate(Game *g, float dt) {
         // sent instead of the one player_update turned toward the move direction. Without this a
         // strafing client looks sideways to everyone else.
         if (g->level.view == VIEW_FIRST && s->have_input) c->yaw = dq_yaw(s->input.yaw);
-        if (g->terrain.present && terrain_inside(&g->terrain, c->pos.x, c->pos.z)) c->pos.y = terrain_height(&g->terrain, c->pos.x, c->pos.z);
+        game_ground_character(g, c, dt);   // remote players stand on the world exactly as the host's own does
     }
     for (int i = 0; i < NET_MAX_PLAYERS; i++)
         for (int j = i + 1; j < NET_MAX_PLAYERS; j++)

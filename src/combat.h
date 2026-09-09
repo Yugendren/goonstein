@@ -29,6 +29,11 @@ typedef struct Character {
     float flash;                    // white hit flash, decays
     float tell;  Vec3 tell_color;   // telegraph glow amount and colour (boss windups)
     int   move_id;                  // which boss move is posing (for windup/strike variants)
+    // Vertical state: the ground under the feet is resolved once a tick (game.c's resolve_ground),
+    // so a character can stand on a block, a pier or a boat deck and fall off the edge of it.
+    float vy;                       // metres per second, negative is falling
+    bool  grounded;                 // standing on something this tick
+    int   ground_block;             // which level block is holding them up, -1 = the terrain itself
     // Scripted motion (cutscenes)
     bool  scripted_moving; Vec3 move_from, move_to; float move_t, move_dur;
 } Character;
