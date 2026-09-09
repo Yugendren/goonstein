@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+static void borrow_scan(Builder *b);
+
 static void say(Builder *b, const char *s) { snprintf(b->msg, sizeof b->msg, "%s", s); b->msg_t = 3.0f; }
 
 // ---------------------------------------------------------------- model discovery
@@ -40,7 +42,7 @@ void builder_init(Builder *b) {
     memset(b, 0, sizeof *b);
     // parts you can attach to a bone: your own exports in import/ and parts/
     { const char *pd[] = { "models/import", "models/parts", "models/own" }; for (size_t i = 0; i < 3; i++) { char d[640]; snprintf(d, sizeof d, "%s/%s/", HOLLOW_ASSET_DIR, pd[i]); SDL_EnumerateDirectory(d, scan_parts_cb, b); } }
-    b->bone_sel = -1; b->attach_sel = -1;
+    b->bone_sel = -1; b->attach_sel = -1; b->borrow_file_sel = -1;
     // rigged characters: the kaykit root and assets/models/characters (yours)
     const char *dirs[] = { "models/kaykit", "models/characters", "models/import" };
     for (size_t i = 0; i < sizeof dirs / sizeof *dirs; i++) { char d[640]; snprintf(d, sizeof d, "%s/%s/", HOLLOW_ASSET_DIR, dirs[i]); SDL_EnumerateDirectory(d, scan_cb, b); }
@@ -55,6 +57,9 @@ void builder_open(Builder *b, const CharSpec *current, const char *name) {
     for (int i = 0; i < b->nfiles; i++) if (!strcmp(b->files[i], b->spec.model)) b->file_sel = i;
     if (name && name[0]) snprintf(b->name, sizeof b->name, "%s", name);
     b->tab = 0; b->pal_sel = -1; b->clip_sel = -1; b->scroll = 0; b->name_focus = false; b->attach_sel = -1; b->part_file_sel = b->npart_files ? 0 : -1;
+    b->borrow_file_sel = -1; b->nborrow_parts = 0;
+    for (int i = 0; i < b->nfiles && b->spec.nborrow; i++) if (!strcmp(b->files[i], b->spec.borrow[0].file)) b->borrow_file_sel = i;   // show the donor already in use
+    borrow_scan(b);
     say(b, "click parts to hide them, pick a colour to repaint it, then SAVE");
 }
 
@@ -71,6 +76,20 @@ static void set_hidden(CharSpec *sp, const char *part, bool hide) {
     for (int i = 0; i < sp->nhidden; i++) if (!strcmp(sp->hidden[i], part)) { if (!hide) { for (int k = i; k < sp->nhidden - 1; k++) memcpy(sp->hidden[k], sp->hidden[k + 1], 48); sp->nhidden--; } return; }
     if (hide && sp->nhidden < SPEC_MAX_HIDDEN) snprintf(sp->hidden[sp->nhidden++], 48, "%s", part);
 }
+// Borrowed parts: mesh nodes taken from another rigged file. Its part names come out of the file
+// itself, so nothing has to be on the GPU to list them.
+static void borrow_scan(Builder *b) {
+    b->nborrow_parts = 0;
+    if (b->borrow_file_sel < 0 || b->borrow_file_sel >= b->nfiles) return;
+    char path[640]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, b->files[b->borrow_file_sel]);
+    b->nborrow_parts = model_file_part_names(path, b->borrow_parts, BLD_MAX_PARTS);
+}
+static int borrow_index(const CharSpec *sp, const char *file, const char *node) {
+    for (int i = 0; i < sp->nborrow; i++) if (!strcmp(sp->borrow[i].file, file) && !strcmp(sp->borrow[i].node, node)) return i;
+    return -1;
+}
+static void borrow_remove(CharSpec *sp, int i) { for (int k = i; k < sp->nborrow - 1; k++) sp->borrow[k] = sp->borrow[k + 1]; sp->nborrow--; }
+
 static int recolor_index(const CharSpec *sp, const unsigned char *from) { for (int i = 0; i < sp->nrecolor; i++) if (!memcmp(sp->rc_from[i], from, 3)) return i; return -1; }
 static Vec3 mapped_color(const CharSpec *sp, const ModelColor *c) {
     int i = recolor_index(sp, c->rgb);
@@ -115,7 +134,7 @@ int builder_panel(Builder *b, Ui *ui, const Input *keys, float w, float h, const
         ui_label(ui, x, y, "BASE MODEL   rigged .glb files in assets/models/kaykit, characters, import", v4(1, 0.85f, 0.4f, 1)); y += 24;
         { int cols = w >= 900 ? 4 : w >= 640 ? 3 : 2; float bw = (w - 2 * M - (cols - 1) * G) / cols;
           for (int i = 0; i < b->nfiles; i++) { bool on = b->file_sel == i; float bx = x + (i % cols) * (bw + G), by = y + (i / cols) * (ROW + G);
-              if (ui_toggle(ui, bx, by, bw, ROW, b->names[i], &on) && on) { b->file_sel = i; snprintf(sp->model, sizeof sp->model, "%s", b->files[i]); sp->nhidden = 0; sp->nrecolor = 0; flags |= BLD_RELOAD; b->pal_sel = -1; } }
+              if (ui_toggle(ui, bx, by, bw, ROW, b->names[i], &on) && on) { b->file_sel = i; snprintf(sp->model, sizeof sp->model, "%s", b->files[i]); sp->nhidden = 0; sp->nrecolor = 0; sp->nborrow = 0; flags |= BLD_RELOAD; b->pal_sel = -1; if (b->borrow_file_sel == i) { b->borrow_file_sel = -1; b->nborrow_parts = 0; } } }
           y += (ROW + G) * ((b->nfiles + cols - 1) / cols) + 8; }
         if (ui_slider(ui, x, y, cw, "scale", &sp->scale, 0.3f, 3)) flags |= BLD_HIDE;
         { float yo = sp->yaw_offset_deg; if (ui_slider(ui, two ? x + cw + G : x, two ? y : y + 26, cw, "facing offset", &yo, -180, 180)) { sp->yaw_offset_deg = roundf(yo / 15) * 15; flags |= BLD_HIDE; } }
@@ -127,6 +146,40 @@ int builder_panel(Builder *b, Ui *ui, const Input *keys, float w, float h, const
             for (int i = 0; i < b->nparts; i++) { bool on = !is_hidden(sp, b->parts[i]); float bx = x + (i % cols) * (bw + G), by = y + (i / cols) * (ROW + G);
                 if (ui_toggle(ui, bx, by, bw, ROW, b->parts[i], &on)) { set_hidden(sp, b->parts[i], !on); flags |= BLD_HIDE; } }
             y += (ROW + G) * ((b->nparts + cols - 1) / cols) + 8; }
+        // ---- BORROW: a mesh part of another rigged file, drawn on this skeleton
+        ui_label(ui, x, y, "BORROW PARTS   mix in a part from another rigged file (they share the skeleton)", v4(1, 0.85f, 0.4f, 1)); y += 24;
+        ui_label_fit(ui, x, y, w - 2 * M, "hide the part it replaces above yourself: hide Knight_Helmet, then borrow Mage_Hat", v4(0.6f, 0.58f, 0.55f, 1)); y += 22;
+        { int cols = w >= 900 ? 4 : w >= 640 ? 3 : 2; float bw = (w - 2 * M - (cols - 1) * G) / cols; int shown = 0;
+          for (int i = 0; i < b->nfiles; i++) {
+              if (!strcmp(b->files[i], sp->model)) continue;                    // the body itself is not a donor
+              bool on = b->borrow_file_sel == i; float bx = x + (shown % cols) * (bw + G), by = y + (shown / cols) * (ROW + G);
+              if (ui_toggle(ui, bx, by, bw, ROW, b->names[i], &on)) { b->borrow_file_sel = on ? i : -1; borrow_scan(b); }
+              shown++;
+          }
+          y += (ROW + G) * ((shown + cols - 1) / cols) + 6; }
+        if (b->borrow_file_sel >= 0) {
+            const char *src = b->files[b->borrow_file_sel];
+            if (b->nborrow_parts == 0) { ui_label(ui, x, y, "no mesh parts in that file", v4(0.6f, 0.58f, 0.55f, 1)); y += 24; }
+            else { int cols = w >= 900 ? 4 : w >= 640 ? 3 : 2; float bw = (w - 2 * M - (cols - 1) * G) / cols;
+                for (int i = 0; i < b->nborrow_parts; i++) {
+                    bool on = borrow_index(sp, src, b->borrow_parts[i]) >= 0; float bx = x + (i % cols) * (bw + G), by = y + (i / cols) * (ROW + G);
+                    if (!ui_toggle(ui, bx, by, bw, ROW, b->borrow_parts[i], &on)) continue;
+                    int k = borrow_index(sp, src, b->borrow_parts[i]);
+                    if (on && k < 0) {
+                        if (sp->nborrow >= SPEC_MAX_BORROW) { say(b, "that is as many borrowed parts as a character can hold"); continue; }
+                        k = sp->nborrow++; snprintf(sp->borrow[k].file, 128, "%s", src); snprintf(sp->borrow[k].node, 48, "%s", b->borrow_parts[i]);
+                    } else if (!on && k >= 0) borrow_remove(sp, k);
+                    flags |= BLD_RELOAD;
+                }
+                y += (ROW + G) * ((b->nborrow_parts + cols - 1) / cols) + 6; }
+        }
+        for (int i = 0; i < sp->nborrow; i++) {
+            char s[200]; const char *fn = strrchr(sp->borrow[i].file, '/'); snprintf(s, sizeof s, "%s  from  %s", sp->borrow[i].node, fn ? fn + 1 : sp->borrow[i].file);
+            ui_label_fit(ui, x, y + 7, cw, s, v4(0.85f, 0.85f, 0.8f, 1));
+            if (ui_button(ui, x + cw + G, y, fminf(120, cw), ROW, "REMOVE")) { borrow_remove(sp, i); flags |= BLD_RELOAD; y += ROW + G; continue; }
+            y += ROW + G;
+        }
+        y += 4;
         // ---- ATTACHMENTS: your own parts on a bone
         ui_label(ui, x, y, "ATTACH   your OBJ from assets/models/import on a bone (helmet on head, weapon on handslot.r)", v4(1, 0.85f, 0.4f, 1)); y += 24;
         if (b->npart_files == 0) { ui_label(ui, x, y, "no part files: export OBJ from your CAD tool into assets/models/import", v4(0.6f, 0.58f, 0.55f, 1)); y += 24; }

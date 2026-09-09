@@ -407,6 +407,20 @@ int model_part_names(const Model *m, const char **out, int max) {
     return n;
 }
 
+int model_file_part_names(const char *path, char (*out)[48], int max) {
+    cgltf_options opt = {0}; cgltf_data *d = NULL;
+    if (cgltf_parse_file(&opt, path, &d) != cgltf_result_success) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "model parse failed: %s", path); return 0; }
+    int n = 0;
+    for (size_t i = 0; i < d->nodes_count && n < max; i++) {
+        const cgltf_node *node = &d->nodes[i];
+        if (!node->mesh || !node->name) continue;
+        bool dup = false; for (int k = 0; k < n; k++) if (!strcmp(out[k], node->name)) dup = true;
+        if (!dup) snprintf(out[n++], 48, "%s", node->name);
+    }
+    cgltf_free(d);
+    return n;
+}
+
 // ---------------------------------------------------------------- playback
 
 static void begin_fade(AnimPlayer *p, float fade_dur) {
@@ -523,4 +537,32 @@ void model_draw(Gfx *g, const Model *m, const ModelPose *pose, Mat4 world, Vec4 
         if (mm->skinned) gfx_draw_skinned(g, &mm->gpu, t, world, tint, pose->joints, m->njoints);
         else gfx_draw(g, &mm->gpu, t, m4_mul(world, pose->global[mm->node]), tint, v4(1, 1, 0, 0));
     }
+}
+
+// A rigid mesh (helmet, hat, cape, weapon) hangs off a bone: find the bone of the same name in the
+// host skeleton and keep the transforms between it and the mesh. -1 if the host has no such bone.
+int model_host_node(const Model *m, const Model *host, int node, Mat4 *local) {
+    *local = m4_identity();
+    for (int nd = node; nd >= 0; nd = m->nodes[nd].parent) {
+        if (m->nodes[nd].name[0]) { int h = model_find_node(host, m->nodes[nd].name); if (h >= 0) return h; }
+        *local = m4_mul(m4_from_trs(m->nodes[nd].t, m->nodes[nd].r, m->nodes[nd].s), *local);
+    }
+    return -1;
+}
+
+int model_draw_nodes(Gfx *g, const Model *m, const Model *host, const ModelPose *pose, Mat4 world, Vec4 tint, const char *const *names, int n) {
+    int drawn = 0;
+    for (int i = 0; i < m->nmeshes; i++) {
+        const ModelMesh *mm = &m->meshes[i];
+        const char *nm = m->nodes[mm->node].name;
+        bool want = false; for (int k = 0; k < n && !want; k++) if (!strcmp(names[k], nm)) want = true;
+        if (!want) continue;
+        const Texture *t = &m->textures[mm->tex];
+        if (mm->skinned) { gfx_draw_skinned(g, &mm->gpu, t, world, tint, pose->joints, m->njoints); drawn++; continue; }
+        Mat4 local; int h = model_host_node(m, host, mm->node, &local);
+        if (h < 0) continue;                          // no bone of that name over there; the caller warned
+        gfx_draw(g, &mm->gpu, t, m4_mul(world, m4_mul(pose->global[h], local)), tint, v4(1, 1, 0, 0));
+        drawn++;
+    }
+    return drawn;
 }

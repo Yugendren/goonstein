@@ -59,6 +59,9 @@ int  model_palette(const Model *m, ModelColor *out, int max);
 void model_recolor(Gfx *g, Model *m, const unsigned char (*from)[3], const unsigned char (*to)[3], int n);
 // Names of nodes that carry meshes (the parts a character is made of), in file order.
 int  model_part_names(const Model *m, const char **out, int max);
+// Same, read straight out of a .glb/.gltf without loading it (the builder lists another file's
+// parts before anything borrows them). Copies the names out; nothing is put on the GPU.
+int  model_file_part_names(const char *path, char (*out)[48], int max);
 
 // Two-segment playback so a clip's contact moment can be pinned to a gameplay timing.
 typedef struct AnimPlayer {
@@ -90,3 +93,12 @@ bool anim_finished(const AnimPlayer *p, const Model *m);
 
 void model_pose(const Model *m, const AnimPlayer *p, ModelPose *out);
 void model_draw(Gfx *g, const Model *m, const ModelPose *pose, Mat4 world, Vec4 tint);
+// Draw only the meshes whose node name is one of `names`, posed by `host` — another model that
+// shares this one's skeleton (same joint names and inverse binds), so a part borrowed from a second
+// file follows the host's animation. Skinned meshes take the host's joint matrices; rigid ones
+// (helmets, hats, capes, weapons) hang off the host bone with the same name as theirs, and are
+// skipped if the host has no such bone. `pose` is the host's pose. Returns how many were drawn.
+int  model_draw_nodes(Gfx *g, const Model *m, const Model *host, const ModelPose *pose, Mat4 world, Vec4 tint, const char *const *names, int n);
+// The host node a rigid mesh node hangs off (nearest ancestor whose name the host also has), with
+// the transform chain from that node down to it. -1 if the host has no such bone.
+int  model_host_node(const Model *m, const Model *host, int node, Mat4 *local);

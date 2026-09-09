@@ -1,6 +1,7 @@
-// Character builder: pick a rigged model, switch its parts on and off, recolour its paint
-// colours, choose the animation set, and save it as assets/characters/NAME.txt. The game shows
-// the result live on the hero while the panel is open.
+// Character builder: pick a rigged model, switch its parts on and off, borrow parts from the other
+// rigged files onto the same skeleton, recolour its paint colours, choose the animation set, and
+// save it as assets/characters/NAME.txt. The game shows the result live on the hero while the
+// panel is open.
 #pragma once
 #include "widgets.h"
 #include "charmodel.h"
@@ -15,6 +16,8 @@ typedef struct Builder {
     const char *parts[BLD_MAX_PARTS]; int nparts;      // node names owned by the live model
     char part_files[BLD_MAX_FILES][160], part_names[BLD_MAX_FILES][48]; int npart_files, part_file_sel;   // OBJ / model files to attach
     int bone_sel, attach_sel;
+    int borrow_file_sel;                               // which other rigged file we are picking parts from (-1 none)
+    char borrow_parts[BLD_MAX_PARTS][48]; int nborrow_parts;   // its mesh node names, read straight from the file
     ModelColor pal[BLD_MAX_PAL]; int npal, pal_sel;
     int style, clip_sel, tab; float scroll;
     char msg[160]; float msg_t;

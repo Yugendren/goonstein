@@ -6,6 +6,9 @@
 //   yaw_offset DEG            rotate the model so its front matches yaw 0 (+Z)
 //   texture_size N             downsample embedded textures to at most N
 //   hide   NODE [NODE ...]     accessory nodes to hide
+//   borrow FILE NODE           draw mesh node NODE from another rigged FILE (relative to assets/)
+//       on this character's skeleton. The KayKit rigs share joint names and inverse binds, so a
+//       Mage hat rides a Knight. Hiding the part it replaces is up to you (hide Knight_Helmet).
 //   anim   NAME CLIP [loop] [hold] [contact F] [rate R]
 //       NAME is one of the Anim enum names (idle walk attack parry parry_hit dodge hurt kneel dead roar stagger)
 // Boss moves name their own clips in the enemy file (clip NAME contact F).
@@ -21,6 +24,8 @@ typedef struct AnimBinding { int clip; bool loop, hold; float contact, rate; } A
 #define SPEC_MAX_HIDDEN 32
 #define SPEC_MAX_RECOLOR 32
 #define SPEC_MAX_ATTACH 16
+#define SPEC_MAX_BORROW 16
+#define CHAR_MAX_BORROW_FILES 8
 typedef struct CharSpec {
     char model[256], sprite[256];        // one of the two is set (relative to assets/)
     float scale, yaw_offset_deg; int tex_size;
@@ -29,6 +34,8 @@ typedef struct CharSpec {
     struct { char clip[64]; bool set, loop, hold; float contact, rate; } anims[ANIM_COUNT];
     // rigid parts (your own OBJ or any model) fixed to a bone: attach FILE BONE x y z yaw pitch roll scale
     struct { char file[128], bone[48]; Vec3 pos; float yaw, pitch, roll, scale; } attach[SPEC_MAX_ATTACH]; int nattach;
+    // mesh parts taken from another rigged file and drawn on this skeleton: borrow FILE NODE
+    struct { char file[128], node[48]; } borrow[SPEC_MAX_BORROW]; int nborrow;
 } CharSpec;
 
 
@@ -40,6 +47,9 @@ typedef struct CharModel {
     float scale, yaw_offset;
     CharSpec spec;                       // what this character was built from
     struct { Model model; ModelPose rest; Mat4 local; Vec4 tint; int attach; } sub[32]; int nsub;   // loaded attachment models (a .part expands into its pieces)
+    // borrowed parts: each source file loaded once, with its own texture; drawn with the base pose
+    struct { Model model; char file[128]; } lent[CHAR_MAX_BORROW_FILES]; int nlent;
+    int borrow_lent[SPEC_MAX_BORROW];    // spec.borrow[i] -> lent[] index, -1 if it failed to load
     // change detection
     Anim last_anim; float last_anim_t; int last_move;
 } CharModel;

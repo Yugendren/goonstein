@@ -33,6 +33,11 @@ bool charmodel_spec_load(CharSpec *sp, const char *config_path) {
             if (file && bone && sp->nattach < SPEC_MAX_ATTACH) { int i = sp->nattach++; snprintf(sp->attach[i].file, 128, "%s", file); snprintf(sp->attach[i].bone, 48, "%s", bone); sp->attach[i].pos = v3(f[0], f[1], f[2]); sp->attach[i].yaw = f[3]; sp->attach[i].pitch = f[4]; sp->attach[i].roll = f[5]; sp->attach[i].scale = f[6] > 0 ? f[6] : 1; }
             else SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d bad attach line", config_path, ln);
         }
+        else if (!strcmp(key, "borrow")) {   // borrow FILE NODE
+            char *file = strtok(NULL, " \t\r"), *node = strtok(NULL, " \t\r");
+            if (file && node && sp->nborrow < SPEC_MAX_BORROW) { int i = sp->nborrow++; snprintf(sp->borrow[i].file, 128, "%s", file); snprintf(sp->borrow[i].node, 48, "%s", node); }
+            else SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d bad borrow line", config_path, ln);
+        }
         else if (!strcmp(key, "anim")) {
             char *nm = strtok(NULL, " \t\r"), *clip = strtok(NULL, " \t\r");
             if (!nm || !clip) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d bad anim line", config_path, ln); continue; }
@@ -57,11 +62,12 @@ bool charmodel_spec_load(CharSpec *sp, const char *config_path) {
 bool charmodel_spec_save(const CharSpec *sp, const char *config_path) {
     FILE *f = fopen(config_path, "wb");
     if (!f) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "cannot write %s", config_path); return false; }
-    fprintf(f, "# Character built in the character builder. model / hide / recolor / anim lines; see src/charmodel.h\n");
+    fprintf(f, "# Character built in the character builder. model / hide / borrow / recolor / attach / anim lines; see src/charmodel.h\n");
     if (sp->model[0]) fprintf(f, "model %s\n", sp->model); else fprintf(f, "sprite %s\n", sp->sprite);
     fprintf(f, "scale %.3f\ntexture_size %d\nyaw_offset %.1f\n", sp->scale, sp->tex_size, sp->yaw_offset_deg);
     if (sp->nhidden) { fprintf(f, "hide"); for (int i = 0; i < sp->nhidden; i++) fprintf(f, " %s", sp->hidden[i]); fprintf(f, "\n"); }
     for (int i = 0; i < sp->nrecolor; i++) fprintf(f, "recolor %d %d %d  %d %d %d\n", sp->rc_from[i][0], sp->rc_from[i][1], sp->rc_from[i][2], sp->rc_to[i][0], sp->rc_to[i][1], sp->rc_to[i][2]);
+    for (int i = 0; i < sp->nborrow; i++) fprintf(f, "borrow %s %s\n", sp->borrow[i].file, sp->borrow[i].node);
     for (int i = 0; i < sp->nattach; i++) fprintf(f, "attach %s %s  %.3f %.3f %.3f  %.1f %.1f %.1f  %.3f\n", sp->attach[i].file, sp->attach[i].bone, sp->attach[i].pos.x, sp->attach[i].pos.y, sp->attach[i].pos.z, sp->attach[i].yaw, sp->attach[i].pitch, sp->attach[i].roll, sp->attach[i].scale);
     for (int a = 0; a < ANIM_COUNT; a++) {
         if (!sp->anims[a].set) continue;
@@ -105,6 +111,34 @@ bool charmodel_apply(Gfx *g, CharModel *cm, const CharSpec *sp) {
             cm->sub[cm->nsub].local = piece_matrix(&pieces[k]); cm->sub[cm->nsub].tint = pieces[k].tint; cm->sub[cm->nsub].attach = i;
             cm->nsub++;
         }
+    }
+    // borrowed parts: load every distinct source file once, then check the node is there and skinned
+    cm->nlent = 0;
+    for (int i = 0; i < SPEC_MAX_BORROW; i++) cm->borrow_lent[i] = -1;
+    for (int i = 0; i < sp->nborrow && i < SPEC_MAX_BORROW; i++) {
+        if (cm->is_sprite) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "character: borrow needs a model, not a sprite"); break; }
+        int e = -1;
+        for (int k = 0; k < cm->nlent; k++) if (!strcmp(cm->lent[k].file, sp->borrow[i].file)) e = k;
+        if (e < 0) {
+            if (cm->nlent >= CHAR_MAX_BORROW_FILES) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "character: too many borrowed files, %s skipped", sp->borrow[i].file); continue; }
+            char path[640]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, sp->borrow[i].file);
+            if (!model_load(g, &cm->lent[cm->nlent].model, path, sp->tex_size)) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "character: borrow file failed to load: %s", sp->borrow[i].file); continue; }
+            snprintf(cm->lent[cm->nlent].file, 128, "%s", sp->borrow[i].file);
+            e = cm->nlent++;
+        }
+        const Model *lm = &cm->lent[e].model;
+        int node = model_find_node(lm, sp->borrow[i].node);
+        if (node < 0) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "character: borrow %s: no node %s", sp->borrow[i].file, sp->borrow[i].node); continue; }
+        bool mesh = false, skinned = false;
+        for (int mi = 0; mi < lm->nmeshes; mi++) if (lm->meshes[mi].node == node) { mesh = true; if (lm->meshes[mi].skinned) skinned = true; }
+        if (!mesh) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "character: borrow %s: node %s carries no mesh, skipped", sp->borrow[i].file, sp->borrow[i].node); continue; }
+        if (skinned) {
+            if (lm->njoints != cm->model.njoints) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "character: borrow %s has %d joints, the body has %d; the part may be distorted", sp->borrow[i].file, lm->njoints, cm->model.njoints);
+        } else {   // rigid accessory: it needs the bone it hangs off to exist on the body
+            Mat4 local; int host = model_host_node(lm, &cm->model, node, &local);
+            if (host < 0) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "character: borrow %s %s hangs off a bone the body has not got, skipped", sp->borrow[i].file, sp->borrow[i].node); continue; }
+        }
+        cm->borrow_lent[i] = e;
     }
     for (int i = 0; i < sp->nhidden; i++) model_hide_node(&cm->model, sp->hidden[i], true);
     if (!cm->is_sprite && sp->nrecolor) model_recolor(g, &cm->model, sp->rc_from, sp->rc_to, sp->nrecolor);
@@ -167,11 +201,18 @@ int charmodel_spec_autobind(CharSpec *sp, const Model *m, int style) {
 void charmodel_destroy(Gfx *g, CharModel *cm) {
     if (cm->loaded && cm->is_sprite) sprite_def_destroy(g, &cm->sdef); else if (cm->loaded) model_destroy(g, &cm->model);
     for (int i = 0; i < cm->nsub; i++) model_destroy(g, &cm->sub[i].model);
-    cm->nsub = 0; cm->loaded = false;
+    for (int i = 0; i < cm->nlent; i++) model_destroy(g, &cm->lent[i].model);
+    cm->nsub = 0; cm->nlent = 0; cm->loaded = false;
 }
 
 void charmodel_draw_posed(Gfx *g, const CharModel *cm, const ModelPose *pose, Mat4 world, Vec4 tint) {
     model_draw(g, &cm->model, pose, world, tint);
+    // borrowed parts: same joint matrices, each source file's own texture
+    for (int e = 0; e < cm->nlent; e++) {
+        const char *names[SPEC_MAX_BORROW]; int n = 0;
+        for (int i = 0; i < cm->spec.nborrow && i < SPEC_MAX_BORROW; i++) if (cm->borrow_lent[i] == e) names[n++] = cm->spec.borrow[i].node;
+        if (n) model_draw_nodes(g, &cm->lent[e].model, &cm->model, pose, world, tint, names, n);
+    }
     for (int i = 0; i < cm->nsub; i++) {
         int a = cm->sub[i].attach; if (a < 0 || a >= cm->spec.nattach) continue;
         const CharSpec *sp = &cm->spec;

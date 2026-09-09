@@ -129,9 +129,11 @@ rogues and four skeletons ship, all CC0) and every part of the chosen one as tog
 any file from `import`, `parts` or `own` on a bone: a helmet on `head`, a weapon on `handslot.r`,
 a saved part on `chest`; nudge it with the sliders and it follows every animation. COLOURS lists
 the model's paint colours, most used first; pick one and move the sliders to repaint it, shading
-and edges follow. ANIMATION picks a fighting style, AUTO BIND fills every game action from the
+and edges follow. BORROW PARTS mixes the nine KayKit files: they share one skeleton, so a mage hat, a rogue hood, a
+skeleton arm or a barbarian axe can be put on any body with no rigging (hide the part it replaces,
+then borrow; `borrow FILE NODE` lines). ANIMATION picks a fighting style, AUTO BIND fills every game action from the
 clip names, and any clip previews on the hero. SAVE writes `assets/characters/NAME.txt`
-(`model`, `hide`, `recolor`, `attach`, `anim` lines); SAVE + USE AS HERO also sets it as the hero
+(`model`, `hide`, `borrow`, `recolor`, `attach`, `anim` lines); SAVE + USE AS HERO also sets it as the hero
 in `assets/settings.txt`. `--hero NAME` plays it.
 
 ### Lighting
@@ -144,6 +146,14 @@ LOOK tab moves the sun along the author's noon bearing and blends sky, ambient, 
 stars through night, dawn, noon, golden hour and dusk (`src/daylight.c`). Everything runs at full
 speed on the Steam Deck class of hardware. `assets/levels/showcase.txt` demonstrates it with the
 Poly Haven scans: `--start level:showcase`, `HOLLOW_NOSHADOW=1` to compare.
+
+### Performance budget
+
+Props are culled per pass against the camera and the sun frustum, and skipped when smaller than a
+few pixels; bounding spheres are cached per file. A generated world with 1779 pieces draws about
+30 pieces at the play camera and about 200 at a wide editor view, at 4 to 7 ms a frame on an M4
+with shadows on. Textures cap at 512 for props. The debugger shows frame time, draw calls and the
+drawn/culled counts; `HOLLOW_NOVSYNC=1` and the `perf:` line at exit measure headlessly.
 
 ### The art pipeline in one paragraph
 
