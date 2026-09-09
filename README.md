@@ -45,10 +45,19 @@ and what is verified versus untested.
 
 The layout follows Sekiro on PC. Level files also hot-reload on save while the game is running.
 
-Two views, chosen per level. `view third` (the slice) plays behind the hero with mouse look, and
-the mouse is captured while the game window is played (it is released for tool windows, pause,
-scenes and the bot). `view top` (the default) is the fixed camera from the level's `camera` line.
-The same holds for the boss: `combat realtime` is the third-person fight, `combat cards` the card battle.
+Three views, chosen per level. `view top` (the default) is the fixed camera from the level's
+`camera` line. `view third` (the slice) plays behind the hero with mouse look. `view first` is
+R.E.P.O.-style first person: the eye rides the hero's head, using the same mouse sensitivity as
+the orbit camera and clamping pitch to the same limit up and down, and the body turns with the
+view, so movement is relative to where you are looking. Your own model is not drawn in first
+person (the camera is inside its head) but it is still drawn into the sun shadow map, so you see
+your own shadow on the ground; remote players and NPCs draw normally. The field of view is 70
+degrees rather than the orbit camera's 55, and `view first` takes an optional head-bob amount,
+`view first 0.35` (1 is the default subtle bob, 0 turns it off; two vertical dips and one lateral
+sway per stride, fading out with speed; `HOLLOW_BOB=N` overrides it for a capture). The mouse is
+captured for `view third` and `view first` alike while the game window is played (it is released
+for tool windows, pause, scenes and the bot). The same holds for the boss: `combat realtime` is
+the third-person fight, `combat cards` the card battle.
 
 ## Combat
 
@@ -195,7 +204,7 @@ skeleton arm or a barbarian axe can be put on any body with no rigging (hide the
 then borrow; `borrow FILE NODE` lines). ANIMATION picks a fighting style, AUTO BIND fills every game action from the
 clip names, and any clip previews on the hero. SAVE writes `assets/characters/NAME.txt`
 (`model`, `hide`, `borrow`, `recolor`, `attach`, `anim` lines); SAVE + USE AS HERO also sets it as the hero
-in `assets/settings.txt`. `--hero NAME` plays it.
+in `assets/settings.txt`. `--hero NAME` plays it, overriding only the local player's slot character.
 
 ### Lighting
 
@@ -276,8 +285,10 @@ tab, `HOLLOW_PIX="3 8 1 1 0.6"`, `HOLLOW_NOPIX=1`.
 
 `--frames N` exits after N rendered frames, `--screenshot P` saves the internal-resolution
 frame, `--start` jumps to `battle`, `fight`, `boss_intro`, `victory` or `end`, `--volume 0.1` keeps test runs quiet, and `--bot` lets a
-simple frame-perfect bot play the fight and logs every swing, parry and hit. This is how
-the fight is checked without a controller in hand.
+simple frame-perfect bot play the fight and logs every swing, parry and hit. `--third` and
+`--first` force a view whatever the level says, and in first person the bot wanders instead of
+walking the path, so a `--shot-every` trail shows the world moving. This is how the fight is
+checked without a controller in hand.
 
 ## Networking
 
@@ -298,7 +309,19 @@ you type in an address.
 | `--log FILE` | write this process's log somewhere else (so four processes do not clobber one file) |
 | `--no-scenes` | never fire a trigger's cutscene; implied by `--host` and `--join` |
 | `--third` | force the third-person camera whatever the level says |
+| `--first` | force the first-person camera whatever the level says |
 | `HOLLOW_NET_LOSS=0.2` | throw away 20% of received packets, for testing |
+
+If both `--third` and `--first` are given, `--first` wins.
+
+Each net slot loads its own character file: slot 0 plays `assets/characters/goon_a.txt`, slot 1
+`goon_b.txt`, slot 2 `goon_c.txt`, slot 3 `goon_d.txt` — the four Goon Squad members — so four
+processes on one map show four different people without anyone picking anything. A slot whose file
+is missing falls back to `hero.txt` and is told apart by its net colour instead (that per-slot
+tint is only applied to the fallback: the goons carry their own textures and tinting them again
+would muddy them). `--hero NAME` (or the `hero` line in `assets/settings.txt`) still overrides the
+character for whichever slot this process drives; the other three always show the goon their slot
+owns.
 
 ### How it fits together
 
@@ -382,6 +405,8 @@ Each other machine runs the same build and level:
 
     ./build/bin/goonstein --join HOST_ADDRESS:7777 --name bo --start level:lantern --third
 
+Swap `--third` for `--first` on any of these to try the first-person view instead.
+
 Open UDP 7777 on the host's firewall. Everyone must start on the same level; the host's level name
 travels in the accept message and a mismatch is logged as a warning. Joining late is fine, and
 quitting is fine — the others see the slot disappear. A client that stops sending for five seconds
@@ -400,14 +425,17 @@ screenshots, so the whole thing runs without a human:
     sleep 8
     for i in 1 2 3; do
       ./build/bin/goonstein --volume 0 --join 127.0.0.1:7777 --bot --name c$i \
-          --start level:lantern --third --frames 1500 --shot-every 300 /tmp/net/C$i &
+          --start level:lantern --first --frames 1500 --shot-every 300 /tmp/net/C$i &
     done
     wait
 
-`--bot` on a client wanders — a slow arc with a new random heading every second or two, turning
-back when it strays too far from the spawn — so the screenshots show four humanoids moving around
-each other. Each process writes its own log (`hollow_host.log`, `hollow_c1.log`, ...) with a line
-per second:
+The host stays `--third` so its screenshots show all four bodies; the clients run `--first` so the
+trail also covers that view. `--bot` on a client wanders — a slow arc with a new random heading
+every second or two, turning back when it strays too far from the spawn — so the screenshots show
+four humanoids moving around each other. In first person the bot steers the view toward its
+heading and walks straight ahead, so the trail of screenshots shows the world swinging past rather
+than a fixed view strafing sideways. Each process writes its own log (`hollow_host.log`,
+`hollow_c1.log`, ...) with a line per second:
 
     net client slot 2 peers 1 | in 30 pkt 3390 B | out 60 pkt 1560 B | rtt 16.8 ms |
       snap age 20 ms | corr 4 avg 0.021 max 0.084 m snaps 0 | dropped 0
