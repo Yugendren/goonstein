@@ -2,6 +2,7 @@
 // which is what SDL_GPU expects on every backend.
 #pragma once
 #include <math.h>
+#include <stdbool.h>
 
 #define PI 3.14159265358979f
 #define DEG2RAD (PI / 180.0f)
@@ -178,4 +179,35 @@ static inline Mat4 m4_inverse(Mat4 a) {
     Mat4 r; float id = det != 0 ? 1.0f / det : 0;
     for (int i = 0; i < 16; i++) r.m[i] = inv[i] * id;
     return r;
+}
+
+// ---------------------------------------------------------------- frustum culling
+// Six inward-facing clip planes pulled out of a view_proj (Gribb/Hartmann), so the same test culls
+// against the camera's perspective matrix and the sun's orthographic one. Depth range is 0..1, so
+// the near plane is row2 alone; planes are normalised, making the sphere test metric.
+typedef struct Frustum { Vec4 p[6]; } Frustum;   // p.xyz = normal, p.w = d; inside when n.q + d >= 0
+
+static inline Vec4 frustum_plane_norm(float a, float b, float c, float d) {
+    float l = sqrtf(a * a + b * b + c * c);
+    if (l < 1e-8f) return v4(0, 0, 0, 1);   // degenerate: never culls
+    return v4(a / l, b / l, c / l, d / l);
+}
+static inline Frustum frustum_from_view_proj(Mat4 vp) {
+    const float *m = vp.m;   // row i = (m[i], m[4+i], m[8+i], m[12+i])
+    float r0[4] = {m[0], m[4], m[8],  m[12]}, r1[4] = {m[1], m[5], m[9],  m[13]};
+    float r2[4] = {m[2], m[6], m[10], m[14]}, r3[4] = {m[3], m[7], m[11], m[15]};
+    Frustum f;
+    f.p[0] = frustum_plane_norm(r3[0] + r0[0], r3[1] + r0[1], r3[2] + r0[2], r3[3] + r0[3]);   // left
+    f.p[1] = frustum_plane_norm(r3[0] - r0[0], r3[1] - r0[1], r3[2] - r0[2], r3[3] - r0[3]);   // right
+    f.p[2] = frustum_plane_norm(r3[0] + r1[0], r3[1] + r1[1], r3[2] + r1[2], r3[3] + r1[3]);   // bottom
+    f.p[3] = frustum_plane_norm(r3[0] - r1[0], r3[1] - r1[1], r3[2] - r1[2], r3[3] - r1[3]);   // top
+    f.p[4] = frustum_plane_norm(r2[0], r2[1], r2[2], r2[3]);                                   // near (z >= 0)
+    f.p[5] = frustum_plane_norm(r3[0] - r2[0], r3[1] - r2[1], r3[2] - r2[2], r3[3] - r2[3]);   // far
+    return f;
+}
+// Conservative: true when the sphere is inside or straddles the frustum.
+static inline bool frustum_sees_sphere(const Frustum *f, Vec3 c, float r) {
+    for (int i = 0; i < 6; i++)
+        if (f->p[i].x * c.x + f->p[i].y * c.y + f->p[i].z * c.z + f->p[i].w < -r) return false;
+    return true;
 }

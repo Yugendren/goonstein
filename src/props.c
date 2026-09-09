@@ -19,14 +19,55 @@ void props_load_level(Gfx *g, PropCache *pc, const Level *lv) {
     for (int i = 0; i < lv->nprops; i++) load_one(g, pc, lv->props[i].file);
 }
 
+// Skip a prop once its bounding sphere covers less than this much of the view: radius / distance.
+// At the game's ~50 degree vertical fov and 1080 lines that is roughly four pixels across, small
+// enough that dropping it is invisible but common enough to remove most of a dense world's far half.
+#define PROP_CULL_SIZE 0.004f
+
+// Rest-pose bounding sphere of a piece or assembly, computed once per file and cached.
+static bool prop_sphere(Gfx *g, PropCache *pc, PropModel *pm, Vec3 *cen, float *rad) {
+    if (pm->bsphere == 0) {
+        Vec3 lo, hi;
+        if (props_bounds(g, pc, pm->file, &lo, &hi)) {
+            pm->bcen = v3_scale(v3_add(lo, hi), 0.5f);
+            pm->brad = v3_len(v3_scale(v3_sub(hi, lo), 0.5f));
+            pm->bsphere = 1;
+        } else pm->bsphere = -1;
+    }
+    if (pm->bsphere < 0) return false;
+    *cen = pm->bcen; *rad = pm->brad;
+    return true;
+}
+
 void props_draw(Gfx *g, PropCache *pc, const Level *lv, float time) {
     (void)time;
+    // One frustum for the whole pass: the camera's in the main pass, the sun's ortho box in the
+    // shadow pass. Assemblies cull as a whole, on the union of their pieces' bounds.
+    Frustum fr = frustum_from_view_proj(g->frame.view_proj);
+    pc->props_drawn = pc->props_culled = 0;
     for (int i = 0; i < lv->nprops; i++) {
         const Prop *p = &lv->props[i];
         PropModel *pm = find(pc, p->file);
         if (!pm || !pm->ok) continue;
         Vec3 st = p->stretch.x == 0 && p->stretch.y == 0 && p->stretch.z == 0 ? v3(1, 1, 1) : p->stretch;
-        props_draw_matrix(g, pc, p->file, m4_trs(p->pos, p->yaw, v3(p->scale * st.x, p->scale * st.y, p->scale * st.z)), p->tint, p->glow, 0);
+        Vec3 s = v3(p->scale * st.x, p->scale * st.y, p->scale * st.z);
+        Mat4 world = m4_trs(p->pos, p->yaw, s);
+        Vec3 lc; float lr;
+        if (prop_sphere(g, pc, pm, &lc, &lr)) {   // no bounds (a missing piece): always drawn
+            Vec3 c = m4_mul_point(world, lc);
+            float r = lr * fmaxf(fabsf(s.x), fmaxf(fabsf(s.y), fabsf(s.z)));   // yaw keeps lengths
+            // The shadow pass needs no distance cut of its own: game.c fits the sun's box to at
+            // most a 140 m radius around what the camera looks at, so the frustum test is that
+            // 140 m, exactly. Measuring it from frame.cam_pos instead over-culls once the camera
+            // pulls back, since the eye can sit far outside the box (at dist 120, 116 of 464 props
+            // inside the box lost their shadows that way).
+            bool keep = frustum_sees_sphere(&fr, c, r);
+            if (keep && !g->in_shadow)   // main pass: also drop what is only a few pixels across
+                keep = r >= PROP_CULL_SIZE * v3_len(v3_sub(c, g->frame.cam_pos));
+            if (!keep) { pc->props_culled++; continue; }
+        }
+        pc->props_drawn++;
+        props_draw_matrix(g, pc, p->file, world, p->tint, p->glow, 0);
     }
     gfx_set_material(g, NULL);
 }
