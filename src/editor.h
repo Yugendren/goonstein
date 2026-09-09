@@ -12,6 +12,26 @@ typedef enum EdTool { TOOL_PENCIL, TOOL_ERASER, TOOL_FILL, TOOL_PICK, TOOL_LINE,
 
 typedef struct EdSnapshot { int anim, dir, frame; PixFrame px; bool valid; } EdSnapshot;
 
+typedef struct Btn { float x, y, w, h; } Btn;
+
+// Responsive layout, rebuilt whenever the window size (or the document) changes. Drawing and
+// hit-testing both read it, so a click always lands on the thing that was drawn there.
+typedef struct EdLayout {
+    float w, h;                                          // window size this was built for, in points
+    float title_y, help_y, msg_y, foot_y;                // text rows
+    float canvas_x, canvas_y, canvas_w, canvas_h;        // area the pixel canvas is centred in
+    float panel_x, panel_w, panel_top, panel_bot;        // right-hand panel
+    float anim_x, anim_y, anim_w, anim_h; int anim_cols, anim_max;
+    float tool_x, tool_y, tool_sz, tool_pitch; int tool_cols;
+    Btn   size_minus, size_plus; float size_val_x;       // brush-size stepper
+    float pal_x, pal_y, pal_sz, pal_pitch; int pal_cols;
+    float ramp_x, ramp_y, ramp_w, ramp_h, ramp_pitch;
+    float dir_x, dir_y, dir_w, dir_h, dir_pitch;
+    float frames_label_y, frames_x, frames_y, frames_sz, frames_pitch; int frames_cols, frames_max;
+    float act_x, act_y, act_w, act_h, act_pitch_y; int act_cols;
+    float prev_label_y, prev_x, prev_y; int prev_zoom; bool prev_on, prev_thumbs;
+} EdLayout;
+
 typedef struct Editor {
     PixDoc doc;
     int anim, dir, frame;
@@ -41,9 +61,13 @@ typedef struct Editor {
     int hover_x, hover_y;             // pixel under the mouse, -1 if none
     int new_anim_pick;                // index into the preset anim-name list
     int def_fw, def_fh;
+    float win_w, win_h;               // tool-window size in points (editor_set_size)
+    EdLayout lay;
 } Editor;
 
 bool editor_init(Editor *e, const char *name, int frame_size);
 void editor_shutdown(Editor *e);
+// Window size in UI points; call before tick/draw. The layout flows to fit (see layout in editor.c).
+void editor_set_size(Editor *e, float w, float h);
 void editor_tick(Editor *e, const Input *in, float mx, float my, float dt);
 void editor_draw(Editor *e, Gfx *g);

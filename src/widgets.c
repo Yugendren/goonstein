@@ -2,6 +2,7 @@
 // current frame. Ids are assigned in call order (ui_begin resets next_id to 1) so a widget keeps
 // the same id frame to frame as long as the call sequence doesn't change, which is what lets
 // `active` persist across frames for slider/list dragging.
+// Metrics assume the tool window font (gfx_ui_line_h): body text is scale 1.1, ~19 px tall.
 #include "widgets.h"
 #include <math.h>
 #include <stdio.h>
@@ -17,7 +18,9 @@ static const Vec4 UI_ACCENT  = {1.00f, 0.85f, 0.40f, 1.0f};
 static const Vec4 UI_DIM     = {0.60f, 0.58f, 0.55f, 1.0f};
 static const Vec4 UI_BORDER  = {0.36f, 0.35f, 0.40f, 1.0f};
 
-#define UI_FONT_H 7.0f  // approximate glyph height at scale 1
+#define UI_BODY   1.1f
+#define UI_SMALL  0.95f
+#define UI_HEAD   1.5f
 
 // ---------------------------------------------------------------- lifecycle
 
@@ -46,21 +49,35 @@ static void draw_frame(Gfx *g, float x, float y, float w, float h, Vec4 fill) {
     gfx_ui_rect(g, x + w - 2.0f, y, 2.0f, h, UI_BORDER);
 }
 
-static void draw_centered(Gfx *g, float cx, float cy, float scale, Vec4 color, const char *text) {
-    float w = gfx_ui_text_width(scale, text);
-    gfx_ui_text(g, cx - w * 0.5f, cy - UI_FONT_H * scale * 0.5f, scale, color, text);
+static float text_top(float cy, float scale) { return cy - gfx_ui_line_h(scale) * 0.5f; }
+
+// Text that must fit in `maxw`: shrink to the small size, then cut with a trailing dot.
+static void draw_fit(Gfx *g, float x, float cy, float maxw, float scale, Vec4 color, const char *text, bool centered) {
+    char buf[128]; snprintf(buf, sizeof buf, "%s", text);
+    float w = gfx_ui_text_width(scale, buf);
+    if (w > maxw && scale > UI_SMALL) { scale = UI_SMALL; w = gfx_ui_text_width(scale, buf); }
+    size_t n = strlen(buf);
+    while (w > maxw && n > 1) { buf[--n] = 0; if (n > 1) buf[n - 1] = '.'; w = gfx_ui_text_width(scale, buf); }
+    float tx = centered ? x + (maxw - w) * 0.5f : x;
+    gfx_ui_text(g, tx, text_top(cy, scale), scale, color, buf);
 }
 
 static int next_id(Ui *ui) { return ui->next_id++; }
 
+float ui_row_h(void) { return 30.0f; }
+
 // ---------------------------------------------------------------- label / header
 
 void ui_label(Ui *ui, float x, float y, const char *text, Vec4 color) {
-    gfx_ui_text(ui->g, x, y, 1.2f, color, text);
+    gfx_ui_text(ui->g, x, y, UI_BODY, color, text);
+}
+
+void ui_label_fit(Ui *ui, float x, float y, float maxw, const char *text, Vec4 color) {
+    draw_fit(ui->g, x, y + gfx_ui_line_h(UI_BODY) * 0.5f, maxw, UI_BODY, color, text, false);
 }
 
 void ui_header(Ui *ui, float x, float y, const char *text) {
-    gfx_ui_text(ui->g, x, y, 1.4f, UI_ACCENT, text);
+    gfx_ui_text(ui->g, x, y, UI_HEAD, UI_ACCENT, text);
 }
 
 // ---------------------------------------------------------------- button
@@ -78,7 +95,7 @@ bool ui_button(Ui *ui, float x, float y, float w, float h, const char *text) {
     else if (inside) fill = UI_HOVER;
 
     draw_frame(ui->g, x, y, w, h, fill);
-    draw_centered(ui->g, x + w * 0.5f, y + h * 0.5f, 1.2f, UI_TEXT, text);
+    draw_fit(ui->g, x + 6.0f, y + h * 0.5f, w - 12.0f, UI_BODY, UI_TEXT, text, true);
 
     return pressed_now;
 }
@@ -95,17 +112,18 @@ bool ui_toggle(Ui *ui, float x, float y, float w, float h, const char *text, boo
 
     Vec4 fill = UI_BASE;
     if (ui->active == id && ui->in.down) fill = UI_ACTIVE;
+    else if (*v) fill = v4(0.22f, 0.21f, 0.18f, 1.0f);
     else if (inside) fill = UI_HOVER;
 
     draw_frame(ui->g, x, y, w, h, fill);
 
-    float box = h - 10.0f;
+    float box = fminf(h - 12.0f, 16.0f);
     float bx = x + 8.0f, by = y + (h - box) * 0.5f;
     gfx_ui_rect(ui->g, bx, by, box, box, UI_BORDER);
     if (*v) gfx_ui_rect(ui->g, bx + 2.0f, by + 2.0f, box - 4.0f, box - 4.0f, UI_ACCENT);
     else    gfx_ui_rect(ui->g, bx + 2.0f, by + 2.0f, box - 4.0f, box - 4.0f, UI_BASE);
 
-    gfx_ui_text(ui->g, bx + box + 8.0f, y + h * 0.5f - UI_FONT_H * 1.2f * 0.5f, 1.2f, UI_TEXT, text);
+    draw_fit(ui->g, bx + box + 8.0f, y + h * 0.5f, w - (box + 22.0f), UI_BODY, *v ? UI_ACCENT : UI_TEXT, text, false);
 
     if (pressed_now) { *v = !*v; return true; }
     return false;
@@ -113,21 +131,24 @@ bool ui_toggle(Ui *ui, float x, float y, float w, float h, const char *text, boo
 
 // ---------------------------------------------------------------- slider
 
-#define UI_SLIDER_H 22.0f
+#define UI_SLIDER_H 26.0f
+#define UI_VALUE_W  58.0f
 
 // Shared slider body used both directly and from ui_color; returns true if the value changed.
+// Layout inside w: [label][track][value], so callers can pass plain column widths.
 static bool slider_body(Ui *ui, int id, float x, float y, float w, const char *label, float *v, float lo, float hi) {
-    float track_x = x + 110.0f;
-    float track_w = w - 120.0f;
-    if (track_w < 10.0f) track_w = 10.0f;
+    float label_w = label && label[0] ? fminf(gfx_ui_text_width(UI_BODY, label) + 10.0f, w * 0.45f) : 0.0f;
+    float track_x = x + label_w;
+    float track_w = w - label_w - UI_VALUE_W;
+    if (track_w < 20.0f) track_w = 20.0f;
     float track_y = y + (UI_SLIDER_H - 8.0f) * 0.5f;
 
     float t = (hi > lo) ? clampf((*v - lo) / (hi - lo), 0.0f, 1.0f) : 0.0f;
     float knob_x = track_x + t * track_w - 5.0f;
-    float knob_y = y + (UI_SLIDER_H - 16.0f) * 0.5f;
+    float knob_y = y + (UI_SLIDER_H - 18.0f) * 0.5f;
 
     bool over_track = point_in_rect(ui->in.mx, ui->in.my, track_x, y, track_w, UI_SLIDER_H);
-    bool over_knob = point_in_rect(ui->in.mx, ui->in.my, knob_x, knob_y, 10.0f, 16.0f);
+    bool over_knob = point_in_rect(ui->in.mx, ui->in.my, knob_x, knob_y, 10.0f, 18.0f);
     bool inside = over_track || over_knob;
     if (inside) ui->hot = id;
 
@@ -142,20 +163,21 @@ static bool slider_body(Ui *ui, int id, float x, float y, float w, const char *l
         knob_x = track_x + t * track_w - 5.0f;
     }
 
-    if (label && label[0]) gfx_ui_text(ui->g, x, y + UI_SLIDER_H * 0.5f - UI_FONT_H * 1.2f * 0.5f, 1.2f, UI_TEXT, label);
+    if (label && label[0]) draw_fit(ui->g, x, y + UI_SLIDER_H * 0.5f, label_w - 6.0f, UI_BODY, UI_TEXT, label, false);
 
     Vec4 track_fill = (ui->active == id && ui->in.down) ? UI_ACTIVE : (inside ? UI_HOVER : UI_BASE);
     gfx_ui_rect(ui->g, track_x, track_y, track_w, 8.0f, track_fill);
+    gfx_ui_rect(ui->g, track_x, track_y, t * track_w, 8.0f, v4(0.45f, 0.40f, 0.25f, 1.0f));
     gfx_ui_rect(ui->g, track_x, track_y, track_w, 2.0f, UI_BORDER);
     gfx_ui_rect(ui->g, track_x, track_y + 6.0f, track_w, 2.0f, UI_BORDER);
 
-    Vec4 knob_color = (ui->active == id && ui->in.down) ? UI_ACCENT : UI_HOVER;
-    gfx_ui_rect(ui->g, knob_x, knob_y, 10.0f, 16.0f, knob_color);
+    Vec4 knob_color = (ui->active == id && ui->in.down) ? UI_ACCENT : v4(0.75f, 0.72f, 0.65f, 1.0f);
+    gfx_ui_rect(ui->g, knob_x, knob_y, 10.0f, 18.0f, knob_color);
 
     char buf[32];
     if (hi - lo > 10.0f) snprintf(buf, sizeof buf, "%.1f", *v);
     else                 snprintf(buf, sizeof buf, "%.2f", *v);
-    gfx_ui_text(ui->g, track_x + track_w + 8.0f, y + UI_SLIDER_H * 0.5f - UI_FONT_H * 1.2f * 0.5f, 1.2f, UI_DIM, buf);
+    draw_fit(ui->g, track_x + track_w + 6.0f, y + UI_SLIDER_H * 0.5f, UI_VALUE_W - 6.0f, UI_SMALL, UI_DIM, buf, false);
 
     return changed;
 }
@@ -168,22 +190,21 @@ bool ui_slider(Ui *ui, float x, float y, float w, const char *label, float *v, f
 // ---------------------------------------------------------------- color
 
 bool ui_color(Ui *ui, float x, float y, float w, const char *label, Vec3 *c, float hi) {
-    if (label && label[0]) gfx_ui_text(ui->g, x, y - UI_FONT_H * 1.2f - 2.0f, 1.2f, UI_TEXT, label);
-
-    float swatch = 40.0f;
+    float swatch = 3 * UI_SLIDER_H - 4.0f;
     float sliders_w = w - swatch - 10.0f;
-    if (sliders_w < 40.0f) sliders_w = 40.0f;
+    if (sliders_w < 60.0f) sliders_w = 60.0f;
 
     int id_r = next_id(ui), id_g = next_id(ui), id_b = next_id(ui);
-    bool cr = slider_body(ui, id_r, x, y,        sliders_w, "r", &c->x, 0.0f, hi);
-    bool cg = slider_body(ui, id_g, x, y + 22.0f, sliders_w, "g", &c->y, 0.0f, hi);
-    bool cb = slider_body(ui, id_b, x, y + 44.0f, sliders_w, "b", &c->z, 0.0f, hi);
+    bool cr = slider_body(ui, id_r, x, y,                    sliders_w, "r", &c->x, 0.0f, hi);
+    bool cg = slider_body(ui, id_g, x, y + UI_SLIDER_H,      sliders_w, "g", &c->y, 0.0f, hi);
+    bool cb = slider_body(ui, id_b, x, y + 2 * UI_SLIDER_H,  sliders_w, "b", &c->z, 0.0f, hi);
 
     Vec4 disp = v4(clampf(c->x, 0.0f, 1.0f), clampf(c->y, 0.0f, 1.0f), clampf(c->z, 0.0f, 1.0f), 1.0f);
     float swatch_x = x + w - swatch;
-    gfx_ui_rect(ui->g, swatch_x, y, swatch, swatch, UI_BORDER);
-    gfx_ui_rect(ui->g, swatch_x + 2.0f, y + 2.0f, swatch - 4.0f, swatch - 4.0f, disp);
-
+    gfx_ui_rect(ui->g, swatch_x, y + 2.0f, swatch, swatch, UI_BORDER);
+    gfx_ui_rect(ui->g, swatch_x + 2.0f, y + 4.0f, swatch - 4.0f, swatch - 4.0f, disp);
+    if (label && label[0]) draw_fit(ui->g, swatch_x + 4.0f, y + 2.0f + swatch - 10.0f, swatch - 8.0f, UI_SMALL,
+                                    (disp.x + disp.y + disp.z > 1.6f) ? v4(0.05f, 0.05f, 0.05f, 1) : UI_TEXT, label, true);
     return cr || cg || cb;
 }
 
@@ -194,9 +215,9 @@ bool ui_list(Ui *ui, int list_id, float x, float y, float w, float h, const char
     bool inside = point_in_rect(ui->in.mx, ui->in.my, x, y, w, h);
     if (inside) ui->hot = id;
 
-    const float row_h = 18.0f;
+    const float row_h = 24.0f;
     float content_h = (float)n * row_h;
-    float max_scroll = content_h - h;
+    float max_scroll = content_h - (h - 4.0f);
     if (max_scroll < 0.0f) max_scroll = 0.0f;
 
     float *scroll = &ui->scroll[list_id & 7];
@@ -206,7 +227,7 @@ bool ui_list(Ui *ui, int list_id, float x, float y, float w, float h, const char
     bool changed = false;
     if (inside && ui->in.pressed) {
         ui->active = id;
-        float local_y = ui->in.my - y + *scroll;
+        float local_y = ui->in.my - (y + 2.0f) + *scroll;
         int idx = (int)(local_y / row_h);
         if (idx >= 0 && idx < n && selected && *selected != idx) { *selected = idx; changed = true; }
     }
@@ -214,16 +235,15 @@ bool ui_list(Ui *ui, int list_id, float x, float y, float w, float h, const char
     draw_frame(ui->g, x, y, w, h, UI_BASE);
 
     bool has_scrollbar = max_scroll > 0.0f;
-    float track_w = has_scrollbar ? 6.0f : 0.0f;
-    float clip_w = w - track_w - 2.0f;
+    float track_w = has_scrollbar ? 8.0f : 0.0f;
+    float clip_w = w - track_w - 4.0f;
 
     float first = floorf(*scroll / row_h);
     float top_local = first * row_h - *scroll;
     for (int i = (int)first; i < n; i++) {
-        float ry = y + top_local + (float)(i - (int)first) * row_h;
-        if (ry >= y + h) break;
-        if (ry + row_h <= y) continue;
-        if (ry < y || ry + row_h > y + h) continue;  // clip: skip partially visible rows
+        float ry = y + 2.0f + top_local + (float)(i - (int)first) * row_h;
+        if (ry + row_h > y + h - 2.0f) break;
+        if (ry < y + 2.0f) continue;
 
         if (selected && *selected == i) {
             gfx_ui_rect(ui->g, x + 2.0f, ry, clip_w, row_h, UI_ACTIVE);
@@ -233,13 +253,13 @@ bool ui_list(Ui *ui, int list_id, float x, float y, float w, float h, const char
         }
 
         Vec4 tc = (selected && *selected == i) ? UI_ACCENT : UI_TEXT;
-        gfx_ui_text(ui->g, x + 8.0f, ry + row_h * 0.5f - UI_FONT_H * 1.1f * 0.5f, 1.1f, tc, items[i]);
+        draw_fit(ui->g, x + 10.0f, ry + row_h * 0.5f, clip_w - 14.0f, UI_BODY, tc, items[i], false);
     }
 
     if (has_scrollbar) {
         float bar_x = x + w - track_w - 2.0f;
         gfx_ui_rect(ui->g, bar_x, y + 2.0f, track_w, h - 4.0f, UI_BASE);
-        float thumb_h = fmaxf((h / content_h) * (h - 4.0f), 8.0f);
+        float thumb_h = fmaxf(((h - 4.0f) / content_h) * (h - 4.0f), 12.0f);
         float thumb_y = y + 2.0f + (*scroll / max_scroll) * (h - 4.0f - thumb_h);
         gfx_ui_rect(ui->g, bar_x, thumb_y, track_w, thumb_h, UI_DIM);
     }
@@ -250,11 +270,11 @@ bool ui_list(Ui *ui, int list_id, float x, float y, float w, float h, const char
 // ---------------------------------------------------------------- stepper
 
 bool ui_stepper(Ui *ui, float x, float y, const char *label, float *v, float step, float lo, float hi) {
-    const float btn = 22.0f;
-    float label_w = label && label[0] ? gfx_ui_text_width(1.2f, label) + 10.0f : 0.0f;
+    const float btn = 26.0f;
+    float label_w = label && label[0] ? gfx_ui_text_width(UI_BODY, label) + 10.0f : 0.0f;
     float minus_x = x + label_w;
 
-    if (label && label[0]) gfx_ui_text(ui->g, x, y + btn * 0.5f - UI_FONT_H * 1.2f * 0.5f, 1.2f, UI_TEXT, label);
+    if (label && label[0]) gfx_ui_text(ui->g, x, text_top(y + btn * 0.5f, UI_BODY), UI_BODY, UI_TEXT, label);
 
     bool changed = false;
 
@@ -265,19 +285,19 @@ bool ui_stepper(Ui *ui, float x, float y, const char *label, float *v, float ste
     if (press_minus) ui->active = id_minus;
     Vec4 fill_minus = (ui->active == id_minus && ui->in.down) ? UI_ACTIVE : (inside_minus ? UI_HOVER : UI_BASE);
     draw_frame(ui->g, minus_x, y, btn, btn, fill_minus);
-    draw_centered(ui->g, minus_x + btn * 0.5f, y + btn * 0.5f, 1.2f, UI_TEXT, "-");
+    draw_fit(ui->g, minus_x, y + btn * 0.5f, btn, UI_BODY, UI_TEXT, "-", true);
     if (press_minus) {
         float nv = clampf(*v - step, lo, hi);
         if (nv != *v) { *v = nv; changed = true; }
     }
 
     char buf[32];
-    snprintf(buf, sizeof buf, "%.1f", *v);
-    float val_w = 56.0f;
-    float val_x = minus_x + btn + 6.0f;
-    draw_centered(ui->g, val_x + val_w * 0.5f, y + btn * 0.5f, 1.2f, UI_TEXT, buf);
+    snprintf(buf, sizeof buf, step < 0.99f ? "%.2f" : "%.0f", *v);
+    float val_w = 60.0f;
+    float val_x = minus_x + btn + 4.0f;
+    draw_fit(ui->g, val_x, y + btn * 0.5f, val_w, UI_BODY, UI_ACCENT, buf, true);
 
-    float plus_x = val_x + val_w + 6.0f;
+    float plus_x = val_x + val_w + 4.0f;
     int id_plus = next_id(ui);
     bool inside_plus = point_in_rect(ui->in.mx, ui->in.my, plus_x, y, btn, btn);
     if (inside_plus) ui->hot = id_plus;
@@ -285,7 +305,7 @@ bool ui_stepper(Ui *ui, float x, float y, const char *label, float *v, float ste
     if (press_plus) ui->active = id_plus;
     Vec4 fill_plus = (ui->active == id_plus && ui->in.down) ? UI_ACTIVE : (inside_plus ? UI_HOVER : UI_BASE);
     draw_frame(ui->g, plus_x, y, btn, btn, fill_plus);
-    draw_centered(ui->g, plus_x + btn * 0.5f, y + btn * 0.5f, 1.2f, UI_TEXT, "+");
+    draw_fit(ui->g, plus_x, y + btn * 0.5f, btn, UI_BODY, UI_TEXT, "+", true);
     if (press_plus) {
         float nv = clampf(*v + step, lo, hi);
         if (nv != *v) { *v = nv; changed = true; }
@@ -293,6 +313,8 @@ bool ui_stepper(Ui *ui, float x, float y, const char *label, float *v, float ste
 
     return changed;
 }
+
+float ui_stepper_w(const char *label) { return (label && label[0] ? gfx_ui_text_width(UI_BODY, label) + 10.0f : 0.0f) + 26.0f + 4.0f + 60.0f + 4.0f + 26.0f; }
 
 // ---------------------------------------------------------------- standalone test
 
@@ -311,6 +333,7 @@ void gfx_ui_text(Gfx *g, float x, float y, float scale, Vec4 color, const char *
 float gfx_ui_text_width(float scale, const char *text) {
     return scale * 6.0f * (float)strlen(text);
 }
+float gfx_ui_line_h(float scale) { return 7.0f * scale + 2.0f; }
 void gfx_ui_quad(Gfx *g, const float *xy8, Vec4 color) { (void)g; (void)xy8; (void)color; }
 void gfx_ui_text_xf(Gfx *g, float cx, float cy, float scale, float angle, Vec4 color, const char *text) {
     (void)g; (void)cx; (void)cy; (void)scale; (void)angle; (void)color; (void)text;

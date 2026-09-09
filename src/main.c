@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
     // --volume V      master volume 0..1;  --quiet = 0.15;  --debug starts with the overlay on
     // --edit NAME     open the sprite editor on assets/sprites/own/NAME (created if missing); --size N frame size for new characters
     // --hero NAME     play with assets/characters/NAME.txt as the player
-    int max_frames = -1; const char *shot = NULL; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
+    int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
     const char *edit = NULL; int edit_size = 32; bool debug_on = false, console_on = false; int tool_mode = 0;
     static Game game;   // large; static keeps it off the stack (and zeroed)
     // settings.txt next to the assets folder: volume V, debug 0|1, hero NAME. Command-line flags override it.
@@ -36,6 +36,7 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) shot = argv[++i];
+        else if (!strcmp(argv[i], "--tool-shot") && i + 1 < argc) tool_shot = argv[++i];   // PNG of the tool window's UI before exiting
         else if (!strcmp(argv[i], "--start") && i + 1 < argc) start = argv[++i];
         else if (!strcmp(argv[i], "--bot")) bot = true;
         else if (!strcmp(argv[i], "--level") && i + 1 < argc) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, argv[++i]);
@@ -93,12 +94,14 @@ int main(int argc, char **argv) {
 
         double alpha = accumulator / TICK_DT;  // for render interpolation
         platform_begin_frame(&pf);
+        if (tool_shot) gfx_tool_screenshot_request(&game.gfx, pf.tool_w > 0 ? pf.tool_w : 720, pf.tool_h > 0 ? pf.tool_h : 820);
         game_render(&game, &pf, (float)alpha);
         platform_end_frame(&pf);
         if (max_frames >= 0 && --max_frames == 0) running = false;
         if (shot_when && shot && game_shot_moment(&game, shot_when)) { game_screenshot(&game, shot); shot = NULL; running = false; }
     }
     if (shot) game_screenshot(&game, shot);
+    if (tool_shot) game_tool_screenshot(&game, tool_shot);
     SDL_Log("stats: battle=%d enemy_hp=%d round=%d | state=%d parries=%u hits_taken=%u deaths=%u boss_hp=%.0f player_hp=%.0f player_yaw=%.0f flash=%.2f t=%.3f player=(%.1f %.1f %.1f) boss=(%.1f %.1f %.1f) cam=(%.1f %.1f %.1f) dist=%.1f",
             game.battle.state, game.battle.enemy_hp, game.battle.round, game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, game.player.c.hp, game.player.c.yaw / DEG2RAD, game.flash, game.time,
             game.player.c.pos.x, game.player.c.pos.y, game.player.c.pos.z, game.boss.c.pos.x, game.boss.c.pos.y, game.boss.c.pos.z, game.cam.eye.x, game.cam.eye.y, game.cam.eye.z, game.cam.cur_dist);

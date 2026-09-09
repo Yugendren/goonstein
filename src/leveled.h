@@ -41,6 +41,8 @@ typedef struct LevelEd {
     float tradius, tstrength; Vec3 tpaint; int tpaint_sel;
     float snow_h, rock_slope; int scatter_cat; float scatter_density; float scatter_accum;
     bool sculpting;
+    float pscroll[3], pcontent[3];       // panel scroll offset and content height per tab
+    bool wheel_in_list;
 } LevelEd;
 
 bool leveled_init(LevelEd *e, const char *kit_path);

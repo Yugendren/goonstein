@@ -25,13 +25,7 @@ static void say(Editor *e, const char *s) { snprintf(e->msg, sizeof e->msg, "%s"
 static PixAnim *cur_anim(Editor *e) { return (e->anim >= 0 && e->anim < e->doc.nanims) ? &e->doc.anims[e->anim] : NULL; }
 static PixFrame *cur_frame(Editor *e) { PixAnim *a = cur_anim(e); return a ? pix_frame(a, e->dir < a->ndirs ? e->dir : 0, e->frame) : NULL; }
 
-static void layout(Editor *e) {
-    PixAnim *a = cur_anim(e);
-    int fw = a ? a->fw : e->def_fw, fh = a ? a->fh : e->def_fh;
-    int zx = 600 / fw, zy = 600 / fh;
-    e->zoom = zx < zy ? zx : zy; if (e->zoom < 1) e->zoom = 1;
-    e->cx = 40 + (600 - fw * e->zoom) / 2; e->cy = 110 + (600 - fh * e->zoom) / 2;
-}
+static void relayout(Editor *e);   // rebuilds e->lay from e->win_w / e->win_h (see "ui geometry")
 
 bool editor_init(Editor *e, const char *name, int frame_size) {
     memset(e, 0, sizeof *e);
@@ -47,7 +41,8 @@ bool editor_init(Editor *e, const char *name, int frame_size) {
     e->anim = 0; e->dir = 0; e->frame = 0; e->tool = TOOL_PENCIL; e->pal = 20; e->color = PALETTE[20];
     e->onion = true; e->grid = true; e->mirror_x = false; e->hover_x = e->hover_y = -1;
     e->brush_size = 1;
-    layout(e);
+    e->win_w = 1280; e->win_h = 800;                       // until editor_set_size says otherwise
+    relayout(e);
     return true;
 }
 
@@ -283,27 +278,159 @@ static uint32_t ramp_color(uint32_t base, int i) {
 
 // ---------------------------------------------------------------- ui geometry
 
-#define PANEL_X 680.0f
 #define N_TOOLS 10
+#define N_ACTIONS 16
+#define ED_PAD 12.0f
 static bool inside(float px, float py, float x, float y, float w, float h) { return px >= x && px <= x + w && py >= y && py <= y + h; }
 static Vec4 col4(uint32_t c) { return v4((c & 255) / 255.0f, ((c >> 8) & 255) / 255.0f, ((c >> 16) & 255) / 255.0f, ((c >> 24) & 255) / 255.0f); }
 
-typedef struct Btn { float x, y, w, h; } Btn;
-static Btn btn_anim(int i) { return (Btn){ PANEL_X, 110 + i * 26.0f, 120, 24 }; }
-static Btn btn_tool(int i) { return (Btn){ PANEL_X + 130 + i * 36.0f, 110, 34, 30 }; }
-static float tool_row_right(void) { return PANEL_X + 130 + N_TOOLS * 36.0f; }
-static Btn btn_size_minus(void) { return (Btn){ tool_row_right() + 8, 110, 22, 30 }; }
-static Btn btn_size_plus(void)  { return (Btn){ tool_row_right() + 8 + 22 + 26, 110, 22, 30 }; }
-static Btn btn_pal(int i) { return (Btn){ PANEL_X + 130 + (i % 11) * 34.0f, 150 + (i / 11) * 34.0f, 30, 30 }; }
-static Btn btn_ramp(int i) { return (Btn){ PANEL_X + 130 + i * 34.0f, 250, 30, 26 }; }
-static Btn btn_dir(int i) { return (Btn){ PANEL_X + 130 + i * 60.0f, 292, 56, 26 }; }
-static Btn btn_frame(int i) { return (Btn){ PANEL_X + i * 72.0f, 360, 68, 68 }; }
-static Btn btn_action(int i) { return (Btn){ PANEL_X + (i % 4) * 140.0f, 450 + (i / 4) * 34.0f, 134, 30 }; }
-static const char *ACTIONS[] = { "SAVE  ^S", "UNDO  ^Z", "REDO  ^Y", "PLAY  Spc", "+FRAME N", "DUP   D", "-FRAME X", "CONTACT K",
-                                 "ONION O", "MIRROR M", "GRID  H", "COPY>ALL C", "FLIP L<>R F", "+ANIM  A", "-ANIM", "FPS -/+" };
-#define N_ACTIONS 16
+static Btn btn_anim(const EdLayout *L, int i) { return (Btn){ L->anim_x + (i % L->anim_cols) * (L->anim_w + 4), L->anim_y + (i / L->anim_cols) * L->anim_h, L->anim_w, L->anim_h - 2 }; }
+static Btn btn_tool(const EdLayout *L, int i) { return (Btn){ L->tool_x + (i % L->tool_cols) * L->tool_pitch, L->tool_y + (i / L->tool_cols) * L->tool_pitch, L->tool_sz, L->tool_sz }; }
+static Btn btn_size_minus(const EdLayout *L) { return L->size_minus; }
+static Btn btn_size_plus(const EdLayout *L)  { return L->size_plus; }
+static Btn btn_pal(const EdLayout *L, int i) { return (Btn){ L->pal_x + (i % L->pal_cols) * L->pal_pitch, L->pal_y + (i / L->pal_cols) * L->pal_pitch, L->pal_sz, L->pal_sz }; }
+static Btn btn_ramp(const EdLayout *L, int i) { return (Btn){ L->ramp_x + i * L->ramp_pitch, L->ramp_y, L->ramp_w, L->ramp_h }; }
+static Btn btn_dir(const EdLayout *L, int i) { return (Btn){ L->dir_x + i * L->dir_pitch, L->dir_y, L->dir_w, L->dir_h }; }
+static Btn btn_frame(const EdLayout *L, int i) { return (Btn){ L->frames_x + (i % L->frames_cols) * L->frames_pitch, L->frames_y + (i / L->frames_cols) * L->frames_pitch, L->frames_sz, L->frames_sz }; }
+static Btn btn_action(const EdLayout *L, int i) { return (Btn){ L->act_x + (i % L->act_cols) * (L->act_w + 4), L->act_y + (i / L->act_cols) * L->act_pitch_y, L->act_w, L->act_h }; }
+static const char *ACTIONS[] = { "SAVE ^S", "UNDO ^Z", "REDO ^Y", "PLAY Spc", "+FRAME N", "DUP D", "-FRAME X", "CONTACT K",
+                                 "ONION O", "MIRROR M", "GRID H", "COPY>ALL C", "FLIP L<>R F", "+ANIM A", "-ANIM", "FPS -/+" };
+// Same buttons without the shortcut hint, used when the full label will not fit the button.
+static const char *ACTIONS_SHORT[] = { "SAVE", "UNDO", "REDO", "PLAY", "+FRAME", "DUP", "-FRAME", "CONTACT",
+                                       "ONION", "MIRROR", "GRID", "COPY>ALL", "FLIP L<>R", "+ANIM", "-ANIM", "FPS -/+" };
 static const char *TOOL_LABELS[N_TOOLS] = { "PEN", "ERS", "FIL", "PIK", "LIN", "REC", "ELL", "SEL", "LIT", "DRK" };
 static const char *TOOL_NAMES[N_TOOLS] = { "PENCIL", "ERASER", "FILL", "PICK", "LINE", "RECT", "ELLIPSE", "SELECT", "LIGHTEN", "DARKEN" };
+
+// Flows the right-hand panel top to bottom at density `d` (1 = roomy, lower = tighter) and
+// returns the height everything above the preview needs. relayout() picks the largest density
+// that fits the window; the preview then takes whatever is left.
+static float panel_flow(Editor *e, EdLayout *L, float d) {
+    PixAnim *a = cur_anim(e);
+    float px = L->panel_x, pw = L->panel_w, y = L->panel_top;
+    float g4 = floorf(4 * d), gap = floorf(8 * d), label_h = 18;
+
+    // Animations: two columns when the panel is wide enough for them.
+    L->anim_h = floorf(26 * d);
+    L->anim_cols = pw >= 300 ? 2 : 1;
+    L->anim_w = floorf((pw - (L->anim_cols - 1) * 4) / L->anim_cols);
+    L->anim_x = px; L->anim_y = y;
+    int arows = (e->doc.nanims + L->anim_cols - 1) / L->anim_cols;
+    if (arows < 1) arows = 1;
+    if (arows > 6) arows = 6;                                  // cap the list at what comfortably fits
+    L->anim_max = arows * L->anim_cols;
+    y += arows * L->anim_h + gap;
+
+    // Tools, wrapping by panel width; the brush stepper rides the last row when there is room.
+    L->tool_sz = floorf(34 * d); L->tool_pitch = L->tool_sz + g4;
+    L->tool_cols = (int)((pw + g4) / L->tool_pitch);
+    if (L->tool_cols < 1) L->tool_cols = 1; if (L->tool_cols > N_TOOLS) L->tool_cols = N_TOOLS;
+    L->tool_x = px; L->tool_y = y;
+    int trows = (N_TOOLS + L->tool_cols - 1) / L->tool_cols;
+    float bw = floorf(22 * d), numw = floorf(26 * d), stepw = bw * 2 + numw + 8;
+    int last_used = N_TOOLS - (trows - 1) * L->tool_cols;
+    float sx = px + last_used * L->tool_pitch, sy = y + (trows - 1) * L->tool_pitch;
+    if (px + pw - sx < stepw) { sx = px; sy = y + trows * L->tool_pitch; y += L->tool_sz + g4; }
+    y += trows * L->tool_pitch - g4 + gap;
+    L->size_minus = (Btn){ sx, sy, bw, L->tool_sz };
+    L->size_val_x = sx + bw + 4;
+    L->size_plus  = (Btn){ sx + bw + 4 + numw, sy, bw, L->tool_sz };
+
+    // Palette
+    L->pal_sz = floorf(30 * d); L->pal_pitch = L->pal_sz + g4;
+    L->pal_cols = (int)((pw + g4) / L->pal_pitch); if (L->pal_cols < 1) L->pal_cols = 1;
+    y += 3;                                                    // room for the selection outline
+    L->pal_x = px; L->pal_y = y;
+    int prows = (33 + L->pal_cols - 1) / L->pal_cols;
+    y += prows * L->pal_pitch - g4 + 3 + gap;
+
+    // Colour ramp
+    L->ramp_h = floorf(26 * d); L->ramp_w = floorf(fminf(30 * d, (pw - 6 * g4) / 7));
+    L->ramp_pitch = L->ramp_w + g4; L->ramp_x = px; L->ramp_y = y;
+    y += L->ramp_h + gap;
+
+    // Directions
+    L->dir_h = floorf(26 * d); L->dir_w = floorf(fminf(90 * d, (pw - 3 * g4) / 4));
+    L->dir_pitch = L->dir_w + g4; L->dir_x = px; L->dir_y = y;
+    y += L->dir_h + gap;
+
+    // Frames strip: at most two rows of thumbnails under a label.
+    L->frames_label_y = y; y += label_h;
+    L->frames_sz = floorf(68 * d); L->frames_pitch = L->frames_sz + g4;
+    L->frames_cols = (int)((pw + g4) / L->frames_pitch); if (L->frames_cols < 1) L->frames_cols = 1;
+    L->frames_max = L->frames_cols * 2; if (L->frames_max > 8) L->frames_max = 8;
+    int nfr = a ? a->nframes : 1; if (nfr > L->frames_max) nfr = L->frames_max;
+    int frows = (nfr + L->frames_cols - 1) / L->frames_cols; if (frows < 1) frows = 1;
+    L->frames_x = px; L->frames_y = y;
+    y += frows * L->frames_pitch - g4 + gap;
+
+    // Actions
+    L->act_h = floorf(30 * d); L->act_pitch_y = L->act_h + g4;
+    float act_min = fmaxf(120 * d, 96);
+    L->act_cols = (int)((pw + 4) / (act_min + 4));
+    if (L->act_cols < 1) L->act_cols = 1; if (L->act_cols > 4) L->act_cols = 4;
+    L->act_w = floorf((pw - (L->act_cols - 1) * 4) / L->act_cols);
+    L->act_x = px; L->act_y = y;
+    int nrows = (N_ACTIONS + L->act_cols - 1) / L->act_cols;
+    y += nrows * L->act_pitch_y - g4 + gap;
+
+    L->prev_label_y = y;
+    return y + label_h - L->panel_top;
+}
+
+static void relayout(Editor *e) {
+    EdLayout *L = &e->lay;
+    PixAnim *a = cur_anim(e);
+    int fw = a ? a->fw : e->def_fw, fh = a ? a->fh : e->def_fh;
+    float w = e->win_w > 320 ? e->win_w : 320, h = e->win_h > 400 ? e->win_h : 400;
+    L->w = w; L->h = h;
+
+    // Title, a help line, and two lines of status / help pinned to the bottom.
+    L->title_y = ED_PAD;
+    L->help_y = L->title_y + 30;
+    L->foot_y = h - ED_PAD - 18;
+    L->msg_y = L->foot_y - 22;
+    float top = L->help_y + 24, bot = L->msg_y - 8;
+
+    L->panel_w = clampf(w * 0.42f, 360, 520);
+    if (L->panel_w > w - 2 * ED_PAD) L->panel_w = w - 2 * ED_PAD;
+    L->panel_x = w - ED_PAD - L->panel_w;
+    L->panel_top = top; L->panel_bot = bot;
+
+    // Canvas takes the rest of the width; it stays square and centred in that area.
+    L->canvas_x = ED_PAD; L->canvas_y = top;
+    L->canvas_w = L->panel_x - 12 - ED_PAD; if (L->canvas_w < 40) L->canvas_w = 40;
+    L->canvas_h = bot - top; if (L->canvas_h < 40) L->canvas_h = 40;
+    float side = fminf(L->canvas_w, L->canvas_h);
+    int big = fw > fh ? fw : fh;
+    e->zoom = (int)(side / (big > 0 ? big : 1)); if (e->zoom < 1) e->zoom = 1;
+    e->cx = (int)(L->canvas_x + (L->canvas_w - fw * e->zoom) * 0.5f);
+    e->cy = (int)(L->canvas_y + (L->canvas_h - fh * e->zoom) * 0.5f);
+
+    // Densities from roomy to tight: take the first that leaves room for the animated preview,
+    // else the first that fits at all, else the tightest.
+    static const float DENS[] = { 1.0f, 0.94f, 0.88f, 0.82f, 0.76f, 0.7f, 0.64f };
+    const int NDENS = (int)(sizeof DENS / sizeof *DENS);
+    float avail = bot - top, min_prev = (float)fh + 8;
+    float chosen = DENS[NDENS - 1]; bool with_prev = false; int pick = NDENS - 1;
+    for (int i = 0; i < NDENS; i++) { if (panel_flow(e, L, DENS[i]) + min_prev <= avail) { pick = i; chosen = DENS[i]; with_prev = true; break; } }
+    if (!with_prev) for (int i = 0; i < NDENS; i++) { if (panel_flow(e, L, DENS[i]) <= avail) { pick = i; chosen = DENS[i]; break; } }
+    // One notch tighter is worth it if it lifts the preview from a useless 1x to 2x or better.
+    if (with_prev && pick + 1 < NDENS && avail - panel_flow(e, L, chosen) < fh * 2 + 8 &&
+        avail - panel_flow(e, L, DENS[pick + 1]) >= fh * 2 + 8) chosen = DENS[pick + 1];
+    float need = panel_flow(e, L, chosen);
+
+    // Preview: as large as the leftover allows, up to 4x. The row of per-direction thumbnails
+    // only appears when the panel is wide enough for it.
+    float left = avail - need;
+    L->prev_on = a && left >= fh + 4;
+    L->prev_x = L->panel_x; L->prev_y = L->prev_label_y + 18;
+    L->prev_zoom = 1;
+    if (L->prev_on) {
+        int z = (int)((left - 4) / fh); if (z > 4) z = 4; if (z < 1) z = 1;
+        L->prev_zoom = z;
+        L->prev_thumbs = L->panel_w >= fw * z + 8 + 20 + fw + 8;
+    } else L->prev_thumbs = false;
+}
 
 static void do_action(Editor *e, int i, const Input *in);
 
@@ -328,12 +455,18 @@ static void demo_paint(Editor *e) {
     e->dirty = true;
 }
 
+void editor_set_size(Editor *e, float w, float h) {
+    if (w <= 0 || h <= 0) return;
+    e->win_w = w; e->win_h = h;
+    relayout(e);   // cheap, and the layout also follows the document (frame size, anim count)
+}
+
 void editor_tick(Editor *e, const Input *in, float mx, float my, float dt) {
     PixAnim *a = cur_anim(e);
     { static bool demo_done = false; if (!demo_done && SDL_getenv("HOLLOW_EDIT_DEMO")) { demo_done = true; demo_paint(e); do_action(e, 0, in); } }
     if (e->msg_t > 0) e->msg_t -= dt;
     e->ants_t += dt;
-    layout(e);
+    relayout(e);
     if (a && e->frame >= a->nframes) e->frame = a->nframes - 1;
     if (a && e->dir >= a->ndirs) e->dir = 0;
 
@@ -474,15 +607,16 @@ void editor_tick(Editor *e, const Input *in, float mx, float my, float dt) {
 
     // Clicks on the panel
     if (in->click) {
-        for (int i = 0; i < e->doc.nanims; i++) { Btn b = btn_anim(i); if (inside(mx, my, b.x, b.y, b.w, b.h)) { e->anim = i; e->frame = 0; e->playing = false; } }
-        for (int i = 0; i < N_TOOLS; i++) { Btn b = btn_tool(i); if (inside(mx, my, b.x, b.y, b.w, b.h)) e->tool = (EdTool)i; }
-        { Btn bm = btn_size_minus(); if (inside(mx, my, bm.x, bm.y, bm.w, bm.h)) e->brush_size = e->brush_size > 1 ? e->brush_size - 1 : 1; }
-        { Btn bp = btn_size_plus(); if (inside(mx, my, bp.x, bp.y, bp.w, bp.h)) e->brush_size = e->brush_size < 4 ? e->brush_size + 1 : 4; }
-        for (int i = 0; i < 33; i++) { Btn b = btn_pal(i); if (inside(mx, my, b.x, b.y, b.w, b.h)) { e->pal = i; e->color = PALETTE[i]; if (i == 0) e->tool = TOOL_ERASER; else if (e->tool == TOOL_ERASER) e->tool = TOOL_PENCIL; } }
-        for (int i = 0; i < 7; i++) { Btn b = btn_ramp(i); if (inside(mx, my, b.x, b.y, b.w, b.h)) { e->color = ramp_color(e->color, i); e->pal = -1; for (int k = 0; k < 33; k++) if (PALETTE[k] == e->color) e->pal = k; } }
-        if (a) for (int i = 0; i < a->ndirs; i++) { Btn b = btn_dir(i); if (inside(mx, my, b.x, b.y, b.w, b.h)) e->dir = i; }
-        if (a) for (int i = 0; i < a->nframes && i < 8; i++) { Btn b = btn_frame(i); if (inside(mx, my, b.x, b.y, b.w, b.h)) e->frame = i; }
-        for (int i = 0; i < N_ACTIONS; i++) { Btn b = btn_action(i); if (inside(mx, my, b.x, b.y, b.w, b.h)) do_action(e, i, in); }
+        const EdLayout *L = &e->lay;
+        for (int i = 0; i < e->doc.nanims && i < L->anim_max; i++) { Btn b = btn_anim(L, i); if (inside(mx, my, b.x, b.y, b.w, b.h)) { e->anim = i; e->frame = 0; e->playing = false; } }
+        for (int i = 0; i < N_TOOLS; i++) { Btn b = btn_tool(L, i); if (inside(mx, my, b.x, b.y, b.w, b.h)) e->tool = (EdTool)i; }
+        { Btn bm = btn_size_minus(L); if (inside(mx, my, bm.x, bm.y, bm.w, bm.h)) e->brush_size = e->brush_size > 1 ? e->brush_size - 1 : 1; }
+        { Btn bp = btn_size_plus(L); if (inside(mx, my, bp.x, bp.y, bp.w, bp.h)) e->brush_size = e->brush_size < 4 ? e->brush_size + 1 : 4; }
+        for (int i = 0; i < 33; i++) { Btn b = btn_pal(L, i); if (inside(mx, my, b.x, b.y, b.w, b.h)) { e->pal = i; e->color = PALETTE[i]; if (i == 0) e->tool = TOOL_ERASER; else if (e->tool == TOOL_ERASER) e->tool = TOOL_PENCIL; } }
+        for (int i = 0; i < 7; i++) { Btn b = btn_ramp(L, i); if (inside(mx, my, b.x, b.y, b.w, b.h)) { e->color = ramp_color(e->color, i); e->pal = -1; for (int k = 0; k < 33; k++) if (PALETTE[k] == e->color) e->pal = k; } }
+        if (a) for (int i = 0; i < a->ndirs; i++) { Btn b = btn_dir(L, i); if (inside(mx, my, b.x, b.y, b.w, b.h)) e->dir = i; }
+        if (a) for (int i = 0; i < a->nframes && i < L->frames_max; i++) { Btn b = btn_frame(L, i); if (inside(mx, my, b.x, b.y, b.w, b.h)) e->frame = i; }
+        for (int i = 0; i < N_ACTIONS; i++) { Btn b = btn_action(L, i); if (inside(mx, my, b.x, b.y, b.w, b.h)) do_action(e, i, in); }
     }
 }
 
@@ -550,17 +684,79 @@ static void draw_dashed_rect(Gfx *g, float x, float y, float w, float h, float p
     }
 }
 
+// Text helpers: everything is measured before it is drawn, so no label spills out of its box.
+#define ED_HEAD  1.5f
+#define ED_BODY  1.1f
+#define ED_SMALL 0.95f
+
+static void text_mid(Gfx *g, float cx, float cy, float scale, Vec4 c, const char *s) {
+    gfx_ui_text(g, cx - gfx_ui_text_width(scale, s) * 0.5f, cy - gfx_ui_line_h(scale) * 0.5f, scale, c, s);
+}
+static void text_left(Gfx *g, float x, float cy, float scale, Vec4 c, const char *s) {
+    gfx_ui_text(g, x, cy - gfx_ui_line_h(scale) * 0.5f, scale, c, s);
+}
+// Centres `s` in b, falling back to the shorter `alt` and then to the small scale.
+static void btn_text(Gfx *g, Btn b, const char *s, const char *alt, Vec4 c) {
+    float room = b.w - 6, cx = b.x + b.w * 0.5f, cy = b.y + b.h * 0.5f;
+    if (gfx_ui_text_width(ED_BODY, s) <= room)             { text_mid(g, cx, cy, ED_BODY, c, s); return; }
+    if (alt && gfx_ui_text_width(ED_BODY, alt) <= room)    { text_mid(g, cx, cy, ED_BODY, c, alt); return; }
+    if (gfx_ui_text_width(ED_SMALL, s) <= room)            { text_mid(g, cx, cy, ED_SMALL, c, s); return; }
+    text_mid(g, cx, cy, ED_SMALL, c, alt ? alt : s);
+}
+// Draws text truncated with an ellipsis if it would run past maxw.
+static void text_clip(Gfx *g, float x, float y, float scale, Vec4 c, const char *s, float maxw) {
+    if (gfx_ui_text_width(scale, s) <= maxw) { gfx_ui_text(g, x, y, scale, c, s); return; }
+    char buf[320]; int n = 0;
+    for (const char *p = s; *p && n < (int)sizeof buf - 5; p++) {
+        buf[n] = *p; buf[n + 1] = 0;
+        if (gfx_ui_text_width(scale, buf) > maxw - gfx_ui_text_width(scale, "...")) { buf[n] = 0; break; }
+        n++;
+    }
+    snprintf(buf + n, sizeof buf - n, "...");
+    gfx_ui_text(g, x, y, scale, c, buf);
+}
+// Joins as many hint fragments as fit in maxw (the first one always goes in).
+static void fit_join(char *out, size_t n, float scale, float maxw, const char *const *parts, int nparts) {
+    out[0] = 0;
+    for (int i = 0; i < nparts; i++) {
+        char cand[400]; snprintf(cand, sizeof cand, "%s%s%s", out, out[0] ? "   " : "", parts[i]);
+        if (i > 0 && gfx_ui_text_width(scale, cand) > maxw) break;
+        snprintf(out, n, "%s", cand);
+    }
+}
+
 void editor_draw(Editor *e, Gfx *g) {
     PixAnim *a = cur_anim(e);
+    const EdLayout *L = &e->lay;
     Vec4 white = v4(0.92f, 0.9f, 0.86f, 1), dim = v4(0.6f, 0.58f, 0.55f, 1), acc = v4(1, 0.85f, 0.4f, 1);
-    gfx_ui_rect(g, 0, 0, 1280, 800, v4(0.09f, 0.09f, 0.11f, 1));
-    // Title
-    { char s[160]; snprintf(s, sizeof s, "SPRITE EDITOR   %s%s   %s  dir %s  frame %d/%d  fps %.0f%s", e->doc.name, e->dirty ? " *" : "", a ? a->name : "-",
-        a ? (const char *[]){"down", "up", "left", "right"}[e->dir] : "-", e->frame + 1, a ? a->nframes : 0, a ? a->fps : 0.0f, a && a->loop ? " loop" : "");
-      gfx_ui_text(g, 40, 30, 1.8f, white, s); }
-    { char s[280]; snprintf(s, sizeof s, "tool %s%s  size %d (,/.)   B E G I L U Y S ; '   [ ] frames   1-4 dirs   arrows nudge/move sel   wheel colour   right-click pick, right-drag erase",
-        TOOL_NAMES[e->tool], e->mirror_x ? " (mirror)" : "", e->brush_size);
-      gfx_ui_text(g, 40, 60, 1.1f, dim, s); }
+    Vec4 btn = v4(0.16f, 0.16f, 0.19f, 1), btn_on = v4(0.3f, 0.27f, 0.2f, 1);
+    gfx_ui_rect(g, 0, 0, L->w, L->h, v4(0.09f, 0.09f, 0.11f, 1));
+
+    // Title, with the document status right-aligned in the same row when there is room for it.
+    char status[160];
+    snprintf(status, sizeof status, "%s  %s  frame %d/%d  %.0f fps%s", a ? a->name : "-",
+             a ? (const char *[]){"down", "up", "left", "right"}[e->dir] : "-", e->frame + 1, a ? a->nframes : 0,
+             a ? a->fps : 0.0f, a && a->loop ? "  loop" : "");
+    bool status_in_title;
+    { char t[160]; snprintf(t, sizeof t, "SPRITE EDITOR  %s%s", e->doc.name, e->dirty ? " *" : "");
+      float cy = L->title_y + 14, tw = gfx_ui_text_width(ED_HEAD, t), sw = gfx_ui_text_width(ED_BODY, status);
+      status_in_title = ED_PAD + tw + 16 + sw <= L->w - ED_PAD;
+      text_clip(g, ED_PAD, cy - gfx_ui_line_h(ED_HEAD) * 0.5f, ED_HEAD, white, t, L->w - 2 * ED_PAD);
+      if (status_in_title) text_left(g, L->w - ED_PAD - sw, cy, ED_BODY, acc, status); }
+    // Help line: as many hints as the width takes.
+    { char tool_s[96]; snprintf(tool_s, sizeof tool_s, "tool %s%s  size %d", TOOL_NAMES[e->tool], e->mirror_x ? " (mirror)" : "", e->brush_size);
+      const char *parts[12]; int np = 0;
+      if (!status_in_title) parts[np++] = status;
+      parts[np++] = tool_s;
+      parts[np++] = ", . size";
+      parts[np++] = "B E G I L U Y S ; ' tools";
+      parts[np++] = "[ ] frames";
+      parts[np++] = "1-4 dirs";
+      parts[np++] = "arrows nudge/move sel";
+      parts[np++] = "wheel colour";
+      parts[np++] = "right-click pick, right-drag erase";
+      char help[400]; fit_join(help, sizeof help, ED_SMALL, L->w - 2 * ED_PAD, parts, np);
+      text_clip(g, ED_PAD, L->help_y, ED_SMALL, dim, help, L->w - 2 * ED_PAD); }
 
     if (a) {
         // Canvas: checkerboard, onion, pixels, grid, hover
@@ -629,62 +825,78 @@ void editor_draw(Editor *e, Gfx *g) {
     }
 
     // Anim list
-    for (int i = 0; i < e->doc.nanims; i++) {
-        Btn b = btn_anim(i); bool sel = i == e->anim;
-        gfx_ui_rect(g, b.x, b.y, b.w, b.h, sel ? v4(0.3f, 0.27f, 0.2f, 1) : v4(0.16f, 0.16f, 0.19f, 1));
-        char s[48]; snprintf(s, sizeof s, "%s %d", e->doc.anims[i].name, e->doc.anims[i].nframes);
-        gfx_ui_text(g, b.x + 8, b.y + 8, 1.2f, sel ? acc : white, s);
+    for (int i = 0; i < e->doc.nanims && i < L->anim_max; i++) {
+        Btn b = btn_anim(L, i); bool sel = i == e->anim;
+        gfx_ui_rect(g, b.x, b.y, b.w, b.h, sel ? btn_on : btn);
+        char s[64]; snprintf(s, sizeof s, "%s %d", e->doc.anims[i].name, e->doc.anims[i].nframes);
+        btn_text(g, b, s, e->doc.anims[i].name, sel ? acc : white);
     }
     // Tools
-    for (int i = 0; i < N_TOOLS; i++) { Btn b = btn_tool(i); bool sel = (int)e->tool == i;
-        gfx_ui_rect(g, b.x, b.y, b.w, b.h, sel ? v4(0.3f, 0.27f, 0.2f, 1) : v4(0.16f, 0.16f, 0.19f, 1));
-        gfx_ui_text(g, b.x + 3, b.y + 10, 1.0f, sel ? acc : white, TOOL_LABELS[i]); }
+    for (int i = 0; i < N_TOOLS; i++) { Btn b = btn_tool(L, i); bool sel = (int)e->tool == i;
+        gfx_ui_rect(g, b.x, b.y, b.w, b.h, sel ? btn_on : btn);
+        btn_text(g, b, TOOL_LABELS[i], NULL, sel ? acc : white); }
     // Brush size stepper
-    { Btn bm = btn_size_minus(), bp = btn_size_plus();
-      gfx_ui_rect(g, bm.x, bm.y, bm.w, bm.h, v4(0.16f, 0.16f, 0.19f, 1)); gfx_ui_text(g, bm.x + 6, bm.y + 10, 1.1f, white, "-");
-      char sz[4]; snprintf(sz, sizeof sz, "%d", e->brush_size); gfx_ui_text(g, bm.x + bm.w + 6, bm.y + 10, 1.1f, acc, sz);
-      gfx_ui_rect(g, bp.x, bp.y, bp.w, bp.h, v4(0.16f, 0.16f, 0.19f, 1)); gfx_ui_text(g, bp.x + 6, bp.y + 10, 1.1f, white, "+"); }
+    { Btn bm = btn_size_minus(L), bp = btn_size_plus(L);
+      gfx_ui_rect(g, bm.x, bm.y, bm.w, bm.h, btn); btn_text(g, bm, "-", NULL, white);
+      gfx_ui_rect(g, bp.x, bp.y, bp.w, bp.h, btn); btn_text(g, bp, "+", NULL, white);
+      char sz[8]; snprintf(sz, sizeof sz, "%d", e->brush_size);
+      text_mid(g, (L->size_val_x + bp.x) * 0.5f, bm.y + bm.h * 0.5f, ED_BODY, acc, sz); }
     // Palette
-    for (int i = 0; i < 33; i++) { Btn b = btn_pal(i);
-        if (i == 0) { gfx_ui_rect(g, b.x, b.y, b.w, b.h, v4(0.2f, 0.2f, 0.23f, 1)); gfx_ui_rect(g, b.x + 6, b.y + 13, 18, 4, v4(0.8f, 0.3f, 0.3f, 1)); }
+    for (int i = 0; i < 33; i++) { Btn b = btn_pal(L, i);
+        if (i == 0) { gfx_ui_rect(g, b.x, b.y, b.w, b.h, v4(0.2f, 0.2f, 0.23f, 1)); gfx_ui_rect(g, b.x + b.w * 0.2f, b.y + b.h * 0.45f, b.w * 0.6f, 4, v4(0.8f, 0.3f, 0.3f, 1)); }
         else gfx_ui_rect(g, b.x, b.y, b.w, b.h, col4(PALETTE[i]));
         if (i == e->pal) { gfx_ui_rect(g, b.x - 3, b.y - 3, b.w + 6, 3, white); gfx_ui_rect(g, b.x - 3, b.y + b.h, b.w + 6, 3, white); gfx_ui_rect(g, b.x - 3, b.y - 3, 3, b.h + 6, white); gfx_ui_rect(g, b.x + b.w, b.y - 3, 3, b.h + 6, white); } }
     // Colour ramp: darker/lighter shades of the current colour, for consistent shading
-    for (int i = 0; i < 7; i++) { Btn b = btn_ramp(i);
+    for (int i = 0; i < 7; i++) { Btn b = btn_ramp(L, i);
         gfx_ui_rect(g, b.x, b.y, b.w, b.h, col4(ramp_color(e->color, i)));
         if (i == 3) gfx_ui_rect(g, b.x - 2, b.y - 2, b.w + 4, 2, white); }
     // Directions
-    if (a) for (int i = 0; i < a->ndirs; i++) { Btn b = btn_dir(i); bool sel = i == e->dir;
-        gfx_ui_rect(g, b.x, b.y, b.w, b.h, sel ? v4(0.3f, 0.27f, 0.2f, 1) : v4(0.16f, 0.16f, 0.19f, 1));
-        gfx_ui_text(g, b.x + 8, b.y + 8, 1.1f, sel ? acc : white, (const char *[]){"DOWN 1", "UP 2", "LEFT 3", "RIGHT 4"}[i]); }
+    if (a) for (int i = 0; i < a->ndirs; i++) { Btn b = btn_dir(L, i); bool sel = i == e->dir;
+        gfx_ui_rect(g, b.x, b.y, b.w, b.h, sel ? btn_on : btn);
+        btn_text(g, b, (const char *[]){"DOWN 1", "UP 2", "LEFT 3", "RIGHT 4"}[i], (const char *[]){"DN", "UP", "L", "R"}[i], sel ? acc : white); }
     // Frames strip
-    gfx_ui_text(g, PANEL_X, 342, 1.0f, dim, "FRAMES   ( N new  D dup  X delete (no sel)  K contact )");
-    if (a) for (int i = 0; i < a->nframes && i < 8; i++) { Btn b = btn_frame(i); bool sel = i == e->frame;
-        gfx_ui_rect(g, b.x, b.y, b.w, b.h, sel ? v4(0.3f, 0.27f, 0.2f, 1) : v4(0.14f, 0.14f, 0.17f, 1));
-        float tz = 60.0f / (a->fw > a->fh ? a->fw : a->fh);
-        draw_frame_px(g, a, pix_frame(a, e->dir, i), b.x + 4, b.y + 4, tz, 1.0f);
+    { const char *parts[] = { "FRAMES", "N new", "D dup", "X del", "K contact" };
+      char s[160]; fit_join(s, sizeof s, ED_SMALL, L->panel_w, parts, 5);
+      gfx_ui_text(g, L->frames_x, L->frames_label_y, ED_SMALL, dim, s); }
+    if (a) for (int i = 0; i < a->nframes && i < L->frames_max; i++) { Btn b = btn_frame(L, i); bool sel = i == e->frame;
+        gfx_ui_rect(g, b.x, b.y, b.w, b.h, sel ? btn_on : v4(0.14f, 0.14f, 0.17f, 1));
+        float tz = floorf((b.w - 8) / (a->fw > a->fh ? a->fw : a->fh)); if (tz < 1) tz = 1;
+        draw_frame_px(g, a, pix_frame(a, e->dir, i), b.x + (b.w - a->fw * tz) * 0.5f, b.y + (b.h - a->fh * tz) * 0.5f, tz, 1.0f);
         bool contact = false; for (int k = 0; k < a->ncontact; k++) if (a->contact[k] == i) contact = true;
         if (contact) gfx_ui_rect(g, b.x + b.w - 14, b.y + 4, 10, 10, v4(1, 0.3f, 0.2f, 1));
-        char s[8]; snprintf(s, sizeof s, "%d", i + 1); gfx_ui_text(g, b.x + 4, b.y + b.h - 12, 1.0f, dim, s); }
+        char s[8]; snprintf(s, sizeof s, "%d", i + 1);
+        gfx_ui_text(g, b.x + 4, b.y + b.h - gfx_ui_line_h(ED_SMALL) - 2, ED_SMALL, sel ? acc : dim, s); }
     // Actions
-    for (int i = 0; i < N_ACTIONS; i++) { Btn b = btn_action(i);
-        gfx_ui_rect(g, b.x, b.y, b.w, b.h, v4(0.16f, 0.16f, 0.19f, 1));
+    for (int i = 0; i < N_ACTIONS; i++) { Btn b = btn_action(L, i);
+        gfx_ui_rect(g, b.x, b.y, b.w, b.h, btn);
         bool on = (i == 8 && e->onion) || (i == 9 && e->mirror_x) || (i == 10 && e->grid) || (i == 3 && e->playing);
-        gfx_ui_text(g, b.x + 8, b.y + 10, 1.1f, on ? acc : white, ACTIONS[i]); }
-    // Playback preview at 4x and 1x
-    if (a) {
-        int pf = e->playing ? (int)e->play_t : e->frame; if (pf >= a->nframes) pf = a->nframes - 1;
-        float px = PANEL_X, py = 590;
-        gfx_ui_text(g, px, py - 16, 1.0f, dim, "PREVIEW  (Space plays)");
-        gfx_ui_rect(g, px, py, a->fw * 4.0f + 8, a->fh * 4.0f + 8, v4(0.12f, 0.12f, 0.15f, 1));
-        draw_frame_px(g, a, pix_frame(a, e->dir, pf), px + 4, py + 4, 4, 1.0f);
-        gfx_ui_rect(g, px + a->fw * 4.0f + 20, py, a->fw + 8.0f, a->fh + 8.0f, v4(0.12f, 0.12f, 0.15f, 1));
-        draw_frame_px(g, a, pix_frame(a, e->dir, pf), px + a->fw * 4.0f + 24, py + 4, 1, 1.0f);
-        // all four directions of this frame, small
-        for (int d = 0; d < a->ndirs; d++) draw_frame_px(g, a, pix_frame(a, d, pf), px + a->fw * 4.0f + 60 + d * (a->fw * 2.0f + 6), py + 4, 2, 1.0f);
+        btn_text(g, b, ACTIONS[i], ACTIONS_SHORT[i], on ? acc : white); }
+    // Playback preview, plus 1x and per-direction thumbnails when the panel is wide enough
+    if (a && L->prev_on) {
+        int pf = e->playing ? (int)e->play_t : e->frame; if (pf >= a->nframes) pf = a->nframes - 1; if (pf < 0) pf = 0;
+        float px = L->prev_x, py = L->prev_y, z = (float)L->prev_zoom;
+        { const char *parts[] = { "PREVIEW", "(Space plays)" };
+          char s[64]; fit_join(s, sizeof s, ED_SMALL, L->panel_w, parts, 2);
+          gfx_ui_text(g, px, L->prev_label_y, ED_SMALL, dim, s); }
+        gfx_ui_rect(g, px, py, a->fw * z + 8, a->fh * z + 8, v4(0.12f, 0.12f, 0.15f, 1));
+        draw_frame_px(g, a, pix_frame(a, e->dir, pf), px + 4, py + 4, z, 1.0f);
+        if (L->prev_thumbs) {
+            float tx = px + a->fw * z + 8 + 12, right = L->panel_x + L->panel_w;
+            gfx_ui_rect(g, tx, py, a->fw + 8.0f, a->fh + 8.0f, v4(0.12f, 0.12f, 0.15f, 1));
+            draw_frame_px(g, a, pix_frame(a, e->dir, pf), tx + 4, py + 4, 1, 1.0f);
+            float dx = tx + a->fw + 8 + 12;
+            for (int d = 0; d < a->ndirs; d++) {
+                if (dx + a->fw * 2 > right || py + a->fh * 2 > L->panel_bot) break;
+                draw_frame_px(g, a, pix_frame(a, d, pf), dx, py + 4, 2, 1.0f);
+                dx += a->fw * 2 + 6;
+            }
+        }
     }
-    if (e->msg_t > 0) gfx_ui_text(g, 40, 760, 1.3f, acc, e->msg);
-    gfx_ui_text(g, 40, 780, 1.0f, dim, "Ctrl+S save  Ctrl+Z/Y undo/redo  Ctrl+C/V copy/paste sel  Enter deselect  Del/X clear sel  C copy to dirs  F mirror  A add anim  -/+ fps  Esc quit");
+    if (e->msg_t > 0) text_clip(g, ED_PAD, L->msg_y, ED_BODY, acc, e->msg, L->w - 2 * ED_PAD);
+    { const char *parts[] = { "Ctrl+S save", "Ctrl+Z/Y undo/redo", "Ctrl+C/V copy/paste sel", "Enter deselect",
+                              "Del/X clear sel", "C copy to dirs", "F mirror", "A add anim", "-/+ fps", "Esc quit" };
+      char s[400]; fit_join(s, sizeof s, ED_SMALL, L->w - 2 * ED_PAD, parts, 10);
+      text_clip(g, ED_PAD, L->foot_y, ED_SMALL, dim, s, L->w - 2 * ED_PAD); }
 }
 
 // ---------------------------------------------------------------- self-test
@@ -695,6 +907,7 @@ void editor_draw(Editor *e, Gfx *g) {
 void gfx_ui_rect(Gfx *g, float x, float y, float w, float h, Vec4 color) { (void)g; (void)x; (void)y; (void)w; (void)h; (void)color; }
 void gfx_ui_text(Gfx *g, float x, float y, float scale, Vec4 color, const char *text) { (void)g; (void)x; (void)y; (void)scale; (void)color; (void)text; }
 float gfx_ui_text_width(float scale, const char *text) { (void)scale; (void)text; return 0; }
+float gfx_ui_line_h(float scale) { return 7.0f * scale + 2.0f; }
 
 void audio_play(SoundId id, float gain, float pitch) { (void)id; (void)gain; (void)pitch; }
 

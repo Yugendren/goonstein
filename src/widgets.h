@@ -17,14 +17,17 @@ void ui_begin(Ui *ui, Gfx *g, UiInput in);   // resets ids; call once per frame 
 void ui_end(Ui *ui);
 
 void  ui_label(Ui *ui, float x, float y, const char *text, Vec4 color);
+void  ui_label_fit(Ui *ui, float x, float y, float maxw, const char *text, Vec4 color);   // shrinks, then cuts with a dot
 void  ui_header(Ui *ui, float x, float y, const char *text);
 bool  ui_button(Ui *ui, float x, float y, float w, float h, const char *text);          // true on click
 bool  ui_toggle(Ui *ui, float x, float y, float w, float h, const char *text, bool *v); // true when changed
 // Horizontal slider with label and value readout; returns true while the value changes.
 bool  ui_slider(Ui *ui, float x, float y, float w, const char *label, float *v, float lo, float hi);
-// Three sliders stacked for an rgb colour, with a swatch. Height used: 3 * 22.
+// Three sliders stacked for an rgb colour, with a swatch (label drawn on the swatch). Height used: 3 * 26.
 bool  ui_color(Ui *ui, float x, float y, float w, const char *label, Vec3 *c, float hi);
 // Scrollable list of strings in a box; returns true when the selection changes. list_id 0..7.
 bool  ui_list(Ui *ui, int list_id, float x, float y, float w, float h, const char **items, int n, int *selected);
 // Small number stepper: [-] value [+]; returns true when changed.
 bool  ui_stepper(Ui *ui, float x, float y, const char *label, float *v, float step, float lo, float hi);
+float ui_stepper_w(const char *label);   // width a stepper takes
+float ui_row_h(void);                     // standard row height (30)

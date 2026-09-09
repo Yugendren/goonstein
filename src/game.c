@@ -224,6 +224,7 @@ void game_shutdown(Game *g) {
 }
 
 void game_screenshot(Game *g, const char *path) { gfx_screenshot(&g->gfx, path); }
+void game_tool_screenshot(Game *g, const char *path) { if (!gfx_tool_screenshot_save(&g->gfx, path)) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "tool screenshot: nothing drawn in the tool window"); }
 
 void game_start_at(Game *g, const char *where) {
     if (!strncmp(where, "level:", 6)) { snprintf(g->level_path, sizeof g->level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, where + 6); load_defs(g); setup_level_content(g); reset_to_start(g); return; }
@@ -488,8 +489,8 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
         // sprite editor runs in the tool window with that window's mouse; keys are shared
         Input ein = *in; ein.click = in->tool_pressed; ein.mouse_held = in->tool_down; ein.rclick = in->tool_rpressed; ein.rmouse_held = in->tool_rdown; ein.wheel = in->tool_wheel;
         memcpy(ein.key_down, in->tool_key_down, sizeof ein.key_down);   // only keys typed into the editor window
-        float sx = g->pf->tool_w > 0 ? 1280.0f / (float)g->pf->tool_w : 1, sy = g->pf->tool_h > 0 ? 800.0f / (float)g->pf->tool_h : 1;
-        editor_tick(&g->editor, &ein, in->tool_mx * sx, in->tool_my * sy, dt);
+        editor_set_size(&g->editor, g->pf->console_win ? (float)g->pf->tool_w : 1280, g->pf->console_win ? (float)g->pf->tool_h : 800);
+        editor_tick(&g->editor, &ein, in->tool_mx, in->tool_my, dt);
         g->sprite_refresh_t += dt;
         if (g->editor.dirty && g->sprite_refresh_t > 0.12f) { charmodel_refresh_from_doc(&g->player_model, &g->gfx, &g->editor.doc); g->sprite_refresh_t = 0; }
     }
@@ -563,38 +564,47 @@ static void sprite_line(char *out, size_t n, const char *who, const CharModel *c
     snprintf(out, n, "%s: %s frame %d/%d  sheet %s %dx%d cells %dx%d  facing %d  rate %.2f%s", who, an->name, frame - an->first + 1, an->last - an->first + 1, sh->name, sh->fw, sh->fh, sh->cols, sh->rows, cm->sprite.facing, cm->sprite.rate, cm->sprite.finished ? " (done)" : "");
 }
 
+// Console text clipped to the panel width (long lines are cut with a dot rather than spilling).
+static void ctext(Gfx *x, float lx, float y, float maxw, float scale, Vec4 c, const char *text) {
+    char buf[300]; snprintf(buf, sizeof buf, "%s", text);
+    size_t n = strlen(buf);
+    while (n > 1 && gfx_ui_text_width(scale, buf) > maxw) { buf[--n] = 0; buf[n - 1] = '.'; }
+    gfx_ui_text(x, lx, y, scale, c, buf);
+}
+
 static void draw_console(Game *g, Platform *pf) {
     if (!pf->console || g->tool_mode != 1) return;
     Gfx *x = &g->gfx;
     const Battle *b = &g->battle;
     bool windowed = pf->console_win != NULL;
-    float px = windowed ? 0 : 640, pw = windowed ? 720 : 640, ph = windowed ? 820 : 800;
+    float px = windowed ? 0 : 640, pw = windowed ? (float)pf->tool_w : 640, ph = windowed ? (float)pf->tool_h : 800;
+    float LH = gfx_ui_line_h(1.0f) + 2, SH = gfx_ui_line_h(1.1f) + 4;   // body line, section header
     gfx_ui_target(x, windowed ? 1 : 0);
     if (!windowed) { gfx_ui_rect(x, px, 0, pw, ph, v4(0.02f, 0.02f, 0.04f, 0.9f)); gfx_ui_rect(x, px, 0, 2, ph, v4(0.5f, 0.8f, 1, 0.8f)); }
     Vec4 head = v4(0.6f, 0.9f, 1, 1), txt = v4(0.85f, 0.9f, 0.95f, 1), dim = v4(0.55f, 0.6f, 0.65f, 1), red = v4(1, 0.45f, 0.4f, 1), amber = v4(1, 0.85f, 0.5f, 1), green = v4(0.75f, 0.95f, 0.8f, 1);
     float y = 10, lx = px + 12; char l[240];
-    gfx_ui_text(x, lx, y, 1.4f, head, windowed ? "DEBUGGER     \\ closes     F8 copies everything to the clipboard" : "DEBUGGER  (window failed, inline)   \\ closes   F8 copies"); y += 22;
+    ctext(x, lx, y, pw - 24, 1.4f, head, windowed ? "DEBUGGER     \\ closes     Ctrl+G / F8 copies everything to the clipboard" : "DEBUGGER  (window failed, inline)   \\ closes   F8 copies"); y += gfx_ui_line_h(1.4f) + 10;
 
     // 1. Warnings from data files and assets: the usual cause of "why is this not showing up"
     int nw = dbg_warning_count();
-    gfx_ui_text(x, lx, y, 1.1f, nw ? red : dim, nw ? "WARNINGS  (missing files, bad lines in data)" : "WARNINGS  none"); y += 13;
-    for (int i = (nw > 4 ? nw - 4 : 0); i < nw; i++) { gfx_ui_text(x, lx, y, 1.0f, red, dbg_warning(i)); y += 11; }
+    ctext(x, lx, y, pw - 24, 1.1f, nw ? red : dim, nw ? "WARNINGS  (missing files, bad lines in data)" : "WARNINGS  none"); y += SH;
+    for (int i = (nw > 4 ? nw - 4 : 0); i < nw; i++) { ctext(x, lx, y, pw - 24, 1.0f, red, dbg_warning(i)); y += LH; }
     y += 6;
     // 2. Where we are
-    snprintf(l, sizeof l, "STATE  %s %.1fs   fps %.0f%s", GS_NAMES[g->state], g->state_t, g->fps, g->paused ? "   PAUSED" : ""); gfx_ui_text(x, lx, y, 1.1f, head, l); y += 13;
-    if (g->state == GS_BATTLE) { snprintf(l, sizeof l, "battle %s %.2fs  round %d  energy %d (+%d banked)  hp %d  enemy %d  combo %d", BT_NAMES[b->state], b->t, b->round, b->energy, b->banked, b->player_hp, b->enemy_hp, b->combo); gfx_ui_text(x, lx, y, 1.0f, txt, l); y += 11; }
+    snprintf(l, sizeof l, "STATE  %s %.1fs   fps %.0f%s", GS_NAMES[g->state], g->state_t, g->fps, g->paused ? "   PAUSED" : ""); ctext(x, lx, y, pw - 24, 1.1f, head, l); y += SH;
+    if (g->state == GS_BATTLE) { snprintf(l, sizeof l, "battle %s %.2fs  round %d  energy %d (+%d banked)  hp %d  enemy %d  combo %d", BT_NAMES[b->state], b->t, b->round, b->energy, b->banked, b->player_hp, b->enemy_hp, b->combo); ctext(x, lx, y, pw - 24, 1.0f, txt, l); y += LH; }
     y += 6;
     // 3. Cards: is the mouse where the game thinks, and what did a press land on
     if (g->state == GS_BATTLE) {
         float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my);
-        gfx_ui_text(x, lx, y, 1.1f, head, "CARDS"); y += 13;
+        ctext(x, lx, y, pw - 24, 1.1f, head, "CARDS"); y += SH;
         snprintf(l, sizeof l, "mouse %.0f %.0f  button %s   hover %s   dragging %s   target %s", mx, my, pf->input.mouse_held ? "DOWN" : "up",
                  b->hovered >= 0 ? b->cards[b->hand[b->hovered].def].name : "-", b->dragging >= 0 ? b->cards[b->hand[b->dragging].def].name : "-",
-                 b->drop_target == 1 ? "ENEMY" : b->drop_target == 2 ? "SELF" : "-"); gfx_ui_text(x, lx, y, 1.0f, txt, l); y += 11;
+                 b->drop_target == 1 ? "ENEMY" : b->drop_target == 2 ? "SELF" : "-"); ctext(x, lx, y, pw - 24, 1.0f, txt, l); y += LH;
         l[0] = 0; for (int i = 0; i < b->nhand; i++) { char c[48]; snprintf(c, sizeof c, "%s@%.0f,%.0f%s  ", b->cards[b->hand[i].def].name, b->hand[i].x, b->hand[i].y, b->hand[i].phase == CP_DRAWING ? "(dealing)" : b->hand[i].phase == CP_DRAG ? "(held)" : b->hand[i].phase == CP_PLAYING ? "(playing)" : ""); strncat(l, c, sizeof l - strlen(l) - 1); }
-        gfx_ui_text(x, lx, y, 1.0f, dim, l); y += 17;
+        ctext(x, lx, y, pw - 24, 1.0f, dim, l); y += LH + 8;
         // 4. Parry: the last judgements as marks on an early/late bar
-        gfx_ui_text(x, lx, y, 1.1f, head, "PARRY  last presses vs the beat (left = early, right = late)"); y += 13;
+        ctext(x, lx, y, pw - 24, 1.1f, head, "PARRY  last presses vs the beat (left = early, right = late)"); y += SH;
         float bx0 = lx, bw = pw - 24;
         gfx_ui_rect(x, bx0, y, bw, 10, v4(0.2f, 0.25f, 0.3f, 1));
         gfx_ui_rect(x, bx0 + bw * 0.5f - bw * 0.5f * (0.15f / 0.3f) , y, bw * (0.15f / 0.3f), 10, v4(0.3f, 0.45f, 0.4f, 1));   // good
@@ -603,20 +613,20 @@ static void draw_console(Game *g, Platform *pf) {
             float o = clampf(b->hist_offset[i] / 0.3f, -1, 1); Vec4 c = b->hist_judge[i] == J_PERFECT ? amber : b->hist_judge[i] == J_GREAT ? green : b->hist_judge[i] == J_GOOD ? v4(0.7f, 0.85f, 1, 1) : red;
             gfx_ui_rect(x, bx0 + bw * 0.5f + o * bw * 0.5f - 2, y - 3 + (i % 2) * 8, 4, 8, c);
         }
-        y += 14;
-        snprintf(l, sizeof l, "last press %.3fs  beat %.3fs  offset %+.0f ms  ->  %s", b->parry_pressed_t, b->hit_t[0], b->last_offset * 1000.0f, b->last_judge == J_PERFECT ? "PERFECT" : b->last_judge == J_GREAT ? "GREAT" : b->last_judge == J_GOOD ? "GOOD" : b->last_judge == J_MISS ? "MISS" : "-"); gfx_ui_text(x, lx, y, 1.0f, txt, l); y += 17;
+        y += 18;
+        snprintf(l, sizeof l, "last press %.3fs  beat %.3fs  offset %+.0f ms  ->  %s", b->parry_pressed_t, b->hit_t[0], b->last_offset * 1000.0f, b->last_judge == J_PERFECT ? "PERFECT" : b->last_judge == J_GREAT ? "GREAT" : b->last_judge == J_GOOD ? "GOOD" : b->last_judge == J_MISS ? "MISS" : "-"); ctext(x, lx, y, pw - 24, 1.0f, txt, l); y += LH + 8;
     }
     // 5. Sprites: which frame of which sheet, the usual cause of "the art looks wrong"
-    gfx_ui_text(x, lx, y, 1.1f, head, "SPRITES"); y += 13;
-    sprite_line(l, sizeof l, "hero", &g->player_model); gfx_ui_text(x, lx, y, 1.0f, txt, l); y += 11;
-    sprite_line(l, sizeof l, "boss", &g->boss_model); gfx_ui_text(x, lx, y, 1.0f, txt, l); y += 17;
+    ctext(x, lx, y, pw - 24, 1.1f, head, "SPRITES"); y += SH;
+    sprite_line(l, sizeof l, "hero", &g->player_model); ctext(x, lx, y, pw - 24, 1.0f, txt, l); y += LH;
+    sprite_line(l, sizeof l, "boss", &g->boss_model); ctext(x, lx, y, pw - 24, 1.0f, txt, l); y += LH + 8;
     // 6. Inputs and the actions they caused
-    gfx_ui_text(x, lx, y, 1.1f, head, "INPUT -> ACTION   (amber = what you pressed, green = what the game did)"); y += 13;
-    int total = dbg_line_count(), rows = (int)((ph - y - 8) / 11); int show = total < rows ? total : rows;
+    ctext(x, lx, y, pw - 24, 1.1f, head, "INPUT -> ACTION   (amber = what you pressed, green = what the game did)"); y += SH;
+    int total = dbg_line_count(), rows = (int)((ph - y - 8) / LH); int show = total < rows ? total : rows;
     for (int i = 0; i < show; i++) {
         const char *line = dbg_line(total - show + i);
         bool input = strstr(line, "[in]") != NULL, warn = strstr(line, "[warn]") != NULL;
-        gfx_ui_text(x, lx, y + i * 11, 1.0f, warn ? red : input ? amber : green, line);
+        ctext(x, lx, y + i * LH, pw - 24, 1.0f, warn ? red : input ? amber : green, line);
     }
     gfx_ui_target(x, 0);
 }
@@ -640,6 +650,7 @@ static void draw_tool_window(Game *g, Platform *pf) {
     }
     if (g->tool_mode == 3 && g->editor_open) {
         gfx_ui_target(x, windowed ? 1 : 0);
+        editor_set_size(&g->editor, windowed ? (float)pf->tool_w : 1280, windowed ? (float)pf->tool_h : 800);
         editor_draw(&g->editor, x);
         gfx_ui_target(x, 0);
     }

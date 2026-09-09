@@ -84,6 +84,14 @@ works in place of Ctrl, and the function keys need Fn unless you change the keyb
 Also `Ctrl+D` wireframes (F1), `Ctrl+R` reload data (F5), `Ctrl+G` snapshot (F8).
 Command line: `--tool 2` / `--tool 3`.
 
+Tool windows open tiled beside the game window (the game shrinks to the left, the tool takes the
+right; the sprite editor takes the bigger share) and the game window goes back where it was when
+the tool closes. Set `HOLLOW_NO_TILE=1` to leave window placement alone. Tool panels use the VT323
+font (OFL), flow to the window width, and scroll with the wheel when taller than the window.
+Keys typed into a tool window go only to that tool; keys typed into the game window go only to the
+game. `--tool-shot PATH` saves a PNG of the tool window, and `HOLLOW_TOOL_SIZE="w h"` fixes its size
+for headless layout checks.
+
 **Environment editor.** The game window becomes a fly camera (WASD and Q/E, hold the right
 mouse button to look, wheel changes speed). The tool window has the kit palette (trees, rocks,
 ground, walls, props, lights from `assets/kit.txt`), the placement settings, and the LOOK tab

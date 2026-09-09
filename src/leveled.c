@@ -328,166 +328,244 @@ void leveled_draw_world(LevelEd *e, const Level *lv, Gfx *g, PropCache *pc) {
 
 // ---------------------------------------------------------------- panel (tool window)
 
+// Panel layout flows with the window width: rows of equal buttons, two slider columns when
+// there is room, one otherwise. All sizes in points.
+#define P_M 12.0f          // margin
+#define P_G 6.0f           // gap
+#define P_ROW 30.0f        // button / toggle height
+static float row_w(float w, int n) { return (w - 2 * P_M - (n - 1) * P_G) / n; }
+static int cols_for(float w, float min_w) { int c = (int)((w - 2 * P_M + P_G) / (min_w + P_G)); return c < 1 ? 1 : c; }
+
 void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h) {
-    float x = 12, y = 10; e->tr = tr;
-    ui_header(ui, x, y, e->dirty ? "ENVIRONMENT EDITOR  *unsaved" : "ENVIRONMENT EDITOR"); y += 22;
-    if (ui_button(ui, x, y, 90, 26, "PLACE")) e->tab = 0;
-    if (ui_button(ui, x + 96, y, 90, 26, "LOOK")) e->tab = 1;
-    if (ui_button(ui, x + 192, y, 100, 26, "TERRAIN")) e->tab = 2;
-    if (ui_button(ui, w - 200, y, 90, 26, "UNDO ^Z")) { pop_undo(e, lv); }
-    if (ui_button(ui, w - 104, y, 92, 26, "SAVE ^S")) leveled_save(e, lv, tr);
-    y += 34;
+    float x = P_M, y = P_M; e->tr = tr;
+    const float head_h = P_M + 32 + P_ROW + 10, foot_h = 76;
+    // The tab content scrolls with the wheel when it is taller than the window; header and footer
+    // stay put and are drawn last so scrolled content slides under them.
+    int tab = e->tab < 0 || e->tab > 2 ? 0 : e->tab;
+    float view_h = h - head_h - foot_h;
+    float max_scroll = fmaxf(0, e->pcontent[tab] - view_h);
+    UiInput saved_in = ui->in;
+    bool in_content = ui->in.my >= head_h && ui->in.my < h - foot_h;
+    if (in_content && ui->in.wheel != 0 && !(tab == 0 && e->wheel_in_list)) e->pscroll[tab] = clampf(e->pscroll[tab] - ui->in.wheel * 40, 0, max_scroll);
+    e->pscroll[tab] = clampf(e->pscroll[tab], 0, max_scroll);
+    if (!in_content) { ui->in.mx = -1e6f; ui->in.my = -1e6f; ui->in.pressed = false; ui->in.wheel = 0; }   // header/footer own the mouse there
+    y = head_h - e->pscroll[tab];
+    float content_top = y;
+    e->wheel_in_list = false;
+    bool two_col = w >= 640;
+    float cw = two_col ? (w - 2 * P_M - P_G) / 2 : w - 2 * P_M;   // column width
+    float c2 = x + cw + P_G;                                        // second column x
+
     if (e->tab == 0) {
-        ui_label(ui, x, y, "TOOL   1 select/move   2 piece   3 light   4 emitter", v4(0.6f, 0.58f, 0.55f, 1)); y += 14;
-        const char *tools[] = { "SELECT", "PIECE", "LIGHT", "EMITTER" };
-        for (int i = 0; i < 4; i++) { bool on = (int)e->tool == i; if (ui_toggle(ui, x + i * 110, y, 104, 26, tools[i], &on) && on) e->tool = (EdTool2)i; }
-        y += 34;
+        // tool row
+        const char *tools[] = { "1 SELECT", "2 PIECE", "3 LIGHT", "4 EMITTER" };
+        { float bw = row_w(w, 4); for (int i = 0; i < 4; i++) { bool on = (int)e->tool == i; if (ui_toggle(ui, x + i * (bw + P_G), y, bw, P_ROW, tools[i], &on) && on) e->tool = (EdTool2)i; } }
+        y += P_ROW + 10;
         // categories
-        for (int i = 0; i < e->ncat; i++) { bool on = e->cat == i; if (ui_toggle(ui, x + (i % 6) * 115, y + (i / 6) * 28, 110, 24, e->categories[i], &on) && on) { e->cat = i; e->list_sel = 0; } }
-        y += 28 * ((e->ncat + 5) / 6) + 6;
-        // list of pieces in the category
+        { int cols = cols_for(w, 96); if (cols > e->ncat) cols = e->ncat; float bw = row_w(w, cols);
+          for (int i = 0; i < e->ncat; i++) { bool on = e->cat == i; if (ui_toggle(ui, x + (i % cols) * (bw + P_G), y + (i / cols) * (P_ROW + P_G), bw, P_ROW, e->categories[i], &on) && on) { e->cat = i; e->list_sel = 0; } }
+          y += (P_ROW + P_G) * ((e->ncat + cols - 1) / cols) + 6; }
+        // pieces list (left) and new-piece settings (right)
         static const char *names[KIT_MAX]; static int map[KIT_MAX]; int n = 0;
         for (int i = 0; i < e->nkit; i++) if (!strcmp(e->kit[i].category, e->categories[e->cat])) { names[n] = e->kit[i].name; map[n] = i; n++; }
         if (e->list_sel >= n) e->list_sel = n > 0 ? n - 1 : 0;
-        if (ui_list(ui, 0, x, y, 300, 260, names, n, &e->list_sel) || (n > 0 && e->piece != map[e->list_sel])) {
+        float list_h = two_col ? fmaxf(220, fminf(420, h - head_h - foot_h - 250)) : 220;
+        if (saved_in.mx >= x && saved_in.mx < x + cw && saved_in.my >= y && saved_in.my < y + list_h) e->wheel_in_list = true;
+        if (ui_list(ui, 0, x, y, cw, list_h, names, n, &e->list_sel) || (n > 0 && e->piece != map[e->list_sel])) {
             if (n > 0) { e->piece = map[e->list_sel]; e->ghost_scale = e->kit[e->piece].scale; e->ghost_collide = e->kit[e->piece].collide > 0; e->tool = LT_PIECE; }
         }
-        // ghost settings
-        float gx = x + 320, gy = y;
-        ui_label(ui, gx, gy, "NEW PIECE", v4(1, 0.85f, 0.4f, 1)); gy += 16;
-        ui_stepper(ui, gx, gy, "scale", &e->ghost_scale, 0.1f, 0.1f, 10); gy += 26;
-        float yaw_deg = e->ghost_yaw / DEG2RAD; if (ui_stepper(ui, gx, gy, "yaw", &yaw_deg, 15, -360, 360)) e->ghost_yaw = yaw_deg * DEG2RAD; gy += 26;
-        ui_toggle(ui, gx, gy, 150, 24, "collides", &e->ghost_collide); ui_toggle(ui, gx + 160, gy, 150, 24, "snap 0.5m", &e->snap); gy += 34;
-        if (e->tool == LT_LIGHT) { ui_color(ui, gx, gy, 300, "light colour", &e->light_color, 1.5f); gy += 70; ui_slider(ui, gx, gy, 300, "radius", &e->light_radius, 1, 20); gy += 22; ui_slider(ui, gx, gy, 300, "intensity", &e->light_intensity, 0, 8); gy += 26; }
-        y += 270;
+        float gx = two_col ? c2 : x, gy = two_col ? y : y + list_h + 10, gw = cw;
+        ui_label(ui, gx, gy, e->tool == LT_LIGHT ? "NEW LIGHT" : e->tool == LT_EMITTER ? "NEW EMITTER" : "NEW PIECE", v4(1, 0.85f, 0.4f, 1)); gy += 24;
+        if (e->tool == LT_LIGHT) {
+            ui_color(ui, gx, gy, gw, "colour", &e->light_color, 1.5f); gy += 3 * 26 + 8;
+            ui_slider(ui, gx, gy, gw, "radius", &e->light_radius, 1, 20); gy += 28;
+            ui_slider(ui, gx, gy, gw, "intensity", &e->light_intensity, 0, 10); gy += 30;
+        } else if (e->tool == LT_EMITTER) {
+            ui_label(ui, gx, gy, "left click places a firefly emitter; edit it once selected", v4(0.7f, 0.68f, 0.65f, 1)); gy += 26;
+        } else {
+            ui_stepper(ui, gx, gy, "scale", &e->ghost_scale, 0.1f, 0.1f, 10); gy += 32;
+            float yaw_deg = e->ghost_yaw / DEG2RAD; if (ui_stepper(ui, gx, gy, "yaw", &yaw_deg, 15, -360, 360)) e->ghost_yaw = yaw_deg * DEG2RAD; gy += 32;
+            float hw = (gw - P_G) / 2;
+            ui_toggle(ui, gx, gy, hw, P_ROW, "collides", &e->ghost_collide); ui_toggle(ui, gx + hw + P_G, gy, hw, P_ROW, "snap 0.5 m", &e->snap); gy += P_ROW + 10;
+            ui_label(ui, gx, gy, "left click places   R rotates   [ ] scale", v4(0.7f, 0.68f, 0.65f, 1)); gy += 24;
+        }
+        y = fmaxf(y + list_h, gy) + 12;
         // selected item
         if (e->sel_prop >= 0 && e->sel_prop < lv->nprops) {
             Prop *p = &lv->props[e->sel_prop]; char s[200];
-            snprintf(s, sizeof s, "SELECTED PROP  %s", strrchr(p->file, '/') ? strrchr(p->file, '/') + 1 : p->file); ui_label(ui, x, y, s, v4(1, 0.85f, 0.4f, 1)); y += 16;
-            snprintf(s, sizeof s, "at %.1f %.1f %.1f   (drag in the world to move, F to fly to it)", p->pos.x, p->pos.y, p->pos.z); ui_label(ui, x, y, s, v4(0.85f, 0.85f, 0.8f, 1)); y += 16;
-            if (ui_stepper(ui, x, y, "scale", &p->scale, 0.1f, 0.1f, 10)) e->dirty = true;
-            float yd = p->yaw / DEG2RAD; if (ui_stepper(ui, x + 230, y, "yaw", &yd, 15, -360, 360)) { p->yaw = yd * DEG2RAD; e->dirty = true; }
-            if (ui_stepper(ui, x + 460, y, "y", &p->pos.y, 0.25f, -5, 20)) e->dirty = true; y += 26;
-            bool col = p->collide > 0; if (ui_toggle(ui, x, y, 130, 24, "collides", &col)) { remove_collider_for(lv, p); p->collide = col ? 0.6f : 0; add_collider_for(lv, p); e->dirty = true; }
-            if (ui_color(ui, x + 150, y, 260, "glow", &p->glow, 1.5f)) e->dirty = true;
-            if (ui_button(ui, x + 440, y, 110, 24, "DELETE X")) delete_selected(e, lv);
-            if (ui_button(ui, x + 560, y, 130, 24, "DUPLICATE G")) { push_undo(e, lv); Prop copy = *p; copy.pos.x += 1.5f; if (lv->nprops < LEVEL_MAX_PROPS) { lv->props[lv->nprops++] = copy; add_collider_for(lv, &copy); e->sel_prop = lv->nprops - 1; } }
-            y += 76;
+            snprintf(s, sizeof s, "SELECTED PIECE  %s", strrchr(p->file, '/') ? strrchr(p->file, '/') + 1 : p->file); ui_label(ui, x, y, s, v4(1, 0.85f, 0.4f, 1)); y += 22;
+            snprintf(s, sizeof s, "at %.1f %.1f %.1f    drag in the world to move, F flies to it", p->pos.x, p->pos.y, p->pos.z); ui_label_fit(ui, x, y, w - 2 * P_M, s, v4(0.7f, 0.68f, 0.65f, 1)); y += 26;
+            float sx = x;
+            if (ui_stepper(ui, sx, y, "scale", &p->scale, 0.1f, 0.1f, 10)) e->dirty = true; sx += ui_stepper_w("scale") + 16;
+            float yd = p->yaw / DEG2RAD;
+            if (sx + ui_stepper_w("yaw") > w - P_M) { sx = x; y += 32; }
+            if (ui_stepper(ui, sx, y, "yaw", &yd, 15, -360, 360)) { p->yaw = yd * DEG2RAD; e->dirty = true; } sx += ui_stepper_w("yaw") + 16;
+            if (sx + ui_stepper_w("height") > w - P_M) { sx = x; y += 32; }
+            if (ui_stepper(ui, sx, y, "height", &p->pos.y, 0.25f, -5, 20)) e->dirty = true; y += 34;
+            bool col = p->collide > 0; if (ui_toggle(ui, x, y, cw, P_ROW, "collides", &col)) { remove_collider_for(lv, p); p->collide = col ? 0.6f : 0; add_collider_for(lv, p); e->dirty = true; }
+            if (two_col) { if (ui_color(ui, c2, y, cw, "glow", &p->glow, 1.5f)) e->dirty = true; }
+            y += P_ROW + 6;
+            if (!two_col) { if (ui_color(ui, x, y, cw, "glow", &p->glow, 1.5f)) e->dirty = true; y += 3 * 26 + 6; } else y += 3 * 26 - P_ROW;
+            float hw = (cw - P_G) / 2;
+            if (ui_button(ui, x, y, hw, P_ROW, "DELETE  X")) delete_selected(e, lv);
+            if (ui_button(ui, x + hw + P_G, y, hw, P_ROW, "DUPLICATE  G")) { push_undo(e, lv); Prop copy = *p; copy.pos.x += 1.5f; if (lv->nprops < LEVEL_MAX_PROPS) { lv->props[lv->nprops++] = copy; add_collider_for(lv, &copy); e->sel_prop = lv->nprops - 1; } }
+            y += P_ROW + 10;
         } else if (e->sel_light >= 0 && e->sel_light < lv->nlights) {
             LevelLight *l = &lv->lights[e->sel_light];
-            ui_label(ui, x, y, "SELECTED LIGHT", v4(1, 0.85f, 0.4f, 1)); y += 16;
-            if (ui_color(ui, x, y, 300, "colour", &l->color, 1.5f)) e->dirty = true;
-            if (ui_slider(ui, x + 330, y, 300, "radius", &l->radius, 1, 25)) e->dirty = true;
-            if (ui_slider(ui, x + 330, y + 22, 300, "intensity", &l->intensity, 0, 10)) e->dirty = true;
-            if (ui_slider(ui, x + 330, y + 44, 300, "flicker", &l->flicker, 0, 1)) e->dirty = true;
-            y += 70;
+            ui_label(ui, x, y, "SELECTED LIGHT", v4(1, 0.85f, 0.4f, 1)); y += 24;
+            if (ui_color(ui, x, y, cw, "colour", &l->color, 1.5f)) e->dirty = true;
+            float sx2 = two_col ? c2 : x, sy = two_col ? y : y + 3 * 26 + 6;
+            if (ui_slider(ui, sx2, sy, cw, "radius", &l->radius, 1, 25)) e->dirty = true; sy += 26;
+            if (ui_slider(ui, sx2, sy, cw, "intensity", &l->intensity, 0, 10)) e->dirty = true; sy += 26;
+            if (ui_slider(ui, sx2, sy, cw, "flicker", &l->flicker, 0, 1)) e->dirty = true; sy += 30;
+            y = fmaxf(y + 3 * 26 + 6, sy);
             if (ui_stepper(ui, x, y, "height", &l->pos.y, 0.25f, 0, 20)) e->dirty = true;
-            if (ui_button(ui, x + 300, y, 110, 24, "DELETE X")) delete_selected(e, lv);
-            y += 30;
+            if (ui_button(ui, x + ui_stepper_w("height") + 16, y, 130, P_ROW, "DELETE  X")) delete_selected(e, lv);
+            y += P_ROW + 10;
         } else if (e->sel_emitter >= 0 && e->sel_emitter < lv->nemitters) {
             LevelEmitter *m = &lv->emitters[e->sel_emitter];
             static const char *types[] = { "firefly", "mist", "ember", "spore", "leaf", "smoke", "spark" };
-            ui_label(ui, x, y, "SELECTED EMITTER", v4(1, 0.85f, 0.4f, 1)); y += 16;
-            for (int i = 0; i < 7; i++) { bool on = !strcmp(m->type, types[i]); if (ui_toggle(ui, x + i * 98, y, 94, 22, types[i], &on) && on) { snprintf(m->type, sizeof m->type, "%s", types[i]); e->dirty = true; } }
-            y += 28;
-            if (ui_slider(ui, x, y, 300, "rate", &m->rate, 0, 10)) e->dirty = true;
-            if (ui_slider(ui, x + 330, y, 300, "size", &m->size, 0.02f, 3)) e->dirty = true; y += 22;
-            if (ui_slider(ui, x, y, 300, "life", &m->life, 0.5f, 15)) e->dirty = true;
-            if (ui_slider(ui, x + 330, y, 300, "extent x", &m->extent.x, 0.2f, 30)) e->dirty = true; y += 22;
-            if (ui_color(ui, x, y, 300, "colour", &m->color, 3)) e->dirty = true;
-            if (ui_slider(ui, x + 330, y, 300, "extent z", &m->extent.z, 0.2f, 30)) e->dirty = true;
-            if (ui_button(ui, x + 330, y + 26, 110, 24, "DELETE X")) delete_selected(e, lv);
-            y += 74;
+            ui_label(ui, x, y, "SELECTED EMITTER", v4(1, 0.85f, 0.4f, 1)); y += 24;
+            { int cols = cols_for(w, 88); if (cols > 7) cols = 7; float bw = row_w(w, cols);
+              for (int i = 0; i < 7; i++) { bool on = !strcmp(m->type, types[i]); if (ui_toggle(ui, x + (i % cols) * (bw + P_G), y + (i / cols) * (P_ROW + P_G), bw, P_ROW, types[i], &on) && on) { snprintf(m->type, sizeof m->type, "%s", types[i]); e->dirty = true; } }
+              y += (P_ROW + P_G) * ((7 + cols - 1) / cols) + 6; }
+            float sx2 = two_col ? c2 : x, sy = y;
+            if (ui_slider(ui, x, sy, cw, "rate", &m->rate, 0, 10)) e->dirty = true;
+            if (ui_slider(ui, sx2, two_col ? sy : sy + 26, cw, "size", &m->size, 0.02f, 3)) e->dirty = true; sy += two_col ? 26 : 52;
+            if (ui_slider(ui, x, sy, cw, "life", &m->life, 0.5f, 15)) e->dirty = true;
+            if (ui_slider(ui, sx2, two_col ? sy : sy + 26, cw, "extent x", &m->extent.x, 0.2f, 30)) e->dirty = true; sy += two_col ? 26 : 52;
+            if (ui_slider(ui, x, sy, cw, "extent z", &m->extent.z, 0.2f, 30)) e->dirty = true; sy += 30;
+            if (ui_color(ui, x, sy, cw, "colour", &m->color, 3)) e->dirty = true;
+            if (ui_button(ui, two_col ? c2 : x, two_col ? sy : sy + 3 * 26 + 6, 130, P_ROW, "DELETE  X")) delete_selected(e, lv);
+            y = sy + 3 * 26 + (two_col ? 10 : P_ROW + 16);
+        } else {
+            ui_label_fit(ui, x, y, w - 2 * P_M, "Click a placed piece, light or emitter in the game window to edit it here.", v4(0.6f, 0.58f, 0.55f, 1)); y += 24;
         }
     } else if (e->tab == 2) {
-        float cw = (w - 36) / 2;
         if (!tr->present) {
-            ui_label(ui, x, y, "This level has no terrain yet. Create one to sculpt mountains and paint biomes.", v4(0.85f, 0.85f, 0.8f, 1)); y += 20;
-            if (ui_button(ui, x, y, 260, 30, "CREATE TERRAIN (192 m, flat)")) {
+            ui_label(ui, x, y, "This level has no terrain yet. Create one to sculpt", v4(0.85f, 0.85f, 0.8f, 1)); y += 22;
+            ui_label(ui, x, y, "mountains and paint biomes with the mouse.", v4(0.85f, 0.85f, 0.8f, 1)); y += 30;
+            if (ui_button(ui, x, y, fminf(320, w - 2 * P_M), 34, "CREATE TERRAIN  (192 m, flat)")) {
                 terrain_init(tr, 1.5f, v3(-96, 0, -96), 0, v3(0.20f, 0.34f, 0.16f));
                 snprintf(tr->file, sizeof tr->file, "%s", "levels/terrain_new");
                 if (lv->path[0]) { const char *slash = strrchr(lv->path, '/'); const char *base = slash ? slash + 1 : lv->path; char nm[96]; snprintf(nm, sizeof nm, "%s", base); char *dot = strrchr(nm, '.'); if (dot) *dot = 0; snprintf(tr->file, sizeof tr->file, "levels/%s_terrain", nm); }
                 e->dirty = true; say(e, "terrain created: sculpt with the brushes, then SAVE");
             }
-            y += 40;
+            y += 44;
         } else {
-            ui_label(ui, x, y, "BRUSH   hold left mouse on the ground.  Shift with Raise lowers.  Ctrl+wheel = radius", v4(0.6f, 0.58f, 0.55f, 1)); y += 16;
+            ui_label_fit(ui, x, y, w - 2 * P_M, "BRUSH   hold the left mouse button on the ground.  Shift + Raise lowers.  Ctrl + wheel = radius", v4(0.6f, 0.58f, 0.55f, 1)); y += 22;
             const char *br[] = { "RAISE", "LOWER", "SMOOTH", "FLATTEN", "PAINT", "SCATTER", "CLEAR" };
-            for (int i = 0; i < 7; i++) { bool on = e->tbrush == i; if (ui_toggle(ui, x + (i % 4) * 172, y + (i / 4) * 30, 166, 26, br[i], &on) && on) e->tbrush = i; }
-            y += 66;
-            ui_slider(ui, x, y, cw - 48, "radius", &e->tradius, 1, 40); ui_slider(ui, x + cw + 12, y, cw - 48, "strength", &e->tstrength, 0.5f, 30); y += 26;
-            // biome palette for the paint brush
+            { int cols = cols_for(w, 100); if (cols > 7) cols = 7; float bw = row_w(w, cols);
+              for (int i = 0; i < 7; i++) { bool on = e->tbrush == i; if (ui_toggle(ui, x + (i % cols) * (bw + P_G), y + (i / cols) * (P_ROW + P_G), bw, P_ROW, br[i], &on) && on) e->tbrush = i; }
+              y += (P_ROW + P_G) * ((7 + cols - 1) / cols) + 6; }
+            ui_slider(ui, x, y, cw, "radius", &e->tradius, 1, 40);
+            ui_slider(ui, two_col ? c2 : x, two_col ? y : y + 26, cw, "strength", &e->tstrength, 0.5f, 30); y += two_col ? 32 : 58;
             static const struct { const char *name; Vec3 c; } B[] = { {"grass", {0.20f, 0.34f, 0.16f}}, {"forest floor", {0.11f, 0.17f, 0.10f}}, {"rock", {0.36f, 0.34f, 0.35f}}, {"snow", {0.88f, 0.90f, 0.95f}}, {"dirt", {0.30f, 0.22f, 0.15f}}, {"path", {0.55f, 0.50f, 0.44f}}, {"water", {0.10f, 0.22f, 0.32f}}, {"moss", {0.28f, 0.42f, 0.20f}} };
-            ui_label(ui, x, y, "PAINT COLOUR", v4(1, 0.85f, 0.4f, 1)); y += 14;
-            for (int i = 0; i < 8; i++) { bool on = e->tpaint_sel == i; if (ui_toggle(ui, x + (i % 4) * 172, y + (i / 4) * 28, 166, 24, B[i].name, &on) && on) { e->tpaint_sel = i; e->tpaint = B[i].c; e->tbrush = TB_PAINT; } }
-            y += 60;
-            if (ui_color(ui, x, y, cw, "custom", &e->tpaint, 1)) e->tbrush = TB_PAINT;
-            // scatter
-            ui_label(ui, x + cw + 12, y, "SCATTER category", v4(1, 0.85f, 0.4f, 1));
-            for (int i = 0; i < e->ncat && i < 6; i++) { bool on = e->scatter_cat == i; if (ui_toggle(ui, x + cw + 12 + (i % 3) * 112, y + 16 + (i / 3) * 26, 108, 22, e->categories[i], &on) && on) { e->scatter_cat = i; e->tbrush = 5; } }
-            ui_slider(ui, x + cw + 12, y + 70, cw - 48, "density", &e->scatter_density, 0.05f, 3);
-            y += 100;
-            // auto biome
-            ui_label(ui, x, y, "AUTO BIOME  paints grass, rock on slopes, snow above a height", v4(1, 0.85f, 0.4f, 1)); y += 16;
-            ui_slider(ui, x, y, cw - 48, "snow height", &e->snow_h, 0, 60); ui_slider(ui, x + cw + 12, y, cw - 48, "rock slope", &e->rock_slope, 0.1f, 0.9f); y += 26;
-            if (ui_button(ui, x, y, 200, 28, "APPLY AUTO BIOME")) { push_undo(e, lv); terrain_auto_biome(tr, e->snow_h, e->rock_slope, B[0].c, B[2].c, B[3].c, B[4].c); e->dirty = true; }
-            if (ui_button(ui, x + 210, y, 200, 28, "MOUNTAIN FOREST LOOK")) {
-                Look *k = &lv->look;
-                k->sun_dir = v3(0.35f, -0.55f, 0.45f); k->sun_intensity = 1.1f; k->sun_color = v3(1.0f, 0.92f, 0.8f);
-                k->sky_ambient = v3(0.35f, 0.45f, 0.65f); k->ground_ambient = v3(0.10f, 0.12f, 0.10f);
-                k->fog_color = v3(0.55f, 0.66f, 0.80f); k->fog_density = 0.012f; k->fog_base = 0; k->fog_falloff = 0.04f; k->fog_scatter = 0.5f; k->fog_start = 10;
-                k->sky_zenith = v3(0.18f, 0.35f, 0.70f); k->sky_horizon = v3(0.70f, 0.80f, 0.92f); k->sky_ground = v3(0.25f, 0.30f, 0.35f); k->sun_glow = 0.5f; k->stars = 0; k->sky_fog_blend = 0.6f;
-                k->exposure = 1.05f; k->saturation = 1.1f; k->contrast = 1.05f; k->bloom = 0.25f; k->bloom_threshold = 1.1f; k->lift = v3(0.01f, 0.01f, 0.02f); k->gain = v3(1, 1, 1);
-                e->dirty = true; say(e, "mountain forest look applied (LOOK tab to tune)");
-            }
-            y += 36;
-            if (ui_button(ui, x, y, 200, 28, "RANDOM MOUNTAINS")) {
-                push_undo(e, lv);
-                terrain_generate_mountains(tr, 28);
-                terrain_auto_biome(tr, e->snow_h, e->rock_slope, B[0].c, B[2].c, B[3].c, B[4].c); e->dirty = true;
-                say(e, "mountains generated around the edge; sculpt from here");
-            }
-            y += 40;
+            ui_label(ui, x, y, "PAINT COLOUR", v4(1, 0.85f, 0.4f, 1)); y += 24;
+            { int cols = cols_for(w, 110); if (cols > 8) cols = 8; float bw = row_w(w, cols);
+              for (int i = 0; i < 8; i++) { bool on = e->tpaint_sel == i && e->tbrush == TB_PAINT; float bx = x + (i % cols) * (bw + P_G), by = y + (i / cols) * (P_ROW + P_G);
+                  if (ui_toggle(ui, bx, by, bw, P_ROW, B[i].name, &on) && on) { e->tpaint_sel = i; e->tpaint = B[i].c; e->tbrush = TB_PAINT; }
+                  gfx_ui_rect(ui->g, bx + bw - 26, by + 6, 18, P_ROW - 12, v4(B[i].c.x, B[i].c.y, B[i].c.z, 1)); }
+              y += (P_ROW + P_G) * ((8 + cols - 1) / cols) + 6; }
+            if (ui_color(ui, x, y, cw, "custom", &e->tpaint, 1)) { e->tbrush = TB_PAINT; e->tpaint_sel = -1; }
+            float sx2 = two_col ? c2 : x, sy = two_col ? y : y + 3 * 26 + 8;
+            ui_label(ui, sx2, sy, "SCATTER   kit category", v4(1, 0.85f, 0.4f, 1)); sy += 24;
+            { int cols = cw >= 300 ? 3 : 2; float bw = (cw - (cols - 1) * P_G) / cols;
+              for (int i = 0; i < e->ncat && i < 6; i++) { bool on = e->scatter_cat == i && e->tbrush == 5; if (ui_toggle(ui, sx2 + (i % cols) * (bw + P_G), sy + (i / cols) * (P_ROW + P_G), bw, P_ROW, e->categories[i], &on) && on) { e->scatter_cat = i; e->tbrush = 5; } }
+              sy += (P_ROW + P_G) * ((e->ncat < 6 ? e->ncat : 6) + cols - 1) / cols + 4; }
+            ui_slider(ui, sx2, sy, cw, "density", &e->scatter_density, 0.05f, 3); sy += 32;
+            y = fmaxf(y + 3 * 26 + 8, sy);
+            ui_label_fit(ui, x, y, w - 2 * P_M, "AUTO BIOME   grass, rock on slopes, snow above a height", v4(1, 0.85f, 0.4f, 1)); y += 24;
+            ui_slider(ui, x, y, cw, "snow height", &e->snow_h, 0, 60);
+            ui_slider(ui, two_col ? c2 : x, two_col ? y : y + 26, cw, "rock slope", &e->rock_slope, 0.1f, 0.9f); y += two_col ? 32 : 58;
+            { float bw = row_w(w, two_col ? 3 : 1), step = two_col ? bw + P_G : 0; float by = y;
+              if (ui_button(ui, x, by, bw, P_ROW, "APPLY AUTO BIOME")) { push_undo(e, lv); terrain_auto_biome(tr, e->snow_h, e->rock_slope, B[0].c, B[2].c, B[3].c, B[4].c); e->dirty = true; }
+              if (!two_col) by += P_ROW + P_G;
+              if (ui_button(ui, x + step, by, bw, P_ROW, "MOUNTAIN FOREST LOOK")) {
+                  Look *k = &lv->look;
+                  k->sun_dir = v3(0.35f, -0.55f, 0.45f); k->sun_intensity = 1.1f; k->sun_color = v3(1.0f, 0.92f, 0.8f);
+                  k->sky_ambient = v3(0.35f, 0.45f, 0.65f); k->ground_ambient = v3(0.10f, 0.12f, 0.10f);
+                  k->fog_color = v3(0.55f, 0.66f, 0.80f); k->fog_density = 0.012f; k->fog_base = 0; k->fog_falloff = 0.04f; k->fog_scatter = 0.5f; k->fog_start = 10;
+                  k->sky_zenith = v3(0.18f, 0.35f, 0.70f); k->sky_horizon = v3(0.70f, 0.80f, 0.92f); k->sky_ground = v3(0.25f, 0.30f, 0.35f); k->sun_glow = 0.5f; k->stars = 0; k->sky_fog_blend = 0.6f;
+                  k->exposure = 1.05f; k->saturation = 1.1f; k->contrast = 1.05f; k->bloom = 0.25f; k->bloom_threshold = 1.1f; k->lift = v3(0.01f, 0.01f, 0.02f); k->gain = v3(1, 1, 1);
+                  e->dirty = true; say(e, "mountain forest look applied (LOOK tab to tune)");
+              }
+              if (!two_col) by += P_ROW + P_G;
+              if (ui_button(ui, x + 2 * step, by, bw, P_ROW, "RANDOM MOUNTAINS")) {
+                  push_undo(e, lv);
+                  terrain_generate_mountains(tr, 28);
+                  terrain_auto_biome(tr, e->snow_h, e->rock_slope, B[0].c, B[2].c, B[3].c, B[4].c); e->dirty = true;
+                  say(e, "mountains generated around the edge; sculpt from here");
+              }
+              y = by + P_ROW + 10; }
         }
     } else {
-        Look *k = &lv->look; float cw = (w - 36) / 2;
+        Look *k = &lv->look;
         // sun as yaw/pitch for easy tuning
         static float sun_yaw = 0, sun_pitch = 0; static bool init = false;
         if (!init) { sun_yaw = atan2f(k->sun_dir.x, k->sun_dir.z) / DEG2RAD; sun_pitch = asinf(clampf(-k->sun_dir.y / fmaxf(v3_len(k->sun_dir), 1e-4f), -1, 1)) / DEG2RAD; init = true; }
+        float sy = y; float cx2 = two_col ? c2 : x;
+        #define SL(col, lbl, ptr, lo, hi) do { float *_p = (ptr); float _x = (col) ? cx2 : x; float _y = (col) && two_col ? sy : y; if (ui_slider(ui, _x, _y, cw, lbl, _p, lo, hi)) e->dirty = true; if (!(col) || !two_col) { y += 26; } if ((col) && two_col) sy += 26; } while (0)
+        #define ROW() do { if (two_col) { y += 26; sy = y; } } while (0)
+        #define SECTION(t) do { y = fmaxf(y, sy) + 6; ui_label(ui, x, y, t, v4(1, 0.85f, 0.4f, 1)); y += 24; sy = y; } while (0)
+        #define CL(col, lbl, ptr, hi) do { float _x = (col) ? cx2 : x; float _y = (col) && two_col ? sy : y; if (ui_color(ui, _x, _y, cw, lbl, ptr, hi)) e->dirty = true; if (!(col) || !two_col) y += 3 * 26 + 6; if ((col) && two_col) sy += 3 * 26 + 6; } while (0)
         bool ch = false;
+        SECTION("SUN AND FOG");
         ch |= ui_slider(ui, x, y, cw, "sun yaw", &sun_yaw, -180, 180);
-        ch |= ui_slider(ui, x + cw + 12, y, cw, "sun pitch", &sun_pitch, 0, 89); y += 22;
+        if (two_col) { ch |= ui_slider(ui, cx2, sy, cw, "sun pitch", &sun_pitch, 0, 89); sy += 26; y += 26; } else { y += 26; ch |= ui_slider(ui, x, y, cw, "sun pitch", &sun_pitch, 0, 89); y += 26; sy = y; }
         if (ch) { float p = sun_pitch * DEG2RAD, yw = sun_yaw * DEG2RAD; k->sun_dir = v3(sinf(yw) * cosf(p), -sinf(p), cosf(yw) * cosf(p)); e->dirty = true; }
-        if (ui_slider(ui, x, y, cw, "sun power", &k->sun_intensity, 0, 3)) e->dirty = true;
-        if (ui_slider(ui, x + cw + 12, y, cw, "fog density", &k->fog_density, 0, 0.12f)) e->dirty = true; y += 26;
-        if (ui_color(ui, x, y, cw, "sun colour", &k->sun_color, 2)) e->dirty = true;
-        if (ui_color(ui, x + cw + 12, y, cw, "fog colour", &k->fog_color, 1)) e->dirty = true; y += 74;
-        if (ui_color(ui, x, y, cw, "sky ambient", &k->sky_ambient, 1)) e->dirty = true;
-        if (ui_color(ui, x + cw + 12, y, cw, "ground ambient", &k->ground_ambient, 1)) e->dirty = true; y += 74;
-        if (ui_color(ui, x, y, cw, "sky zenith", &k->sky_zenith, 1)) e->dirty = true;
-        if (ui_color(ui, x + cw + 12, y, cw, "sky horizon", &k->sky_horizon, 1)) e->dirty = true; y += 74;
-        if (ui_slider(ui, x, y, cw, "fog base y", &k->fog_base, -5, 10)) e->dirty = true;
-        if (ui_slider(ui, x + cw + 12, y, cw, "fog falloff", &k->fog_falloff, 0, 1)) e->dirty = true; y += 22;
-        if (ui_slider(ui, x, y, cw, "fog start", &k->fog_start, 0, 30)) e->dirty = true;
-        if (ui_slider(ui, x + cw + 12, y, cw, "sun scatter", &k->fog_scatter, 0, 2)) e->dirty = true; y += 26;
-        if (ui_slider(ui, x, y, cw, "exposure", &k->exposure, 0.2f, 3)) e->dirty = true;
-        if (ui_slider(ui, x + cw + 12, y, cw, "saturation", &k->saturation, 0, 2)) e->dirty = true; y += 22;
-        if (ui_slider(ui, x, y, cw, "contrast", &k->contrast, 0.5f, 1.8f)) e->dirty = true;
-        if (ui_slider(ui, x + cw + 12, y, cw, "bloom", &k->bloom, 0, 1.5f)) e->dirty = true; y += 22;
-        if (ui_slider(ui, x, y, cw, "bloom threshold", &k->bloom_threshold, 0.2f, 3)) e->dirty = true;
-        if (ui_slider(ui, x + cw + 12, y, cw, "stars", &k->stars, 0, 3)) e->dirty = true; y += 22;
-        if (ui_slider(ui, x, y, cw, "toon softness", &k->toon_softness, 0.01f, 0.4f)) e->dirty = true;
-        if (ui_slider(ui, x + cw + 12, y, cw, "shadow floor", &k->shadow_floor, 0, 0.6f)) e->dirty = true; y += 22;
-        if (ui_slider(ui, x, y, cw, "rim power", &k->rim_power, 1, 8)) e->dirty = true; y += 26;
-        ui_label(ui, x, y, "PIXEL CHARACTERS   3D characters drawn as pixel art (scale 0 turns it off)", v4(1, 0.85f, 0.4f, 1)); y += 16;
-        { float sc = k->pixel_scale; if (ui_slider(ui, x, y, cw, "pixel size", &sc, 0, 6)) { k->pixel_scale = roundf(sc); e->dirty = true; } }
-        { float lv2 = k->pixel_levels; if (ui_slider(ui, x + cw + 12, y, cw, "colour levels", &lv2, 0, 16)) { k->pixel_levels = roundf(lv2); e->dirty = true; } } y += 22;
-        if (ui_slider(ui, x, y, cw, "outline", &k->pixel_outline, 0, 1)) e->dirty = true;
-        if (ui_slider(ui, x + cw + 12, y, cw, "inner lines", &k->pixel_inner, 0, 1)) e->dirty = true; y += 22;
-        { bool pal = k->pixel_palette > 0.5f; if (ui_toggle(ui, x, y, cw, 24, "snap to the 32-colour palette", &pal)) { k->pixel_palette = pal ? 1 : 0; e->dirty = true; } } y += 30;
+        SL(0, "sun power", &k->sun_intensity, 0, 3); SL(1, "fog density", &k->fog_density, 0, 0.12f); ROW();
+        SL(0, "fog base y", &k->fog_base, -5, 10); SL(1, "fog falloff", &k->fog_falloff, 0, 1); ROW();
+        SL(0, "fog start", &k->fog_start, 0, 30); SL(1, "sun scatter", &k->fog_scatter, 0, 2); ROW();
+        SECTION("COLOURS");
+        CL(0, "sun", &k->sun_color, 2); CL(1, "fog", &k->fog_color, 1); if (two_col) { y = fmaxf(y, sy); sy = y; }
+        CL(0, "sky ambient", &k->sky_ambient, 1); CL(1, "ground ambient", &k->ground_ambient, 1); if (two_col) { y = fmaxf(y, sy); sy = y; }
+        CL(0, "sky zenith", &k->sky_zenith, 1); CL(1, "sky horizon", &k->sky_horizon, 1); if (two_col) { y = fmaxf(y, sy); sy = y; }
+        SECTION("GRADE");
+        SL(0, "exposure", &k->exposure, 0.2f, 3); SL(1, "saturation", &k->saturation, 0, 2); ROW();
+        SL(0, "contrast", &k->contrast, 0.5f, 1.8f); SL(1, "bloom", &k->bloom, 0, 1.5f); ROW();
+        SL(0, "bloom threshold", &k->bloom_threshold, 0.2f, 3); SL(1, "stars", &k->stars, 0, 3); ROW();
+        SECTION("TOON SHADING");
+        SL(0, "toon softness", &k->toon_softness, 0.01f, 0.4f); SL(1, "shadow floor", &k->shadow_floor, 0, 0.6f); ROW();
+        SL(0, "rim power", &k->rim_power, 1, 8); ROW();
+        SECTION(w >= 760 ? "PIXEL CHARACTERS   3D characters drawn as pixel art (size 0 = off)" : "PIXEL CHARACTERS   (size 0 = off)");
+        { float sc = k->pixel_scale; float _y = y; if (ui_slider(ui, x, _y, cw, "pixel size", &sc, 0, 6)) { k->pixel_scale = roundf(sc); e->dirty = true; }
+          float lv2 = k->pixel_levels; if (ui_slider(ui, two_col ? cx2 : x, two_col ? _y : _y + 26, cw, "colour levels", &lv2, 0, 16)) { k->pixel_levels = roundf(lv2); e->dirty = true; }
+          y += two_col ? 26 : 52; sy = y; }
+        SL(0, "outline", &k->pixel_outline, 0, 1); SL(1, "inner lines", &k->pixel_inner, 0, 1); ROW();
+        { bool pal = k->pixel_palette > 0.5f; if (ui_toggle(ui, x, y, cw, P_ROW, "snap to the 32-colour palette", &pal)) { k->pixel_palette = pal ? 1 : 0; e->dirty = true; } y += P_ROW + 10; }
+        #undef SL
+        #undef ROW
+        #undef SECTION
+        #undef CL
     }
-    if (e->msg_t > 0) ui_label(ui, x, h - 40, e->msg, v4(1, 0.85f, 0.4f, 1));
-    ui_label(ui, x, h - 22, "game window: WASD+QE fly, right-drag look, wheel speed, click place/select, drag move, R rotate, [ ] scale, X delete, G dup, F fly to", v4(0.55f, 0.55f, 0.5f, 1));
+    e->pcontent[tab] = y - content_top;
+    ui->in = saved_in;
+    if (in_content) { ui->in.mx = -1e6f; ui->in.my = -1e6f; ui->in.pressed = false; }   // content owned the mouse
+    // header and tabs, over the scrolled content
+    Vec4 bg = v4(0.05f, 0.05f, 0.07f, 1);
+    gfx_ui_rect(ui->g, 0, 0, w, head_h - 4, bg);
+    y = P_M;
+    ui_header(ui, x, y, e->dirty ? "ENVIRONMENT EDITOR  * unsaved" : "ENVIRONMENT EDITOR"); y += 32;
+    {
+        float bw = row_w(w, 5);
+        if (ui_button(ui, x, y, bw, P_ROW, e->tab == 0 ? "[ PLACE ]" : "PLACE")) e->tab = 0;
+        if (ui_button(ui, x + (bw + P_G), y, bw, P_ROW, e->tab == 1 ? "[ LOOK ]" : "LOOK")) e->tab = 1;
+        if (ui_button(ui, x + 2 * (bw + P_G), y, bw, P_ROW, e->tab == 2 ? "[ TERRAIN ]" : "TERRAIN")) e->tab = 2;
+        if (ui_button(ui, x + 3 * (bw + P_G), y, bw, P_ROW, "UNDO ^Z")) pop_undo(e, lv);
+        if (ui_button(ui, x + 4 * (bw + P_G), y, bw, P_ROW, "SAVE ^S")) leveled_save(e, lv, tr);
+    }
+    if (max_scroll > 0) {   // scroll bar at the right edge of the content area
+        float bh = view_h * view_h / (e->pcontent[tab] > 0 ? e->pcontent[tab] : 1), by = head_h + (view_h - bh) * (e->pscroll[tab] / max_scroll);
+        gfx_ui_rect(ui->g, w - 6, head_h, 4, view_h, v4(0.12f, 0.12f, 0.14f, 1));
+        gfx_ui_rect(ui->g, w - 6, by, 4, fmaxf(bh, 16), v4(0.45f, 0.43f, 0.40f, 1));
+    }
+    // footer
+    gfx_ui_rect(ui->g, 0, h - foot_h, w, foot_h, bg);
+    if (e->msg_t > 0) ui_label_fit(ui, x, h - 72, w - 2 * P_M, e->msg, v4(1, 0.85f, 0.4f, 1));
+    ui_label_fit(ui, x, h - 48, w - 2 * P_M, "GAME WINDOW   WASD + QE fly, right-drag look, wheel speed, wheel here scrolls", v4(0.5f, 0.48f, 0.45f, 1));
+    ui_label_fit(ui, x, h - 28, w - 2 * P_M, "click place / select, drag move, R rotate, [ ] scale, X delete, G duplicate, F fly to", v4(0.5f, 0.48f, 0.45f, 1));
+    ui->in = saved_in;
 }
 
 bool leveled_save(LevelEd *e, Level *lv, Terrain *tr) {

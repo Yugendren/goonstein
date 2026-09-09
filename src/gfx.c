@@ -11,6 +11,9 @@
 #include "vendor/stb_image_write.h"
 #define STB_EASY_FONT_IMPLEMENTATION
 #include "vendor/stb_easy_font.h"
+#define STB_TRUETYPE_IMPLEMENTATION
+#define STBTT_STATIC
+#include "vendor/stb_truetype.h"
 
 #define HDR_FMT SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT
 #define LDR_FMT SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM
@@ -279,6 +282,9 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->material = material_default();
     g->sprite_lean = SDL_getenv("HOLLOW_LEAN") ? (float)atof(SDL_getenv("HOLLOW_LEAN")) : 0.5f;
     g->pix_levels = 8; g->pix_outline = 1; g->pix_inner = 0.6f;
+    g->ui2_scale = 1;
+    { char fp[512]; snprintf(fp, sizeof fp, "%s/fonts/VT323-Regular.ttf", HOLLOW_ASSET_DIR); size_t n = 0; g->ttf = SDL_LoadFile(fp, &n);
+      if (!g->ttf) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "tool font missing (%s); using the debug font", fp); }
     return true;
 }
 
@@ -295,6 +301,9 @@ void gfx_shutdown(Gfx *g) {
     SDL_ReleaseGPUTexture(g->dev, g->hdr); SDL_ReleaseGPUTexture(g->dev, g->depth); SDL_ReleaseGPUTexture(g->dev, g->ldr);
     SDL_ReleaseGPUTexture(g->dev, g->bloom_a); SDL_ReleaseGPUTexture(g->dev, g->bloom_b);
     if (g->pix) SDL_ReleaseGPUTexture(g->dev, g->pix); if (g->pix_depth) SDL_ReleaseGPUTexture(g->dev, g->pix_depth);
+    for (int i = 0; i < g->nfonts; i++) { gfx_texture_destroy(g, &g->fonts[i].tex); free(g->fonts[i].cdata); }
+    if (g->ttf) SDL_free(g->ttf);
+    if (g->tool_shot) SDL_ReleaseGPUTexture(g->dev, g->tool_shot);
     SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_pixcomp);
 }
 
@@ -533,19 +542,66 @@ void gfx_ground_quad(Gfx *g, Vec3 c, float radius, Vec4 color, bool additive) {
 
 // ---------------------------------------------------------------- ui
 
-void gfx_ui_target(Gfx *g, int target) { g->ui_target = target; }
+static void ui_batch(Gfx *g, const Texture *t);
+static void ui_push(Gfx *g, float x, float y, float u, float v, Vec4 c);
+static Gfx *font_gfx; static bool font_mode;   // gfx_ui_text_width has no Gfx parameter; text mode follows the UI target
+void gfx_ui_target(Gfx *g, int target) { g->ui_target = target; font_gfx = g; font_mode = target == 1 && g->ttf != NULL; }
+void gfx_ui_set_transform(Gfx *g, float scale, float ox, float oy) { g->ui2_scale = scale > 0 ? scale : 1; g->ui2_ox = ox; g->ui2_oy = oy; }
+
+// ---------------------------------------------------------------- tool window font
+#define FONT_ATLAS 512
+#define FONT_PX(scale) ((int)((scale) * 17.0f + 0.5f))
+static struct UiFont *font_get(Gfx *g, int px) {
+    if (!g->ttf) return NULL;
+    if (px < 8) px = 8; if (px > 64) px = 64;
+    for (int i = 0; i < g->nfonts; i++) if (g->fonts[i].px == px) return &g->fonts[i];
+    if (g->nfonts >= 8) return &g->fonts[0];
+    struct UiFont *f = &g->fonts[g->nfonts];
+    unsigned char *alpha = malloc(FONT_ATLAS * FONT_ATLAS);
+    stbtt_bakedchar *cd = malloc(96 * sizeof *cd);
+    if (!alpha || !cd) { free(alpha); free(cd); return NULL; }
+    if (stbtt_BakeFontBitmap(g->ttf, 0, (float)px, alpha, FONT_ATLAS, FONT_ATLAS, 32, 96, cd) <= 0) { free(alpha); free(cd); return NULL; }
+    unsigned char *rgba = malloc(FONT_ATLAS * FONT_ATLAS * 4);
+    for (int i = 0; i < FONT_ATLAS * FONT_ATLAS; i++) { rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = 255; rgba[i * 4 + 3] = alpha[i]; }
+    f->tex = gfx_texture_create(g, rgba, FONT_ATLAS, FONT_ATLAS); free(rgba); free(alpha);
+    f->cdata = cd; f->px = px;
+    stbtt_fontinfo info; stbtt_InitFont(&info, g->ttf, 0);
+    int asc, desc, gap; stbtt_GetFontVMetrics(&info, &asc, &desc, &gap);
+    f->ascent = (float)asc * stbtt_ScaleForPixelHeight(&info, (float)px);
+    g->nfonts++;
+    return f;
+}
+static float font_width(Gfx *g, int px, const char *text) {
+    struct UiFont *f = font_get(g, px); if (!f) return 0;
+    const stbtt_bakedchar *cd = f->cdata; float w = 0;
+    for (const unsigned char *c = (const unsigned char *)text; *c; c++) { int ch = *c < 32 || *c > 126 ? '?' : *c; w += cd[ch - 32].xadvance; }
+    return w;
+}
+static void font_draw(Gfx *g, float x, float y, int px, Vec4 color, const char *text) {
+    struct UiFont *f = font_get(g, px); if (!f) return;
+    ui_batch(g, &f->tex);
+    float pen_x = floorf(x), pen_y = floorf(y + f->ascent);
+    for (const unsigned char *c = (const unsigned char *)text; *c; c++) {
+        int ch = *c < 32 || *c > 126 ? '?' : *c;
+        stbtt_aligned_quad q; stbtt_GetBakedQuad((stbtt_bakedchar *)f->cdata, FONT_ATLAS, FONT_ATLAS, ch - 32, &pen_x, &pen_y, &q, 1);
+        ui_push(g, q.x0, q.y0, q.s0, q.t0, color); ui_push(g, q.x1, q.y0, q.s1, q.t0, color); ui_push(g, q.x1, q.y1, q.s1, q.t1, color);
+        ui_push(g, q.x0, q.y0, q.s0, q.t0, color); ui_push(g, q.x1, q.y1, q.s1, q.t1, color); ui_push(g, q.x0, q.y1, q.s0, q.t1, color);
+    }
+}
+float gfx_ui_line_h(float scale) { return font_mode ? (float)FONT_PX(scale) : 7.0f * scale + 2.0f; }
+void gfx_tool_screenshot_request(Gfx *g, int w, int h) { g->want_tool_shot = true; g->tool_shot_w = w; g->tool_shot_h = h; }
 
 static void ui_batch(Gfx *g, const Texture *t) {
     if (g->ui_target == 1) {
         if (g->ui2_nbatches > 0 && g->ui2_batches[g->ui2_nbatches - 1].tex == t) return;
-        if (g->ui2_nbatches >= 64) return;
+        if (g->ui2_nbatches >= UI_MAX_BATCHES) return;
         g->ui2_batches[g->ui2_nbatches].tex = t; g->ui2_batches[g->ui2_nbatches].start = g->ui2_count; g->ui2_batches[g->ui2_nbatches].count = 0;
         g->ui2_nbatches++;
         return;
     }
     // Extend the current batch if it uses the same texture, else start a new one
     if (g->ui_nbatches > 0 && g->ui_batches[g->ui_nbatches - 1].tex == t) return;
-    if (g->ui_nbatches >= 64) return;
+    if (g->ui_nbatches >= UI_MAX_BATCHES) return;
     g->ui_batches[g->ui_nbatches].tex = t; g->ui_batches[g->ui_nbatches].start = g->ui_count; g->ui_batches[g->ui_nbatches].count = 0;
     g->ui_nbatches++;
 }
@@ -555,7 +611,7 @@ static void ui_push(Gfx *g, float x, float y, float u, float v, Vec4 c) {
         if (g->ui2_nbatches == 0) ui_batch(g, &g->white);
         g->ui2_batches[g->ui2_nbatches - 1].count++;
         UIVertex *o2 = &g->ui2_verts[g->ui2_count++];
-        o2->pos[0] = x; o2->pos[1] = y; o2->uv[0] = u; o2->uv[1] = v;
+        o2->pos[0] = x * g->ui2_scale + g->ui2_ox; o2->pos[1] = y * g->ui2_scale + g->ui2_oy; o2->uv[0] = u; o2->uv[1] = v;
         o2->color[0] = c.x; o2->color[1] = c.y; o2->color[2] = c.z; o2->color[3] = c.w;
         return;
     }
@@ -572,6 +628,7 @@ void gfx_ui_rect(Gfx *g, float x, float y, float w, float h, Vec4 c) {
     ui_push(g, x, y, 0, 0, c); ui_push(g, x + w, y + h, 1, 1, c); ui_push(g, x, y + h, 0, 1, c);
 }
 void gfx_ui_text(Gfx *g, float x, float y, float scale, Vec4 c, const char *text) {
+    if (g->ui_target == 1 && g->ttf) { font_draw(g, x, y, FONT_PX(scale), c, text); return; }
     ui_batch(g, &g->white);
     static char buf[64 * 1024];
     int quads = stb_easy_font_print(0, 0, (char *)text, NULL, buf, sizeof buf);
@@ -583,7 +640,7 @@ void gfx_ui_text(Gfx *g, float x, float y, float scale, Vec4 c, const char *text
         ui_push(g, px[0], py[0], 0, 0, c); ui_push(g, px[2], py[2], 0, 0, c); ui_push(g, px[3], py[3], 0, 0, c);
     }
 }
-float gfx_ui_text_width(float scale, const char *text) { return stb_easy_font_width((char *)text) * scale; }
+float gfx_ui_text_width(float scale, const char *text) { if (font_mode && font_gfx) return font_width(font_gfx, FONT_PX(scale), text); return stb_easy_font_width((char *)text) * scale; }
 
 void gfx_ui_quad(Gfx *g, const float *q, Vec4 c) {
     ui_batch(g, &g->white);
@@ -744,6 +801,27 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
         SDL_GPUViewport vpt = { .x = (sw - vw) * 0.5f, .y = (sh - vh) * 0.5f, .w = vw, .h = vh, .min_depth = 0, .max_depth = 1 };
         fullscreen_pass(g, pf->cmd, g->pipe_blit, pf->swapchain, &(SDL_GPUTextureSamplerBinding){ .texture = g->ldr, .sampler = g->samp_clamp }, 1, NULL, 0, &vpt);
     }
+    // Tool window screenshot: the same UI list into an offscreen texture
+    if (g->want_tool_shot && g->ui2_count > 0) {
+        if (!g->tool_shot) g->tool_shot = make_target(g, LDR_FMT, g->tool_shot_w, g->tool_shot_h, false);
+        void *map = SDL_MapGPUTransferBuffer(g->dev, g->ui2_xfer, true);
+        memcpy(map, g->ui2_verts, g->ui2_count * sizeof(UIVertex));
+        SDL_UnmapGPUTransferBuffer(g->dev, g->ui2_xfer);
+        SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(pf->cmd);
+        SDL_UploadToGPUBuffer(cp, &(SDL_GPUTransferBufferLocation){ .transfer_buffer = g->ui2_xfer }, &(SDL_GPUBufferRegion){ .buffer = g->ui2_vb, .size = g->ui2_count * (Uint32)sizeof(UIVertex) }, true);
+        SDL_EndGPUCopyPass(cp);
+        SDL_GPUColorTargetInfo ct = { .texture = g->tool_shot, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE, .clear_color = { 0.05f, 0.05f, 0.07f, 1 } };
+        SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(pf->cmd, &ct, 1, NULL);
+        SDL_BindGPUGraphicsPipeline(pass, g->pipe_ui);
+        SDL_PushGPUVertexUniformData(pf->cmd, 0, &(Vec4){ (float)g->tool_shot_w, (float)g->tool_shot_h, 0, 0 }, sizeof(Vec4));
+        SDL_BindGPUVertexBuffers(pass, 0, &(SDL_GPUBufferBinding){ .buffer = g->ui2_vb }, 1);
+        for (int i = 0; i < g->ui2_nbatches; i++) {
+            if (g->ui2_batches[i].count == 0) continue;
+            SDL_BindGPUFragmentSamplers(pass, 0, &(SDL_GPUTextureSamplerBinding){ .texture = g->ui2_batches[i].tex->tex, .sampler = g->samp_nearest }, 1);
+            SDL_DrawGPUPrimitives(pass, g->ui2_batches[i].count, 1, g->ui2_batches[i].start, 0);
+        }
+        SDL_EndGPURenderPass(pass);
+    }
     // Debugger window: its own UI list, drawn straight into its swapchain in a 720x820 coordinate space
     if (pf->console_swap) {
         SDL_GPUColorTargetInfo ct = { .texture = pf->console_swap, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE, .clear_color = { 0.05f, 0.05f, 0.07f, 1 } };
@@ -770,6 +848,22 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
         SDL_EndGPURenderPass(pass);
     }
 }
+
+static bool save_texture(Gfx *g, SDL_GPUTexture *tex, int w, int h, const char *path) {
+    Uint32 size = (Uint32)(w * h * 4);
+    SDL_GPUTransferBuffer *xfer = SDL_CreateGPUTransferBuffer(g->dev, &(SDL_GPUTransferBufferCreateInfo){ .usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, .size = size });
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(g->dev);
+    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
+    SDL_DownloadFromGPUTexture(cp, &(SDL_GPUTextureRegion){ .texture = tex, .w = (Uint32)w, .h = (Uint32)h, .d = 1 }, &(SDL_GPUTextureTransferInfo){ .transfer_buffer = xfer });
+    SDL_EndGPUCopyPass(cp);
+    SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+    SDL_WaitForGPUFences(g->dev, true, &fence, 1); SDL_ReleaseGPUFence(g->dev, fence);
+    void *map = SDL_MapGPUTransferBuffer(g->dev, xfer, false);
+    int ok = stbi_write_png(path, w, h, 4, map, w * 4);
+    SDL_UnmapGPUTransferBuffer(g->dev, xfer); SDL_ReleaseGPUTransferBuffer(g->dev, xfer);
+    return ok != 0;
+}
+bool gfx_tool_screenshot_save(Gfx *g, const char *path) { return g->tool_shot && save_texture(g, g->tool_shot, g->tool_shot_w, g->tool_shot_h, path); }
 
 bool gfx_screenshot(Gfx *g, const char *path) {
     Uint32 size = (Uint32)(g->iw * g->ih * 4);

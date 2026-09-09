@@ -40,6 +40,7 @@ typedef struct PostParams {
 } PostParams;
 
 #define UI_MAX_VERTS 262144
+#define UI_MAX_BATCHES 2048   // text and rects alternate textures, so panels make many small batches
 #define P_MAX_VERTS  (4096 * 6)
 
 typedef struct Gfx {
@@ -58,11 +59,16 @@ typedef struct Gfx {
     SDL_GPUSampler *samp_nearest, *samp_linear, *samp_clamp;
     SDL_GPUBuffer *ui_vb, *p_vb; SDL_GPUTransferBuffer *ui_xfer, *p_xfer;
     UIVertex *ui_verts; Uint32 ui_count;
-    struct { const Texture *tex; Uint32 start, count; } ui_batches[64]; int ui_nbatches;
+    struct { const Texture *tex; Uint32 start, count; } ui_batches[UI_MAX_BATCHES]; int ui_nbatches;
     // second UI list for the debugger window
-    UIVertex *ui2_verts; Uint32 ui2_count; struct { const Texture *tex; Uint32 start, count; } ui2_batches[64]; int ui2_nbatches;
+    UIVertex *ui2_verts; Uint32 ui2_count; struct { const Texture *tex; Uint32 start, count; } ui2_batches[UI_MAX_BATCHES]; int ui2_nbatches;
     SDL_GPUBuffer *ui2_vb; SDL_GPUTransferBuffer *ui2_xfer; SDL_GPUGraphicsPipeline *pipe_ui_swap;
     int ui_target;   // 0 = game screen, 1 = debugger window
+    float ui2_scale, ui2_ox, ui2_oy;   // transform applied to tool-window UI coordinates (gfx_ui_set_transform)
+    // tool window font: VT323 baked at a few pixel sizes on demand
+    struct UiFont { int px; Texture tex; void *cdata; float ascent; } fonts[8]; int nfonts;
+    unsigned char *ttf;
+    SDL_GPUTexture *tool_shot; int tool_shot_w, tool_shot_h; bool want_tool_shot;
     PVertex *p_add, *p_alpha; Uint32 p_add_count, p_alpha_count;
     Texture white, soft;                          // 1x1 white, soft radial disc
     Mesh cube, quad;
@@ -114,8 +120,16 @@ void gfx_ui_quad(Gfx *g, const float *xy8, Vec4 color);
 void gfx_ui_text_xf(Gfx *g, float cx, float cy, float scale, float angle, Vec4 color, const char *text);  // centred, rotated
 void gfx_ui_ring(Gfx *g, float cx, float cy, float radius, float thickness, Vec4 color);
 void gfx_ui_disc(Gfx *g, float cx, float cy, float radius, Vec4 color);
-// Route subsequent UI calls to the game screen (0) or the debugger window (1).
+// Route subsequent UI calls to the game screen (0) or the tool window (1). In the tool window,
+// text is drawn with the VT323 font (scale 1 = 17 px) instead of the debug font.
 void gfx_ui_target(Gfx *g, int target);
+// Scale and offset applied to all tool-window UI coordinates (for panels laid out in a fixed logical size).
+void gfx_ui_set_transform(Gfx *g, float scale, float ox, float oy);
+// Font metrics for layout: line height of text at `scale` for the current target.
+float gfx_ui_line_h(float scale);
+// Save the tool window's UI as a PNG (rendered offscreen at the next gfx_end).
+void gfx_tool_screenshot_request(Gfx *g, int w, int h);
+bool gfx_tool_screenshot_save(Gfx *g, const char *path);
 // Textured UI image (nearest sampled, alpha blended). uv = u0 v0 u1 v1, or NULL for the whole texture.
 void gfx_ui_image(Gfx *g, const Texture *t, float x, float y, float w, float h, const float *uv, Vec4 color);
 

@@ -63,6 +63,9 @@ bool platform_poll(Platform *pf) {
             if (pf->console_win && e.window.windowID == SDL_GetWindowID(pf->console_win)) platform_console_window(pf, false);
             else if (e.window.windowID == SDL_GetWindowID(pf->window)) return false;
             break;
+        case SDL_EVENT_WINDOW_RESIZED:
+            if (pf->console_win && e.window.windowID == SDL_GetWindowID(pf->console_win)) { pf->tool_w = e.window.data1; pf->tool_h = e.window.data2; }
+            break;
         case SDL_EVENT_WINDOW_FOCUS_GAINED:
         case SDL_EVENT_WINDOW_FOCUS_LOST:
             pf->tool_focus = pf->console_win && e.window.windowID == SDL_GetWindowID(pf->console_win) && e.type == SDL_EVENT_WINDOW_FOCUS_GAINED;
@@ -192,26 +195,52 @@ void platform_end_frame(Platform *pf) {
     pf->swapchain = NULL;
 }
 
-void platform_tool_window(Platform *pf, bool open, int w, int h, const char *title) {
-    if (open && pf->console_win) {
-        if (pf->tool_w != w || pf->tool_h != h) SDL_SetWindowSize(pf->console_win, w, h);
-        SDL_SetWindowTitle(pf->console_win, title);
-        pf->tool_w = w; pf->tool_h = h; pf->console = true;
-        return;
-    }
-    pf->tool_w = w; pf->tool_h = h;
+// Tile: the game window on the left, the tool window on the right, together filling the display
+// the game is on. The game keeps its aspect through letterboxing, so any split works.
+static void tile_windows(Platform *pf, float share, int *tw, int *th, int *tx, int *ty) {
+    SDL_Rect r; SDL_DisplayID d = SDL_GetDisplayForWindow(pf->window);
+    if (!d || !SDL_GetDisplayUsableBounds(d, &r)) { r = (SDL_Rect){ 0, 0, 1440, 900 }; }
+    if (!pf->game_rect_saved) { SDL_GetWindowPosition(pf->window, &pf->saved_game_rect.x, &pf->saved_game_rect.y); SDL_GetWindowSize(pf->window, &pf->saved_game_rect.w, &pf->saved_game_rect.h); pf->game_rect_saved = true; }
+    int gap = 8;
+    *tw = (int)((float)(r.w - gap) * share); *th = r.h;
+    int gw = r.w - gap - *tw, gh = r.h;
+    if (gw > (int)(gh * 1.6f)) gw = (int)(gh * 1.6f); else gh = (int)(gw / 1.6f);
+    SDL_SetWindowSize(pf->window, gw, gh);
+    SDL_SetWindowPosition(pf->window, r.x, r.y + (r.h - gh) / 2);
+    *tx = r.x + gw + gap; *ty = r.y;
+}
+
+void platform_tool_window_share(Platform *pf, bool open, float share, const char *title) {
+    if (open && pf->console_win) { SDL_SetWindowTitle(pf->console_win, title); pf->console = true; return; }
     if (open && !pf->console_win && !SDL_getenv("HOLLOW_CONSOLE_INLINE")) {
+        int w = 720, h = 820, x = 0, y = 0;
+        bool tiled = !SDL_getenv("HOLLOW_NO_TILE") && !SDL_getenv("HOLLOW_TOOL_SIZE");
+        if (SDL_getenv("HOLLOW_TOOL_SIZE")) sscanf(SDL_getenv("HOLLOW_TOOL_SIZE"), "%d %d", &w, &h);   // headless layout checks: "w h" in points
+        if (tiled) tile_windows(pf, share, &w, &h, &x, &y);
         pf->console_win = SDL_CreateWindow(title, w, h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
         if (pf->console_win && !SDL_ClaimWindowForGPUDevice(pf->gpu, pf->console_win)) { SDL_DestroyWindow(pf->console_win); pf->console_win = NULL; }
-        if (pf->console_win) SDL_SetGPUSwapchainParameters(pf->gpu, pf->console_win, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
-        if (!pf->console_win) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "tool window failed: %s (falling back to in-game panel)", SDL_GetError());
+        if (pf->console_win) {
+            SDL_SetGPUSwapchainParameters(pf->gpu, pf->console_win, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
+            if (tiled) SDL_SetWindowPosition(pf->console_win, x, y);
+            SDL_GetWindowSize(pf->console_win, &pf->tool_w, &pf->tool_h);
+        } else {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "tool window failed: %s (falling back to in-game panel)", SDL_GetError());
+            pf->tool_w = w; pf->tool_h = h;
+        }
         SDL_RaiseWindow(pf->window);
     } else if (!open && pf->console_win) {
         SDL_WaitForGPUIdle(pf->gpu);
         SDL_ReleaseWindowFromGPUDevice(pf->gpu, pf->console_win);
         SDL_DestroyWindow(pf->console_win); pf->console_win = NULL; pf->console_swap = NULL;
+        if (pf->game_rect_saved) { SDL_SetWindowSize(pf->window, pf->saved_game_rect.w, pf->saved_game_rect.h); SDL_SetWindowPosition(pf->window, pf->saved_game_rect.x, pf->saved_game_rect.y); pf->game_rect_saved = false; }
     }
     pf->console = open;
+}
+
+void platform_tool_window(Platform *pf, bool open, int w, int h, const char *title) {
+    // legacy entry: the requested size only picks the split (wide tools get more of the screen)
+    (void)h;
+    platform_tool_window_share(pf, open, w >= 1000 ? 0.62f : 0.42f, title);
 }
 
 void platform_console_window(Platform *pf, bool open) { platform_tool_window(pf, open, pf->tool_w > 0 ? pf->tool_w : 720, pf->tool_h > 0 ? pf->tool_h : 820, "hollow debugger"); }
