@@ -21,6 +21,7 @@ static Vec3 orbit_dir(float yaw, float pitch) {
 }
 
 void camera_orbit(Camera *c, Vec3 pp, float look_x, float look_y, bool has_lock, Vec3 lock_pos, const Level *lv, float dt) {
+    if (c->mode != CAM_ORBIT) { c->pitch = 0.32f; c->cur_dist = c->dist = 5.5f; }   // entering from a scene or the fixed view: settle behind the player at a readable pitch
     c->mode = CAM_ORBIT;
     c->has_lock = has_lock; c->lock_pos = lock_pos;
     if (!has_lock) c->locked = false;
@@ -30,11 +31,11 @@ void camera_orbit(Camera *c, Vec3 pp, float look_x, float look_y, bool has_lock,
         Vec3 to = v3_sub(lock_pos, pp); to.y = 0;
         float want = v3_len(to) > 0.3f ? atan2f(to.x, to.z) : c->yaw;
         c->yaw = angle_damp(c->yaw, want, 8, dt);
-        c->pitch = damp(c->pitch, 0.42f, 4, dt);
-        pivot = v3_lerp(pivot, v3(lock_pos.x, lock_pos.y + 1.4f, lock_pos.z), 0.3f);
-        // Big targets need room: pull back as the distance to the target grows.
+        c->pitch = damp(c->pitch, 0.30f, 4, dt);
+        pivot = v3_lerp(pivot, v3(lock_pos.x, lock_pos.y + 1.4f, lock_pos.z), 0.25f);
+        // Big targets need room: pull back as the distance to the target grows, but stay close enough for a walled arena.
         float far_k = clampf((v3_len(to) - 3.0f) / 8.0f, 0, 1);
-        c->dist = lerpf(8.5f, 11.0f, far_k);
+        c->dist = lerpf(6.0f, 8.0f, far_k);
     } else {
         c->yaw -= look_x * MOUSE_SENS;   // mouse right turns the view toward the right hand (-X when facing +Z)
         c->pitch = clampf(c->pitch + look_y * MOUSE_SENS, PITCH_MIN, PITCH_MAX);

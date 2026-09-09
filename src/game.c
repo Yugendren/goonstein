@@ -336,24 +336,37 @@ static void bot_input(Game *g, Input *in) {
         return;
     }
     if (g->state == GS_SCENE) { in->skip = g->tick % 30 == 0; return; }   // skip cutscenes quickly
+    in->sprint = false; in->rmouse_held = false; in->parry_age = 0;
     if (g->state != GS_FIGHT || p->state == PS_DEAD) return;
     Vec3 d = v3_sub(b->c.pos, p->c.pos); d.y = 0; float dist = v3_len(d);
-    if (b->state == BS_WINDUP) {
+    // Guard the swing: hold block through the windup, then tap the deflect so the press lands
+    // inside the window that closes on the boss's contact frame. Unblockables get dodged instead.
+    if (b->state == BS_WINDUP || b->state == BS_ACTIVE) {
         const BossMove *m = &b->def.moves[b->move];
         float w = m->windup * (b->phase2 ? b->def.phase2_windup_mult : 1.0f);
-        float remaining = w - b->t + m->active * 0.5f;
-        if (m->parryable && remaining < p->def.parry_window * 0.6f && p->state == PS_FREE) in->parry = true;
-        else if (!m->parryable && remaining < 0.25f && p->state == PS_FREE) in->dodge = true;
-        return;
+        float remaining = b->state == BS_WINDUP ? w - b->t + m->active * 0.5f : m->active * 0.5f - b->t;
+        bool in_reach = dist <= m->range + p->c.radius + m->step + 0.6f;
+        bool can_act = p->state == PS_FREE || p->state == PS_PARRY || (p->state == PS_ATTACK && p->hit_applied);
+        if (!m->parryable) {
+            if (remaining < 0.24f && remaining > -0.05f && in_reach && can_act) in->dodge = true;
+        } else if (in_reach && can_act) {
+            if (remaining <= p->def.parry_window * 0.6f && remaining > 0.0f) in->parry = true;
+            else if (remaining > 0.0f) in->rmouse_held = true;    // guard up while the swing travels
+        }
+        if (in->dodge || in->parry || in->rmouse_held) return;
     }
-    if (p->state == PS_FREE) {
-        if (dist > p->def.attack_range + b->c.radius - 0.2f) {
+    bool openings = b->state == BS_RECOVER || b->state == BS_STAGGER || b->state == BS_IDLE || b->state == BS_APPROACH;
+    if (p->state == PS_FREE || (p->state == PS_ATTACK && p->hit_applied)) {
+        float reach = p->def.attack_range + b->c.radius - 0.25f;
+        if (dist > reach) {
             // camera-relative input: convert world direction back through the camera basis
             Vec3 f = v3(sinf(g->cam.yaw), 0, cosf(g->cam.yaw));
             Vec3 r = v3(-f.z, 0, f.x);
             Vec3 n = v3_scale(d, 1.0f / dist);
             in->move_x = v3_dot(n, r); in->move_y = -v3_dot(n, f);
-        } else if (b->state != BS_ACTIVE) in->attack = true;
+            if (dist > reach + 1.2f) in->sprint = true;                  // close the gap, and dash-attack out of it
+            if (openings && dist < reach + 2.0f) in->attack = true;
+        } else if (openings) in->attack = true;                          // punish recovery; the buffer chains the swings
     }
 }
 
@@ -371,7 +384,9 @@ static void readout(Game *g, const char *text, float dur) { snprintf(g->hit_text
 static void apply_events(Game *g, const CombatEvents *ev) {
     if (g->bot) {
         if (ev->boss_swing) SDL_Log("t=%.2f boss swing %s", g->time, g->boss.def.moves[g->boss.move].name);
-        if (ev->parried) SDL_Log("t=%.2f PARRY  boss posture %.0f", g->time, g->boss.c.posture);
+        if (ev->parried) SDL_Log("t=%.2f DEFLECT  boss posture %.0f", g->time, g->boss.c.posture);
+        if (ev->player_blocked) SDL_Log("t=%.2f blocked, player posture %.0f", g->time, g->player.c.posture);
+        if (ev->player_staggered) SDL_Log("t=%.2f PLAYER POSTURE BROKEN", g->time);
         if (ev->player_hit) SDL_Log("t=%.2f player hit, hp %.0f", g->time, g->player.c.hp);
         if (ev->boss_hit) SDL_Log("t=%.2f boss hit, hp %.0f", g->time, g->boss.c.hp);
         if (ev->boss_staggered) SDL_Log("t=%.2f BOSS STAGGERED", g->time);
@@ -390,6 +405,16 @@ static void apply_events(Game *g, const CombatEvents *ev) {
         screen_flash(g, v3(1, 1, 0.9f), 0.22f);
     }
     if (ev->parry_whiff) audio_play(SND_WHIFF, 0.6f, 1.0f);
+    if (ev->player_blocked) {
+        audio_play(SND_PARRY, 0.7f, 0.7f);
+        particles_burst(&g->particles, PT_SPARK, ev->contact, v3(0, 0.4f, 0), 14, 4.0f, v3(1.6f, 1.4f, 1.0f), 0.06f, 0.35f);
+        screen_flash(g, v3(0.8f, 0.85f, 1), 0.10f);
+        readout(g, "BLOCKED", 0.5f);
+    }
+    if (ev->player_staggered) {
+        audio_play(SND_STAGGER, 1.0f, 1.3f); audio_play(SND_FAIL, 0.8f, 1.0f);
+        readout(g, "GUARD BROKEN", 1.2f); screen_flash(g, v3(1, 0.5f, 0.3f), 0.35f);
+    }
     if (ev->player_hit) {
         g->hits_taken++;
         particles_burst(&g->particles, PT_SPARK, ev->contact, v3(0, 0.4f, 0), 16, 4.0f, v3(2.5f, 0.3f, 0.2f), 0.08f, 0.6f);
@@ -409,6 +434,20 @@ static void apply_events(Game *g, const CombatEvents *ev) {
 
 // ---------------------------------------------------------------- tick
 
+// The orbit camera collides with blocks; the terrain is handled here by lifting the eye above the ground.
+static void camera_above_terrain(Game *g) {
+    if (!g->terrain.present) return;
+    // march from the pivot out to the eye; stop short of the first point that dips under the ground
+    Vec3 a = g->cam.target, b = g->cam.eye; float keep = 1.0f;
+    for (int i = 1; i <= 16; i++) {
+        float k = (float)i / 16; Vec3 p = v3_lerp(a, b, k);
+        if (p.y < terrain_height(&g->terrain, p.x, p.z) + 0.5f) { keep = fmaxf(0.15f, (float)(i - 1) / 16); break; }
+    }
+    if (keep < 1.0f) { g->cam.eye = v3_lerp(a, b, keep); g->cam.cur_dist *= keep; }
+    float floor_y = terrain_height(&g->terrain, g->cam.eye.x, g->cam.eye.z) + 0.5f;
+    if (g->cam.eye.y < floor_y) g->cam.eye.y = floor_y;
+}
+
 static void tick_explore(Game *g, const Input *in, float dt) {
     CombatEvents ev = {0};
     Vec3 dir = camera_move_dir(&g->cam, in->move_x, in->move_y);
@@ -416,7 +455,8 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     snap_to_terrain(g);
     apply_events(g, &ev);
     { const Look *ck = &g->level.look; camera_iso_set(ck->cam_pitch, ck->cam_dist, ck->cam_fov, ck->cam_yaw); if (SDL_getenv("HOLLOW_CAM")) { float a = ck->cam_pitch, b = ck->cam_dist, c = ck->cam_fov, d = ck->cam_yaw; sscanf(SDL_getenv("HOLLOW_CAM"), "%f %f %f %f", &a, &b, &c, &d); camera_iso_set(a, b, c, d); } }
-    camera_iso(&g->cam, g->player.c.pos, &g->level, dt);
+    if (g->level.third_person) { camera_orbit(&g->cam, g->player.c.pos, in->look_x, in->look_y, false, v3(0, 0, 0), &g->level, dt); camera_above_terrain(g); }   // view third: behind the hero, mouse look
+    else camera_iso(&g->cam, g->player.c.pos, &g->level, dt);
     Trigger *t = level_trigger_at(&g->level, g->player.c.pos);
     if (t) {
         dbg_log("trigger %s at %.1f %.1f", t->name, g->player.c.pos.x, g->player.c.pos.z);
@@ -482,6 +522,9 @@ static void tick_scene(Game *g, const Input *in, float dt) {
 
 static void tick_fight(Game *g, const Input *in, float dt) {
     CombatEvents ev = {0};
+    // Swing timing follows the hero's own clips: each swing connects on the frame its blade lands.
+    { static const Anim SWINGS[PLAYER_SWINGS] = { ANIM_ATTACK, ANIM_ATTACK2, ANIM_ATTACK3, ANIM_ATTACK_RUN };
+      for (int i = 0; i < PLAYER_SWINGS; i++) { float contact; if (charmodel_clip_timing(&g->player_model, SWINGS[i], &contact, NULL)) g->player.swing_lead[i] = contact; } }
     Vec3 dir = camera_move_dir(&g->cam, in->move_x, in->move_y);
     player_update(&g->player, in, dir, &g->level, &g->boss, dt, &ev);
     boss_update(&g->boss, &g->player, &g->level, dt, &ev);
@@ -490,6 +533,7 @@ static void tick_fight(Game *g, const Input *in, float dt) {
     apply_events(g, &ev);
     if (in->lockon) camera_toggle_lock(&g->cam);
     camera_orbit(&g->cam, g->player.c.pos, in->look_x, in->look_y, g->boss.state != BS_DEAD, g->boss.c.pos, &g->level, dt);
+    camera_above_terrain(g);
     g->fight_intensity = damp(g->fight_intensity, g->boss.phase2 ? 1.0f : 0.7f, 2, dt);
     audio_set_drone(0.35f);
     audio_set_fight(g->fight_intensity);
@@ -578,6 +622,11 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     }
     if (in->ctrl && in->key_down[SDL_SCANCODE_D]) g->pf->debug = !g->pf->debug;                              // wireframe overlay (F1)
     if (in->ctrl && in->key_down[SDL_SCANCODE_G]) debug_snapshot(g);                                          // snapshot (F8)
+    // Mouse look owns the cursor only while the game window itself is being played in third person.
+    { bool play = (g->state == GS_EXPLORE && g->level.third_person) || g->state == GS_FIGHT;
+      bool capture = play && g->tool_mode == 0 && !g->pf->tool_focus && !g->paused && !g->bot;
+      static int captured = -1;
+      if (captured != (int)capture) { captured = capture; platform_set_cursor(g->pf, !capture); } }
     if (g->tool_mode == 4) { charmodel_drive_player(&g->player_model, &g->player, dt); }
     if (g->tool_mode == 2 && g->leveled.open && g->state != GS_BATTLE && g->state != GS_SCENE) {
         float mx, my; platform_mouse_ui(g->pf, INTERNAL_W, INTERNAL_H, &mx, &my);
@@ -866,6 +915,7 @@ static void draw_hud(Game *g, Platform *pf) {
     if (g->state == GS_FIGHT || (g->state == GS_DEAD)) {
         // Player
         bar(x, 24, H - 40, 180, 8, g->player.c.hp / g->player.c.hp_max, v4(0.25f, 0.05f, 0.05f, 1), v4(0.75f, 0.15f, 0.12f, 1));
+        bar(x, 24, H - 30, 180, 4, g->player.c.posture / g->player.c.posture_max, v4(0.15f, 0.12f, 0.05f, 1), v4(0.95f, 0.75f, 0.25f, 1));   // posture: guard breaks when it empties
         // Boss: health and posture
         float bw = 320, bx = (W - bw) * 0.5f;
         gfx_ui_text(x, bx, H - 64, 1.0f, dim, g->boss.def.name);
@@ -1025,8 +1075,8 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         float strength = SDL_getenv("HOLLOW_NOSHADOW") ? 0 : (SDL_getenv("HOLLOW_SHADOW") ? (float)atof(SDL_getenv("HOLLOW_SHADOW")) : lk->shadow);
         Vec3 sd = v3_norm(lk->sun_dir); if (sd.y > -0.05f) strength = 0;   // sun below the horizon: no shadows
         Vec3 target = g->cam.target; float R = clampf(v3_len(v3_sub(g->cam.target, g->cam.eye)) * 2.2f, 30, 140);
-        Vec3 up = fabsf(sd.y) > 0.95f ? v3(0, 0, 1) : v3(0, 1, 0);
-        Mat4 view = m4_look_at(v3_sub(target, v3_scale(sd, 120)), target, up);
+        Vec3 sun_up = fabsf(sd.y) > 0.95f ? v3(0, 0, 1) : v3(0, 1, 0);
+        Mat4 view = m4_look_at(v3_sub(target, v3_scale(sd, 120)), target, sun_up);
         // snap the centre to shadow texels so the map does not swim as the camera moves
         float texel = 2 * R / (float)(x->shadow_size > 0 ? x->shadow_size : 2048);
         view.m[12] = roundf(view.m[12] / texel) * texel; view.m[13] = roundf(view.m[13] / texel) * texel;
@@ -1068,7 +1118,8 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         gfx_set_pixel_look(x, pix_on ? (int)pxs : 0, pxl, pxo, pxp, pxi);
         bool player_pix = pix_on && g->player_model.loaded && !g->player_model.is_sprite;
         bool boss_pix = pix_on && g->boss_model.loaded && !g->boss_model.is_sprite;
-        if (player_pix || boss_pix) {
+        bool npc_pix = pix_on && g->nnpcs > 0;
+        if (player_pix || boss_pix || npc_pix) {
             float dist = fmaxf(v3_len(v3_sub(g->cam.target, g->cam.eye)), 0.5f);
             float texel = 2.0f * dist * tanf(g->cam.fov * DEG2RAD * 0.5f) / (float)(x->ph > 0 ? x->ph : 1);
             float er = v3_dot(g->cam.eye, right), eu = v3_dot(g->cam.eye, up);
@@ -1084,6 +1135,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             gfx_set_material(x, NULL);
             gfx_pixel_end(x);
         }
+        if (!npc_pix) { gfx_set_material(x, &pm); for (int i = 0; i < g->nnpcs; i++) if (g->npcs[i].ok && !g->npcs[i].model.is_sprite) charmodel_draw(x, &g->npcs[i].model, &g->npcs[i].c, v4(1, 1, 1, 1)); }
         if (!player_pix) {
             gfx_set_material(x, &pm);
             if (g->player_model.loaded) charmodel_draw(x, &g->player_model, pc, pt);

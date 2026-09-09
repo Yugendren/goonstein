@@ -42,6 +42,7 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
     gain     r g b                             # multiplied into highlights
     shadow   strength                          # sun shadow map strength 0..1 (0 = off)
     combat   cards|realtime                    # the boss fight: card battle with rhythm parries (default) or the third-person action fight
+    view     top|third                         # overworld view: the fixed camera line (default) or behind the hero with mouse look (third person)
     camera   pitch dist fov [yaw]              # overworld camera: 36 14 32 -35 isometric (default), 25 9 50 closer over the shoulder
     style    snap outline levels pixel         # world style layer: snap the whole frame to the palette 0..1, ink depth edges 0..1,
                                                # colour levels (0 = palette instead), world pixel size (1 = off, 2..4 = pixel-art world)

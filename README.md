@@ -23,7 +23,7 @@ rebuilds are sub-second. Shaders are precompiled and committed; after editing an
 | Move          | WASD                      | Left stick       |
 | Camera        | Mouse                     | Right stick      |
 | Attack        | Left mouse (or J)         | RB               |
-| Deflect       | Right mouse (or K)        | LB               |
+| Deflect / block | Right mouse tap / hold (or K) | LB           |
 | Step dodge / sprint | Shift tap / hold (or Space) | B          |
 | Lock-on       | Middle mouse, Q or Tab    | R3               |
 | Interact      | E                         | A                |
@@ -34,6 +34,57 @@ rebuilds are sub-second. Shaders are precompiled and committed; after editing an
 | Quit          | Esc                       |                  |
 
 The layout follows Sekiro on PC. Level files also hot-reload on save while the game is running.
+
+Two views, chosen per level. `view third` (the slice) plays behind the hero with mouse look, and
+the mouse is captured while the game window is played (it is released for tool windows, pause,
+scenes and the bot). `view top` (the default) is the fixed camera from the level's `camera` line.
+The same holds for the boss: `combat realtime` is the third-person fight, `combat cards` the card battle.
+
+## Combat
+
+The real-time fight (`combat realtime` levels) is a Sekiro-shaped duel: posture, not health, is
+what you are really fighting for. `src/combat.c` owns the state machines, `assets/player.txt` and
+`assets/enemies/*.txt` own the numbers, `src/charmodel.c` turns the states into animation.
+
+**Attacking.** Left mouse swings an A / B / C chain that loops. Each swing carries the character
+forward (root motion) and the third is a slower, heavier finisher. A press is buffered for 0.2 s,
+so asking for the next swing during recovery gets it the moment the window opens rather than
+swallowing it. After the contact frame the swing can be cancelled straight into a deflect or a
+dodge; another swing has to wait for the blade to finish travelling. Attacking while sprinting
+comes out as a dash attack that closes the gap.
+
+The hit does not land on a number out of `player.txt`: it lands on the frame the animation says the
+blade does. Character files mark that frame (`anim attack CLIP contact 0.42`, a fraction of the
+clip), the fight reads it back through `charmodel_clip_timing` and times the swing to it, so
+swapping in a different hero with different clips keeps the hits honest. `attack_windup` in
+`player.txt` is only the fallback when a clip has no contact mark.
+
+**Guarding.** Tap right mouse and you deflect: a `parry_window` of 0.14 s judged against the boss's
+own contact frame, using the sub-tick age of the press (`Input.parry_age`) so a press landing
+between two ticks is judged where it actually happened. A deflect costs you almost no posture and
+takes a large bite out of the boss's — three deflects break most of a Warden combo open. Hold right
+mouse instead and you block: no health lost, but ~85% of the attack's damage goes into your posture
+bar, and the guard breaks after four or five heavy hits. A broken guard staggers you for 1.5 s and
+the boss cuts its recovery short to take the free hit. Posture regenerates when you are free or
+holding guard, and pauses for `posture_delay` after anything lands. Unblockable moves (`parry no`,
+the Warden's grab) have to be dodged.
+
+**Getting hit.** The reaction is picked by damage size — a light flinch, a head snap, or a full
+knockback that shoves you back `knockback` metres. Hitstop is 0.04 s on a light hit, 0.09 s on a
+heavy one and 0.12 s on a deflect, which is what makes a deflect feel like it stopped something.
+
+**Movement.** Locomotion is a speed-driven blend, not a switch: idle, walk, jog and sprint clips are
+mixed by the character's actual ground speed and phase-synced so the feet stay in step, with the
+cycle rate-matched to the ground so they do not skate. Everything crossfades in 0.06-0.15 s,
+including the return from an attack to idle.
+
+**The boss.** It circles the player between moves, walks in when out of range, steps in on its
+lunges and chains combos out of recovery. Every move has a telegraph colour and a windup long
+enough to read at 60 Hz; below half health the windups shorten. Breaking its posture staggers it and
+triples your damage for the duration.
+
+`--start fight --bot` runs a bot that deflects on the boss's contact frame, dodges unblockables and
+punishes recovery; it is the regression test for all of the above.
 
 ## Everything is a text file
 

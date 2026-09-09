@@ -426,8 +426,9 @@ int model_file_part_names(const char *path, char (*out)[48], int max) {
 static void begin_fade(AnimPlayer *p, float fade_dur) {
     if (p->clip >= 0 && fade_dur > 0) {
         p->prev = p->clip; p->prev_time = p->time; p->prev_rate = p->time < p->split ? p->rate1 : p->rate2;
+        p->prev_blend = p->blend; p->prev_blend_w = p->blend_w;
         p->fade = 0; p->fade_dur = fade_dur;
-    } else { p->prev = -1; p->fade = 1; p->fade_dur = 0; }
+    } else { p->prev = -1; p->prev_blend = -1; p->fade = 1; p->fade_dur = 0; }
 }
 
 void anim_play(AnimPlayer *p, const Model *m, int clip, float rate, bool loop, bool hold, float fade_dur) {
@@ -435,7 +436,12 @@ void anim_play(AnimPlayer *p, const Model *m, int clip, float rate, bool loop, b
     if (clip < 0) return;
     begin_fade(p, fade_dur);
     p->clip = clip; p->time = 0; p->rate1 = p->rate2 = rate; p->split = 1e9f; p->loop = loop; p->hold = hold;
+    p->blend = -1; p->blend_w = 0;
 }
+
+// A clip warped past this reads as a blur, so instead of speeding it up further we skip into it:
+// the contact frame still lands exactly on the gameplay frame, the anticipation is just cut short.
+#define ANIM_MAX_WARP 1.8f
 
 void anim_play_fitted(AnimPlayer *p, const Model *m, int clip, float contact, float lead, float tail, float fade_dur) {
     if (clip < 0) return;
@@ -443,9 +449,30 @@ void anim_play_fitted(AnimPlayer *p, const Model *m, int clip, float contact, fl
     float len = m->clips[clip].duration;
     contact = clampf(contact, 0.0f, len);
     p->clip = clip; p->time = 0; p->loop = false; p->hold = true;
+    p->blend = -1; p->blend_w = 0;
     p->split = contact;
     p->rate1 = lead > 0.001f ? contact / lead : 1e6f;
     p->rate2 = tail > 0.001f ? (len - contact) / tail : 1.0f;
+    if (lead > 0.001f && p->rate1 > ANIM_MAX_WARP) { p->rate1 = ANIM_MAX_WARP; p->time = fmaxf(0.0f, contact - ANIM_MAX_WARP * lead); }
+    if (tail > 0.001f && p->rate2 > ANIM_MAX_WARP) p->rate2 = ANIM_MAX_WARP;
+}
+
+void anim_play_blend(AnimPlayer *p, const Model *m, int a, int b, float w, float cycle, float fade_dur) {
+    if (a < 0 || a >= m->nclips) return;
+    if (b < 0 || b >= m->nclips) { b = -1; w = 0; }
+    w = clampf(w, 0, 1);
+    float rate = (cycle > 1e-3f) ? m->clips[a].duration / cycle : 1.0f;
+    if (p->clip == a && p->loop) { p->blend = b; p->blend_w = w; p->rate1 = p->rate2 = rate; return; }
+    // Changing pair: if either clip was already in it the cycles are in step, so carry the phase
+    // across (a walk promoted to the lead gait must not restart mid-stride).
+    float phase = 0;
+    if (p->loop && p->clip >= 0 && p->clip < m->nclips && (a == p->blend || b == p->clip)) {
+        float da = m->clips[p->clip].duration;
+        if (da > 1e-5f) { phase = p->time / da; phase -= floorf(phase); }
+    }
+    begin_fade(p, fade_dur);
+    p->clip = a; p->time = phase * m->clips[a].duration; p->blend = b; p->blend_w = w;
+    p->rate1 = p->rate2 = rate; p->split = 1e9f; p->loop = true; p->hold = false;
 }
 
 void anim_update(AnimPlayer *p, const Model *m, float dt) {
@@ -497,17 +524,40 @@ static void sample_clip(const Model *m, int clip, float time, LocalPose *lp) {
     }
 }
 
+// b's time from a's normalised phase, so a blended pair stays in step
+static float blend_time(const Model *m, int a, float ta, int b) {
+    float da = m->clips[a].duration, db = m->clips[b].duration;
+    if (da <= 1e-5f) return 0;
+    float ph = ta / da; ph -= floorf(ph);
+    return ph * db;
+}
+
+// dst = lerp(dst, src, k) over every node
+static void mix_pose(LocalPose *dst, const LocalPose *src, float k, int n) {
+    for (int i = 0; i < n; i++) {
+        dst->t[i] = v3_lerp(dst->t[i], src->t[i], k);
+        dst->s[i] = v3_lerp(dst->s[i], src->s[i], k);
+        dst->r[i] = quat_slerp(dst->r[i], src->r[i], k);
+    }
+}
+
 void model_pose(const Model *m, const AnimPlayer *p, ModelPose *out) {
-    static LocalPose cur, prev;   // large; keep off the stack
+    static LocalPose cur, prev, tmp;   // large; keep off the stack
     sample_clip(m, p->clip, p->time, &cur);
+    if (p->blend >= 0 && p->blend < m->nclips && p->clip >= 0 && p->blend_w > 0.001f) {
+        sample_clip(m, p->blend, blend_time(m, p->clip, p->time, p->blend), &tmp);
+        mix_pose(&cur, &tmp, p->blend_w, m->nnodes);
+    }
+    LocalPose *pose = &cur;
     if (p->prev >= 0 && p->fade < 1) {
         sample_clip(m, p->prev, p->prev_time, &prev);
-        float k = smoothstep(p->fade);
-        for (int i = 0; i < m->nnodes; i++) {
-            cur.t[i] = v3_lerp(prev.t[i], cur.t[i], k);
-            cur.s[i] = v3_lerp(prev.s[i], cur.s[i], k);
-            cur.r[i] = quat_slerp(prev.r[i], cur.r[i], k);
+        if (p->prev_blend >= 0 && p->prev_blend < m->nclips && p->prev_blend_w > 0.001f) {
+            sample_clip(m, p->prev_blend, blend_time(m, p->prev, p->prev_time, p->prev_blend), &tmp);
+            mix_pose(&prev, &tmp, p->prev_blend_w, m->nnodes);
         }
+        // fade in the new pose over the old one
+        mix_pose(&prev, &cur, smoothstep(p->fade), m->nnodes);
+        pose = &prev;
     }
     // Parents come before children in glTF exports from Blender, but do not rely on it: resolve lazily.
     bool done[MODEL_MAX_NODES] = {0};
@@ -517,7 +567,7 @@ void model_pose(const Model *m, const AnimPlayer *p, ModelPose *out) {
         while (j >= 0 && !done[j]) { chain[cn++] = j; j = m->nodes[j].parent; }
         for (int c = cn - 1; c >= 0; c--) {
             int k = chain[c];
-            Mat4 local = m4_from_trs(cur.t[k], cur.r[k], cur.s[k]);
+            Mat4 local = m4_from_trs(pose->t[k], pose->r[k], pose->s[k]);
             int par = m->nodes[k].parent;
             out->global[k] = par >= 0 ? m4_mul(out->global[par], local) : local;
             done[k] = true;

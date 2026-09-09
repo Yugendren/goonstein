@@ -182,6 +182,8 @@ static bool parse_level(Level *out, const char *path) {
             out->look.exposure = f[0]; out->look.saturation = f[1]; out->look.contrast = f[2]; out->look.bloom = f[3]; out->look.bloom_threshold = f[4];
         } else if (strcmp(cmd, "combat") == 0) {
             out->combat_realtime = n >= 2 && strcmp(tok[1], "realtime") == 0;
+        } else if (strcmp(cmd, "view") == 0) {
+            out->third_person = n >= 2 && strcmp(tok[1], "third") == 0;
         } else if (strcmp(cmd, "camera") == 0) {
             // camera PITCH DIST FOV [YAW]   (overworld camera: 36 14 32 -35 is the isometric default; 25 9 50 = closer over-the-shoulder)
             float f[4] = { 36, 14, 32, -35 };
@@ -231,7 +233,7 @@ static bool parse_level(Level *out, const char *path) {
                 // Invisible solid box for the trunk / body of the prop
                 Block *b = &out->blocks[out->nblocks++];
                 memset(b, 0, sizeof *b);
-                b->center = v3(pr->pos.x, pr->pos.y + 1.5f, pr->pos.z); b->size = v3(pr->collide * 2, 3.0f, pr->collide * 2);
+                b->center = v3(pr->pos.x, pr->pos.y + 2.5f, pr->pos.z); b->size = v3(pr->collide * 2, 5.0f, pr->collide * 2);   // tall enough that the camera cannot peek over a wall
                 b->tex = -1; b->solid = true; b->tint = v4(1, 1, 1, 0);
             }
         } else if (strcmp(cmd, "light") == 0 && n >= 9 && n != 8) {
@@ -386,6 +388,7 @@ bool level_save(const Level *lv, const char *path) {
     if (lv->scene_boss[0])    fprintf(f, "scene boss %s\n", lv->scene_boss);
     if (lv->scene_victory[0]) fprintf(f, "scene victory %s\n", lv->scene_victory);
     if (lv->combat_realtime) fprintf(f, "combat realtime\n");
+    if (lv->third_person) fprintf(f, "view third\n");
     for (int i = 0; i < lv->nscenes; i++) fprintf(f, "scene %s %s\n", lv->scenes[i].name, lv->scenes[i].file);
     for (int i = 0; i < lv->nnpcs; i++) fprintf(f, "npc %s %s %.3f %.3f %.3f %.1f %s %.2f\n", lv->npcs[i].name, lv->npcs[i].file, lv->npcs[i].pos.x, lv->npcs[i].pos.y, lv->npcs[i].pos.z, lv->npcs[i].yaw / DEG2RAD, lv->npcs[i].scene, lv->npcs[i].radius);
     if (lv->terrain_file[0])  fprintf(f, "terrain %s\n", lv->terrain_file);

@@ -63,6 +63,10 @@ bool charmodel_apply(Gfx *g, CharModel *cm, const CharSpec *sp);
 // style: 0 one-handed, 1 two-handed, 2 spellcaster, 3 unarmed. Returns how many actions were bound.
 int  charmodel_spec_autobind(CharSpec *sp, const Model *m, int style);
 void charmodel_destroy(Gfx *g, CharModel *cm);
+// Timing of the clip bound to an action: seconds from the start of the clip to its contact frame,
+// and the clip's duration. False if the action has no clip, no contact mark, or this is a sprite.
+// The fight uses it to time a swing off the animation instead of a fixed number.
+bool charmodel_clip_timing(CharModel *cm, Anim a, float *contact, float *duration);
 // Advance animation for a player-controlled character (uses PlayerDef timings for fitted clips).
 void charmodel_drive_player(CharModel *cm, const Player *p, float dt);
 // Advance animation for a boss (uses its move clips and timings).

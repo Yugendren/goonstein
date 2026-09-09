@@ -232,9 +232,96 @@ static bool anim_changed(CharModel *cm, const Character *c) {
     return changed;
 }
 
+// Clips the packs ship for actions a character file has not bound. The file always wins; this is
+// only so a character written before deflect / block / sprint existed still plays them. Falling
+// through to `alt` means "use whatever that action plays instead".
+static const struct { Anim a; const char *clips[3]; float contact; bool loop, hold; Anim alt; } CLIP_DEFAULTS[] = {
+    { ANIM_SPRINT,     { "Sprint_Loop", "Running_B", NULL },       -1,    true,  false, ANIM_RUN },
+    { ANIM_BLOCK,      { "Sword_Block", "Block", "Blocking" },      0.30f, false, true,  ANIM_PARRY },
+    { ANIM_HURT_HEAD,  { "Hit_Head", "Hit_B", NULL },              -1,    false, false, ANIM_HURT },
+    { ANIM_HURT_HEAVY, { "Hit_Knockback", "Hit_B", NULL },         -1,    false, false, ANIM_HURT },
+    { ANIM_ATTACK_RUN, { "Sword_Dash", "Shield_Dash", NULL },       0.20f, false, false, ANIM_ATTACK },
+};
+
+// The binding to actually play for an action: the character file's, else a default clip found by
+// name in the model (looked up once; clip -2 records "searched, nothing there"), else the
+// stand-in action, else idle.
+static const AnimBinding *resolve_binding(CharModel *cm, Anim a) {
+    AnimBinding *b = &cm->bind[a];
+    if (b->clip == -1 && !cm->is_sprite) {
+        b->clip = -2; b->contact = -1; b->rate = 1;
+        for (size_t i = 0; i < sizeof CLIP_DEFAULTS / sizeof *CLIP_DEFAULTS; i++) {
+            if (CLIP_DEFAULTS[i].a != a) continue;
+            for (int k = 0; k < 3 && CLIP_DEFAULTS[i].clips[k]; k++) {
+                int c = model_find_clip(&cm->model, CLIP_DEFAULTS[i].clips[k]);
+                if (c < 0) continue;
+                b->clip = c; b->contact = CLIP_DEFAULTS[i].contact; b->loop = CLIP_DEFAULTS[i].loop; b->hold = CLIP_DEFAULTS[i].hold;
+                break;
+            }
+            break;
+        }
+    }
+    if (b->clip < 0) {
+        for (size_t i = 0; i < sizeof CLIP_DEFAULTS / sizeof *CLIP_DEFAULTS; i++)
+            if (CLIP_DEFAULTS[i].a == a) { const AnimBinding *alt = resolve_binding(cm, CLIP_DEFAULTS[i].alt); if (alt->clip >= 0) return alt; }
+        return &cm->bind[ANIM_IDLE];
+    }
+    return b;
+}
+
+bool charmodel_clip_timing(CharModel *cm, Anim a, float *contact, float *duration) {
+    if (!cm->loaded || cm->is_sprite) return false;
+    const AnimBinding *b = resolve_binding(cm, a);
+    if (b->clip < 0 || b->clip >= cm->model.nclips || b->contact < 0) return false;
+    float dur = cm->model.clips[b->clip].duration;
+    if (contact) *contact = b->contact * dur;
+    if (duration) *duration = dur;
+    return true;
+}
+
+// Ground speed a locomotion clip was authored for, in m/s: the cycle is rate-matched to it so the
+// feet keep up with the ground instead of skating. Unknown clips fall back to the character's own top speed.
+static float clip_ground_speed(const char *name, float fallback) {
+    static const struct { const char *name; float mps; } T[] = {
+        { "Walk_Loop", 1.5f }, { "Walking_A", 1.5f }, { "Walking_B", 1.6f }, { "Walk", 1.5f }, { "Walk_Carry_Loop", 1.4f },
+        { "Jog_Fwd_Loop", 3.6f }, { "Running_A", 3.8f }, { "Running_B", 4.2f }, { "Run", 3.8f }, { "Sprint_Loop", 5.6f },
+    };
+    for (size_t i = 0; i < sizeof T / sizeof *T; i++) if (!strcmp(name, T[i].name)) return T[i].mps;
+    return fallback;
+}
+
+// Speed-driven locomotion: blend the two gaits that bracket the current speed, phase-synced, with
+// the cycle rate-matched to the ground. Standing still drops to a plain idle loop.
+static void drive_locomotion(CharModel *cm, const Character *c, float top_speed, float fade) {
+    const Model *m = &cm->model;
+    int idle = resolve_binding(cm, ANIM_IDLE)->clip;
+    static const Anim GAITS[3] = { ANIM_WALK, ANIM_RUN, ANIM_SPRINT };
+    int gait[3]; float ref[3]; int n = 0;
+    for (int i = 0; i < 3; i++) {
+        int clip = i == 2 ? resolve_binding(cm, ANIM_SPRINT)->clip : cm->bind[GAITS[i]].clip;
+        if (clip < 0 || clip >= m->nclips || m->clips[clip].duration <= 0.01f) continue;
+        if (n && gait[n - 1] == clip) continue;                  // the file bound two gaits to one clip
+        gait[n] = clip; ref[n] = clip_ground_speed(m->clips[clip].name, top_speed); n++;
+    }
+    if (!n || c->speed < 0.12f) {                                 // standing (or nothing to walk with)
+        if (idle >= 0 && !(cm->player.clip == idle && cm->player.blend < 0)) anim_play(&cm->player, m, idle, 1, true, false, fade);
+        return;
+    }
+    int i = 0;
+    while (i + 1 < n && c->speed > ref[i + 1]) i++;
+    float dur = m->clips[gait[i]].duration;
+    if (i + 1 < n && c->speed > ref[i]) {
+        float k = clampf((c->speed - ref[i]) / fmaxf(ref[i + 1] - ref[i], 0.01f), 0, 1);
+        anim_play_blend(&cm->player, m, gait[i], gait[i + 1], k, lerpf(dur, m->clips[gait[i + 1]].duration, k), fade);
+    } else {   // slower than the slowest gait (idle mixed underneath) or faster than the fastest
+        float cycle = clampf(dur * ref[i] / c->speed, dur * 0.62f, dur * 1.9f);
+        anim_play_blend(&cm->player, m, gait[i], i == 0 ? idle : -1, i == 0 ? clampf(1.0f - c->speed / ref[0], 0, 0.85f) : 0, cycle, fade);
+    }
+}
+
 static void play_binding(CharModel *cm, Anim a, float lead, float tail, float fade) {
-    const AnimBinding *b = &cm->bind[a];
-    if (b->clip < 0) { b = &cm->bind[ANIM_IDLE]; if (b->clip < 0) return; }
+    const AnimBinding *b = resolve_binding(cm, a);
+    if (b->clip < 0) return;
     if (cm->is_sprite) {
         const SpriteAnim *sa = &cm->sdef.anims[b->clip];
         if (sa->ncontact > 0 && lead > 0) sprite_play_fitted(&cm->sprite, b->clip, lead);
@@ -254,15 +341,23 @@ static void play_binding(CharModel *cm, Anim a, float lead, float tail, float fa
 void charmodel_drive_player(CharModel *cm, const Player *p, float dt) {
     if (!cm->loaded) return;
     const PlayerDef *d = &p->def;
-    if (anim_changed(cm, &p->c)) {
-        switch (p->c.anim) {
-        case ANIM_ATTACK: case ANIM_ATTACK2: case ANIM_ATTACK3:
-            play_binding(cm, p->c.anim, d->attack_windup, d->attack_active + d->attack_recovery, 0.05f); break;
-        case ANIM_PARRY:     play_binding(cm, ANIM_PARRY, d->parry_window * 0.5f, d->parry_window * 0.5f + d->parry_recovery, 0.03f); break;
+    bool changed = anim_changed(cm, &p->c);
+    Anim a = p->c.anim;
+    bool loco = (a == ANIM_IDLE || a == ANIM_WALK || a == ANIM_RUN) && (p->state == PS_FREE || p->state == PS_SCRIPTED);
+    if (loco && !cm->is_sprite) drive_locomotion(cm, &p->c, d->speed * d->sprint_mult, 0.12f);
+    else if (changed) {
+        switch (a) {
+        case ANIM_ATTACK: case ANIM_ATTACK2: case ANIM_ATTACK3: case ANIM_ATTACK_RUN:
+            play_binding(cm, a, p->atk_lead > 0.001f ? p->atk_lead : d->attack_windup,
+                         p->atk_active + p->atk_recovery > 0.001f ? p->atk_active + p->atk_recovery : d->attack_active + d->attack_recovery, 0.06f); break;
+        case ANIM_PARRY:     play_binding(cm, ANIM_PARRY, d->parry_window * 0.6f, d->parry_window + d->parry_recovery, 0.04f); break;
+        case ANIM_BLOCK:     play_binding(cm, ANIM_BLOCK, 0.12f, 6.0f, 0.10f); break;   // raise the guard, then hold it
         case ANIM_PARRY_HIT: play_binding(cm, ANIM_PARRY_HIT, 0.04f, d->parry_recovery, 0.0f); break;
         case ANIM_DODGE:     play_binding(cm, ANIM_DODGE, 0, d->dodge_time, 0.05f); break;
-        case ANIM_HURT:      play_binding(cm, ANIM_HURT, 0, d->hurt_time, 0.0f); break;
-        default:             play_binding(cm, p->c.anim, 0, 0, 0.12f); break;
+        case ANIM_HURT: case ANIM_HURT_HEAD: play_binding(cm, a, 0, d->hurt_time, 0.0f); break;
+        case ANIM_HURT_HEAVY: play_binding(cm, a, 0, d->hurt_time * 1.3f, 0.0f); break;
+        case ANIM_STAGGER:   play_binding(cm, ANIM_STAGGER, 0, d->stagger_time, 0.05f); break;
+        default:             play_binding(cm, a, 0, 0, 0.12f); break;
         }
     }
     if (cm->is_sprite) { sprite_update(&cm->sprite, dt); sprite_settle(cm); } else anim_update(&cm->player, &cm->model, dt);
@@ -278,6 +373,12 @@ void charmodel_drive_boss(CharModel *cm, const Boss *b, float dt) {
     if (!cm->loaded) return;
     const BossDef *d = &b->def;
     bool changed = anim_changed(cm, &b->c);
+    if ((b->c.anim == ANIM_IDLE || b->c.anim == ANIM_WALK || b->c.anim == ANIM_RUN) && !cm->is_sprite &&
+        (b->state == BS_IDLE || b->state == BS_APPROACH)) {
+        drive_locomotion(cm, &b->c, d->speed * 1.25f, 0.15f);
+        anim_update(&cm->player, &cm->model, dt);
+        return;
+    }
     if (changed) {
         switch (b->c.anim) {
         case ANIM_WINDUP: {
@@ -340,20 +441,4 @@ void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint) {
     charmodel_draw_posed(g, cm, &cm->pose, world, tint);
 }
 
-static void bind_by_names(CharModel *cm) {
-    // Standard names, with the same fallbacks the editor writes into character files
-    static const struct { Anim a; const char *names[3]; } T[] = {
-        { ANIM_IDLE, {"idle", NULL} }, { ANIM_WALK, {"walk", NULL} }, { ANIM_RUN, {"run", "walk", NULL} },
-        { ANIM_ATTACK, {"attack", NULL} }, { ANIM_ATTACK2, {"attack2", "attack", NULL} }, { ANIM_ATTACK3, {"attack3", "attack", NULL} },
-        { ANIM_PARRY, {"parry", "hit", NULL} }, { ANIM_PARRY_HIT, {"parry_hit", "hit", NULL} }, { ANIM_DODGE, {"dodge", "roll", NULL} },
-        { ANIM_HURT, {"hurt", "hit", NULL} }, { ANIM_KNEEL, {"kneel", "dead", NULL} }, { ANIM_DEAD, {"dead", NULL} },
-        { ANIM_ROAR, {"roar", "cheer", NULL} }, { ANIM_STAGGER, {"stagger", "hit", NULL} }, { ANIM_WINDUP, {"windup", "attack", NULL} }, { ANIM_STRIKE, {"strike", "attack", NULL} } };
-    for (int i = 0; i < ANIM_COUNT; i++) cm->bind[i].clip = -1;
-    for (size_t t = 0; t < sizeof T / sizeof *T; t++) {
-        AnimBinding b = { .clip = -1, .contact = -1, .rate = 1 };
-        for (int k = 0; k < 3 && T[t].names[k]; k++) { int a = sprite_find_anim(&cm->sdef, T[t].names[k]); if (a >= 0) { b.clip = a; break; } }
-        if (b.clip >= 0) { const SpriteAnim *sa = &cm->sdef.anims[b.clip]; b.loop = sa->loop; b.hold = !sa->loop; if (sa->ncontact > 0) b.contact = 0; }
-        cm->bind[T[t].a] = b;
-    }
-}
 

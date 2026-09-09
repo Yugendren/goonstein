@@ -3,7 +3,8 @@
 0.0 cam 0 5 56   0 2.4 74   58 cut
 0.3 actor boss teleport 0 0 74 180
 0.5 actor boss anim idle
-1.0 actor player face 0 0 74
+0.3 actor player move 0 0 66 3.0
+3.4 actor player face 0 0 74
 2.8 say "Ninety-one lanterns. I have counted them all." 3.4 "The Warden" emote annoyed
 6.4 cam -1.5 1.7 62.5   0 2.0 72   40
 6.6 say "I hear you take one a night." 2.8 Hero emote neutral

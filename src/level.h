@@ -82,6 +82,7 @@ typedef struct Level {
     Trigger   triggers[LEVEL_MAX_TRIGGERS]; int ntriggers;
     struct { char name[32], file[128]; } scenes[16]; int nscenes;   // scene NAME FILE: a trigger named NAME plays FILE
     bool combat_realtime;   // combat realtime: the boss fight is the third-person action fight instead of the card battle
+    bool third_person;      // view third: the overworld is played behind the hero with mouse look (default: view top, the fixed camera line)
     Npc       npcs[LEVEL_MAX_NPCS]; int nnpcs;
     Vec3  spawn;      float spawn_yaw;    // player start (yaw in radians)
     Vec3  boss_spawn; float boss_yaw;

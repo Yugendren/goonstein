@@ -18,6 +18,8 @@ shadow   1
 style    0.35 0.45 0 1
 pixel    3 8 1 1 0.6
 daytime  7.5
+view     third
+combat   realtime
 
 terrain levels/lantern_terrain
 
@@ -187,6 +189,7 @@ prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_1k.gltf 10.50 0 42.00 95
 
 # --- the ruined arena: a broken wall ring at radius 12 around 0 0 72 ---
 prop models/kaykit/dungeon/wall_doorway.glb 0.00 0 60.00 180.0 1.0 tint 0.50 0.48 0.52
+collider 0 4.5 60 6 3 1.2   # lintel over the gate: the camera cannot peek over the arch
 prop models/kaykit/dungeon/wall_arched.gltf.glb -3.90 0 60.65 198.9 1.0 tint 0.55 0.53 0.56 collide 2.0
 prop models/kaykit/dungeon/wall_window_open.gltf.glb -7.37 0 62.53 217.9 1.0 tint 0.55 0.53 0.56 collide 2.0
 prop models/kaykit/dungeon/wall_half.gltf.glb -10.05 0 65.44 236.8 1.0 tint 0.52 0.50 0.54 collide 2.0

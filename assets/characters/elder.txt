@@ -1,31 +1,24 @@
-# Village elder: KayKit Mage with the hat off, white hair, robe and cape faded to grey and brown.
-# The lantern-staff is the lamp post import on his off hand (attach takes one uniform scale, so a
-# stretched cylinder is not available; the little post reads as a stick with a lamp on it).
-model models/kaykit/Mage.glb
-scale 0.95
-texture_size 256
+# Village elder: Quaternius humanoid (CC0). A Modular Character Outfits peasant over a Universal
+# Base Characters body, long hair and a beard from the same pack bleached white at build time
+# (assets/models/quaternius/merge.py --tint), the linen faded cold and pale. Stooped and slow:
+# he walks the formal walk and never runs. Idle_Lantern_Loop holds the right hand up, so the lamp
+# post import rides hand_r and reads as the lantern that pose was animated for.
+model models/quaternius/elder_male.glb
+scale 0.88
+texture_size 512
 yaw_offset 0
-hide Mage_Hat Spellbook Spellbook_open 1H_Wand 2H_Staff
-recolor 42 38 41      168 164 158
-recolor 77 73 118     104 98 88
-recolor 84 80 127     112 106 96
-recolor 56 52 91      92 86 78
-recolor 29 26 56      62 58 54
-recolor 169 80 38     122 96 70
-recolor 217 114 51    150 124 96
-recolor 165 26 90     108 96 88
-recolor 155 90 69     116 92 70
-recolor 178 112 82    138 114 90
-recolor 47 108 115    112 88 66
-recolor 34 137 147    128 102 76
-attach models/import/cad_lamp_post.obj handslot.l  0 0 0  0 0 -90  0.6
-anim idle       Idle loop
-anim walk       Walking_C loop
-anim run        Walking_A loop
+attach models/import/cad_lamp_post.obj hand_r  0 0 0  0 0 90  0.5
+anim idle       Idle_Lantern_Loop loop
+anim walk       Walk_Formal_Loop loop
+anim run        Walk_Loop loop
 anim attack     Interact contact 0.4
-anim parry      Block contact 0.25
-anim hurt       Hit_A
-anim kneel      Sit_Floor_Down hold
-anim dead       Death_A hold
-anim roar       Spellcast_Raise
-anim stagger    Hit_B
+anim attack2    Punch_Jab contact 0.35
+anim attack3    Melee_Hook contact 0.45
+anim parry      Idle_FoldArms_Loop contact 0.25
+anim parry_hit  Hit_Head contact 0.15
+anim dodge      Roll
+anim hurt       Hit_Chest
+anim kneel      Sitting_Idle_Loop hold
+anim dead       Death01 hold
+anim roar       Spell_Simple_Shoot
+anim stagger    Hit_Knockback

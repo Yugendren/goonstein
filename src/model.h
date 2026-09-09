@@ -63,10 +63,13 @@ int  model_part_names(const Model *m, const char **out, int max);
 // parts before anything borrows them). Copies the names out; nothing is put on the GPU.
 int  model_file_part_names(const char *path, char (*out)[48], int max);
 
-// Two-segment playback so a clip's contact moment can be pinned to a gameplay timing.
+// Two-segment playback so a clip's contact moment can be pinned to a gameplay timing, plus a
+// second clip blended over the first at a fixed weight (locomotion: idle/walk/run mixed by speed).
 typedef struct AnimPlayer {
     int   clip;    float time;  float rate1, rate2, split;  bool loop, hold;
+    int   blend;   float blend_w;      // second clip mixed over `clip` at weight blend_w, phase-synced (-1 none)
     int   prev;    float prev_time; float prev_rate;         // fading out
+    int   prev_blend; float prev_blend_w;                    // ...it may have been a blend too
     float fade, fade_dur;
 } AnimPlayer;
 
@@ -88,6 +91,11 @@ void anim_play(AnimPlayer *p, const Model *m, int clip, float rate, bool loop, b
 // Start a clip so that clip time `contact` (seconds) arrives after `lead` seconds of game time and
 // the remainder of the clip fills `tail` seconds. Non-looping, holds the last frame.
 void anim_play_fitted(AnimPlayer *p, const Model *m, int clip, float contact, float lead, float tail, float fade_dur);
+// Locomotion blend: clip `a` drives the cycle and `b` is mixed over it at weight `w` (0..1). `b`'s
+// time follows `a`'s normalised phase so the two cycles stay in step and the feet do not skate.
+// `cycle` is the wanted length of one full cycle in seconds (a is rate-scaled to it). Looping.
+// If this pair is already playing, the weight and cycle are updated without restarting or fading.
+void anim_play_blend(AnimPlayer *p, const Model *m, int a, int b, float w, float cycle, float fade_dur);
 void anim_update(AnimPlayer *p, const Model *m, float dt);
 bool anim_finished(const AnimPlayer *p, const Model *m);
 

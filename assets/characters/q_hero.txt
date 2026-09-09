@@ -12,7 +12,7 @@ anim walk       Walk_Loop loop
 anim run        Jog_Fwd_Loop loop
 anim attack     Sword_Regular_A contact 0.45
 anim attack2    Sword_Regular_B contact 0.45
-anim attack3    Sword_Regular_C contact 0.45
+anim attack3    Sword_Regular_C contact 0.30
 anim parry      Sword_Block contact 0.25
 anim parry_hit  Idle_Shield_Break contact 0.15
 anim dodge      Roll
@@ -21,3 +21,8 @@ anim kneel      Fixing_Kneeling hold
 anim dead       Death01 hold
 anim roar       Yes
 anim stagger    Hit_Knockback
+anim sprint     Sprint_Loop loop
+anim block      Sword_Block loop
+anim hurt_head  Hit_Head
+anim hurt_heavy Hit_Knockback
+anim attack_run Sword_Dash contact 0.20

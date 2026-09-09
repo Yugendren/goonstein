@@ -5,9 +5,15 @@
 #include "platform.h"
 #include "level.h"
 
+// New entries go on the end: the character files and the box-character renderer key off these.
 typedef enum Anim {
     ANIM_IDLE, ANIM_WALK, ANIM_ATTACK, ANIM_PARRY, ANIM_PARRY_HIT, ANIM_DODGE, ANIM_HURT,
-    ANIM_KNEEL, ANIM_DEAD, ANIM_ROAR, ANIM_STAGGER, ANIM_WINDUP, ANIM_STRIKE, ANIM_RUN, ANIM_ATTACK2, ANIM_ATTACK3, ANIM_COUNT
+    ANIM_KNEEL, ANIM_DEAD, ANIM_ROAR, ANIM_STAGGER, ANIM_WINDUP, ANIM_STRIKE, ANIM_RUN, ANIM_ATTACK2, ANIM_ATTACK3,
+    ANIM_SPRINT,                     // fastest locomotion clip, blended above run
+    ANIM_BLOCK,                      // guard held (looping / holding), as opposed to the deflect tap
+    ANIM_HURT_HEAD, ANIM_HURT_HEAVY, // bigger hit reactions, picked by damage size
+    ANIM_ATTACK_RUN,                 // sprint attack
+    ANIM_COUNT
 } Anim;
 const char *anim_name(Anim a);
 Anim anim_from_name(const char *s);   // ANIM_IDLE if unknown
@@ -19,6 +25,7 @@ typedef struct Character {
     float hp, hp_max, posture, posture_max;
     Anim  anim; float anim_t;       // seconds into the current animation
     float walk_phase;               // leg swing accumulator
+    float speed;                    // smoothed planar speed in m/s, what the locomotion blend runs on
     float flash;                    // white hit flash, decays
     float tell;  Vec3 tell_color;   // telegraph glow amount and colour (boss windups)
     int   move_id;                  // which boss move is posing (for windup/strike variants)
@@ -57,20 +64,42 @@ typedef struct PlayerDef {
     float parry_window, parry_recovery, parry_hitstop;
     float dodge_time, dodge_iframes, dodge_dist;
     float hurt_time;
+    // Posture (Sekiro): deflecting costs almost nothing, blocking costs a lot, breaking staggers you.
+    float posture, posture_regen, posture_delay;   // max, per second, seconds regen stays paused after damage
+    float block_posture;                           // posture spent blocking a hit, as a fraction of its damage
+    float deflect_posture;                         // posture spent on a successful deflect
+    float stagger_time;                            // how long a posture break leaves you open
+    float knockback;                               // metres a heavy hit shoves you back
     Vec3  size, color;
 } PlayerDef;
 
+// PS_PARRY covers the whole guard: the deflect window first, then a held block if the button is
+// still down. PS_HURT covers both a hit reaction and a posture break (p->staggered).
 typedef enum PState { PS_FREE, PS_ATTACK, PS_PARRY, PS_DODGE, PS_HURT, PS_DEAD, PS_SCRIPTED } PState;
 typedef enum BState { BS_IDLE, BS_APPROACH, BS_WINDUP, BS_ACTIVE, BS_RECOVER, BS_STAGGER, BS_DEAD, BS_SCRIPTED } BState;
+
+#define PLAYER_SWINGS 4              // three-hit chain plus the sprint attack
+#define INPUT_BUFFER  0.2f           // seconds a press stays queued while you are busy
 
 typedef struct Player {
     Character c; PlayerDef def;
     PState state; float t;           // seconds in state
     Vec3  dodge_dir;
-    bool  hit_applied;               // attack has already connected this swing
+    bool  hit_applied;               // attack has already connected this swing (also: whiff logged)
     float step_timer;                // footstep cadence
-    int   combo;                     // 0..2, which swing of the chain
+    int   combo;                     // which swing: 0..2 chain, 3 sprint attack
     float sprint_t;                  // seconds sprint has been held (dodge on tap, sprint on hold)
+    // Swing timing read off the animation: swing_lead[i] is the seconds from the start of swing i's
+    // clip to the frame the blade lands. Filled in by the game from the character model; 0 = unknown,
+    // fall back to def.attack_windup.
+    float swing_lead[PLAYER_SWINGS];
+    float atk_lead, atk_active, atk_recovery, atk_damage, atk_step;   // the swing in progress
+    float buf_attack, buf_parry, buf_dodge;   // input buffer, seconds left on each queued press
+    bool  guarding;                  // the deflect window closed with the button still held: blocking
+    bool  staggered;                 // this PS_HURT is a posture break
+    float regen_delay;               // no posture regen while > 0
+    float iframes;                   // invulnerable for this many more seconds (dodge)
+    Vec3  knock;                     // knockback velocity, decays
 } Player;
 
 typedef struct Boss {
@@ -81,12 +110,14 @@ typedef struct Boss {
     float think;                     // remaining think time
     float regen_delay;               // no posture regen while > 0
     bool  phase2;
+    float strafe_dir;                // -1 / +1: which way it circles between moves
 } Boss;
 
 // One-frame events for feedback (sound, shake, hitstop). Cleared by the caller each tick.
 typedef struct CombatEvents {
     bool parried, player_hit, boss_hit, boss_staggered, boss_died, player_died;
     bool parry_early, parry_unblockable, parry_whiff;   // failure flavours for feedback
+    bool player_blocked, player_staggered;              // guard held the hit / the player's posture broke
     Vec3 contact;                                        // where the last hit or parry happened
     bool player_swing, boss_swing, footstep, boss_footstep, phase2;
     float hitstop, shake;

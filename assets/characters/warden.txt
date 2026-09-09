@@ -1,29 +1,33 @@
-# Boss: KayKit Barbarian, scaled up, in a dead soldier's helm and cloak borrowed from the
-# Skeleton Warrior. CC0. Same rig family as the knight; the battle clips in
-# assets/enemies/warden_battle.txt are all Barbarian clips, so the body stays a Barbarian.
-model models/kaykit/Barbarian.glb
-scale 1.45
-texture_size 256
+# Boss: Quaternius humanoid (CC0). The free outfit tier ships only peasant and ranger, so the
+# ranger -- pauldron, bracers, hood, belts -- is the most armoured body available; merge.py --tint
+# burns it down to dark iron and the recolours below put the blood-red back into the cloth.
+# Scaled up, with an oversized Fantasy Props MegaKit blade in both senses of the word (the kit's
+# free tier has no two-hander, so the bronze sword rides hand_r at 1.8x and reads as a greatsword).
+#
+# assets/enemies/warden.txt and warden_battle.txt name the boss's moves by clip name, and those
+# names are KayKit's. warden_male.glb was built with `merge.py --alias`, so it carries all four of
+# them as second names for the closest Quaternius swings:
+#   2H_Melee_Attack_Slice        = Sword_Regular_A
+#   2H_Melee_Attack_Stab         = Sword_Regular_B
+#   2H_Melee_Attack_Chop         = Sword_Heavy_Combo
+#   Unarmed_Melee_Attack_Punch_A = Melee_Hook
+# Nothing in those two files needs changing. The bindings here use the Quaternius names.
+model models/quaternius/warden_male.glb
+scale 1.25
+texture_size 512
 yaw_offset 0
-hide 1H_Axe_Offhand 1H_Axe Mug Barbarian_Round_Shield Barbarian_Hat Barbarian_Cape
-borrow models/kaykit/Skeleton_Warrior.glb Skeleton_Warrior_Helmet
-borrow models/kaykit/Skeleton_Warrior.glb Skeleton_Warrior_Cloak
-recolor 151 143 134   72 76 84
-recolor 168 162 157   92 96 104
-recolor 202 210 214   118 122 130
-recolor 109 96 92     46 46 52
-recolor 77 107 130    96 34 40
-recolor 155 90 69     78 54 48
-recolor 178 112 82    102 74 62
-recolor 89 96 100     58 60 66
-recolor 121 131 136   78 82 88
-recolor 170 184 190   104 110 118
-anim idle       2H_Melee_Idle loop
-anim walk       Walking_A loop
-anim run        Running_A loop
-anim attack     2H_Melee_Attack_Chop contact 0.45
-anim hurt       Hit_A
-anim stagger    Hit_B
-anim roar       Cheer
-anim kneel      Sit_Floor_Down hold
-anim dead       Death_A hold
+attach models/quaternius/sword_bronze.glb hand_r  0 0.03 0  0 -90 0  1.8
+anim idle       Sword_Idle loop
+anim walk       Walk_Loop loop
+anim run        Jog_Fwd_Loop loop
+anim attack     Sword_Heavy_Combo contact 0.5
+anim attack2    Sword_Regular_A contact 0.45
+anim attack3    Sword_Regular_B contact 0.45
+anim parry      Sword_Block contact 0.25
+anim parry_hit  Idle_Shield_Break contact 0.15
+anim dodge      Sword_Dash
+anim hurt       Hit_Chest
+anim kneel      Sitting_Idle_Loop hold
+anim dead       Death01 hold
+anim roar       Idle_Rail_Call
+anim stagger    Hit_Knockback
