@@ -17,6 +17,7 @@ static char g_warn[WARN_LINES][DBG_LEN]; static int g_warn_head, g_warn_count;
 static SDL_LogOutputFunction g_default_out; static void *g_default_ud;
 
 static void log_hook(void *ud, int category, SDL_LogPriority priority, const char *message) {
+    (void)ud;   // SDL hands back the userdata we registered; the real one is g_default_ud
     if (g_default_out) g_default_out(g_default_ud, category, priority, message);
     if (priority < SDL_LOG_PRIORITY_WARN) return;
     char *slot = g_warn[(g_warn_head + g_warn_count) % WARN_LINES];

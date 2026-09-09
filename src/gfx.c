@@ -885,6 +885,7 @@ void gfx_ui_image(Gfx *g, const Texture *t, float x, float y, float w, float h, 
 
 static void fullscreen_pass(Gfx *g, SDL_GPUCommandBuffer *cmd, SDL_GPUGraphicsPipeline *pipe, SDL_GPUTexture *dst,
                             const SDL_GPUTextureSamplerBinding *samplers, Uint32 nsamplers, const void *uniforms, Uint32 usize, const SDL_GPUViewport *vpt) {
+    (void)g;   // kept in the signature so every pass reads the same
     SDL_GPUColorTargetInfo ct = { .texture = dst, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE, .clear_color = {0, 0, 0, 1} };
     SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(cmd, &ct, 1, NULL);
     if (vpt) SDL_SetGPUViewport(pass, vpt);
