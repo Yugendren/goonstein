@@ -147,6 +147,15 @@ stars through night, dawn, noon, golden hour and dusk (`src/daylight.c`). Everyt
 speed on the Steam Deck class of hardware. `assets/levels/showcase.txt` demonstrates it with the
 Poly Haven scans: `--start level:showcase`, `HOLLOW_NOSHADOW=1` to compare.
 
+### Frame rate
+
+The simulation is a fixed 60 ticks per second (parry windows, card timings and animations are
+counted in ticks, so play is identical everywhere). Rendering runs at the display's rate with
+vsync and draws characters and the camera interpolated between the last two ticks, so 90, 120 or
+144 Hz screens show motion every frame. `fps N` in `assets/settings.txt` (or `HOLLOW_FPS=N`) caps
+the frame rate at 30, 40, 60 or 120 for battery and heat; 0 leaves it at the display's rate.
+`HOLLOW_NOINTERP=1` draws the raw tick state.
+
 ### Performance budget
 
 Props are culled per pass against the camera and the sun frustum, and skipped when smaller than a

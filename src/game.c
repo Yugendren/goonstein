@@ -483,6 +483,7 @@ static void tick_end(Game *g, const Input *in, float dt) {
 
 void game_tick(Game *g, const Input *in_real, double ddt) {
     float dt = (float)ddt;
+    g->prev_player = g->player.c.pos; g->prev_boss = g->boss.c.pos; g->prev_eye = g->cam.eye; g->prev_target = g->cam.target; g->prev_valid = true;
     Input bot_in; const Input *in = in_real;
     if (g->bot) { bot_in = *in_real; bot_input(g, &bot_in); in = &bot_in; }
     g->time += ddt; g->tick++;
@@ -881,7 +882,19 @@ static void draw_hud(Game *g, Platform *pf) {
     draw_debug_overlay(g, pf);
 }
 
+// Draw between the last two ticks so 90/120/144 Hz screens show motion every frame. Big jumps
+// (teleports, camera cuts) are not interpolated. Sim state is put back afterwards.
+static Vec3 lerp_or_cut(Vec3 a, Vec3 b, float t) { return v3_len(v3_sub(b, a)) > 4.0f ? b : v3_lerp(a, b, t); }
+void game_render_at(Game *g, Platform *pf, float alpha);
 void game_render(Game *g, Platform *pf, float alpha) {
+    if (!g->prev_valid || alpha <= 0 || alpha >= 1 || SDL_getenv("HOLLOW_NOINTERP")) { game_render_at(g, pf, alpha); return; }
+    Vec3 sp = g->player.c.pos, sb = g->boss.c.pos, se = g->cam.eye, st = g->cam.target;
+    g->player.c.pos = lerp_or_cut(g->prev_player, sp, alpha); g->boss.c.pos = lerp_or_cut(g->prev_boss, sb, alpha);
+    g->cam.eye = lerp_or_cut(g->prev_eye, se, alpha); g->cam.target = lerp_or_cut(g->prev_target, st, alpha);
+    game_render_at(g, pf, alpha);
+    g->player.c.pos = sp; g->boss.c.pos = sb; g->cam.eye = se; g->cam.target = st;
+}
+void game_render_at(Game *g, Platform *pf, float alpha) {
     (void)alpha;
     g->frames++;
     if (g->time - g->fps_t >= 0.5) { g->fps = (float)(g->frames / (g->time - g->fps_t)); g->frames = 0; g->fps_t = g->time; }

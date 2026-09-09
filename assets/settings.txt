@@ -2,3 +2,4 @@
 volume 0
 debug 0         # 1 starts with the F1 overlay on
 # hero demo     # play a character made in the sprite editor
+fps 0           # frame cap: 0 = your display's rate (vsync), or 30 40 60 120

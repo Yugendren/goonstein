@@ -44,6 +44,7 @@ typedef struct Game {
     char     msg[128]; float msg_t;
     // stats
     float    fps; unsigned frames; double fps_t; float frame_ms;   // frame_ms: smoothed render+present time
+    Vec3 prev_player, prev_boss, prev_eye, prev_target; bool prev_valid;   // previous tick, for render interpolation
     float    last_hit_text_t; char hit_text[32];
     unsigned parries, hits_taken, deaths;
     // feedback
