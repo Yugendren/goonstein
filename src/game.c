@@ -320,6 +320,12 @@ static void bot_input(Game *g, Input *in) {
     if (g->state == GS_EXPLORE) {
         // walk the path toward +Z, expressed in camera-relative stick terms
         Vec3 f = v3(sinf(g->cam.yaw), 0, cosf(g->cam.yaw)), r = v3(-f.z, 0, f.x), want = v3(0, 0, 1);
+        // steer back toward x = 0 (the path) and talk to every NPC once on the way
+        want.x = clampf(-p->c.pos.x * 0.15f, -0.6f, 0.6f);
+        static bool talked[LEVEL_MAX_NPCS]; static int talked_level = -1;
+        if (talked_level != (int)g->level.nnpcs) { memset(talked, 0, sizeof talked); talked_level = (int)g->level.nnpcs; }
+        if (g->talk_npc >= 0 && !talked[g->talk_npc]) { in->interact = true; talked[g->talk_npc] = true; want = v3(0, 0, 0); }
+        else for (int i = 0; i < g->nnpcs; i++) if (!talked[i]) { Vec3 d = v3_sub(g->npcs[i].c.pos, p->c.pos); d.y = 0; float dist = v3_len(d); if (dist < 12 && dist > 0.1f) { want = v3_scale(d, 1.0f / dist); break; } }
         in->move_x = v3_dot(want, r); in->move_y = -v3_dot(want, f);
         if (g->tick % 90 == 0) in->skip = false;
         return;
