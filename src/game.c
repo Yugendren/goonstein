@@ -82,6 +82,7 @@ static void setup_level_content(Game *g) {
         g->gen_done = true;
         if (SDL_getenv("HOLLOW_SEED")) g->leveled.seed = (unsigned)atoi(SDL_getenv("HOLLOW_SEED"));
         g->leveled.g_water = -1.5f;
+        if (SDL_getenv("HOLLOW_DENSE")) { g->leveled.g_forest = 1.0f; g->leveled.g_rocks = 0.7f; }
         leveled_generate_world(&g->leveled, &g->level, &g->terrain);
         snprintf(g->level.path, sizeof g->level.path, "%s/levels/gen.txt", HOLLOW_ASSET_DIR); snprintf(g->terrain.file, sizeof g->terrain.file, "%s", "levels/gen_terrain");
         leveled_save(&g->leveled, &g->level, &g->terrain);
@@ -652,7 +653,7 @@ static void draw_console(Game *g, Platform *pf) {
     for (int i = (nw > 4 ? nw - 4 : 0); i < nw; i++) { ctext(x, lx, y, pw - 24, 1.0f, red, dbg_warning(i)); y += LH; }
     y += 6;
     // 2. Where we are
-    snprintf(l, sizeof l, "STATE  %s %.1fs   fps %.0f%s", GS_NAMES[g->state], g->state_t, g->fps, g->paused ? "   PAUSED" : ""); ctext(x, lx, y, pw - 24, 1.1f, head, l); y += SH;
+    snprintf(l, sizeof l, "STATE  %s %.1fs   fps %.0f  %.1f ms  draws %u (props %u drawn, %u culled)%s", GS_NAMES[g->state], g->state_t, g->fps, g->frame_ms, g->gfx.draw_calls, g->props.props_drawn, g->props.props_culled, g->paused ? "   PAUSED" : ""); ctext(x, lx, y, pw - 24, 1.1f, head, l); y += SH;
     if (g->state == GS_BATTLE) { snprintf(l, sizeof l, "battle %s %.2fs  round %d  energy %d (+%d banked)  hp %d  enemy %d  combo %d", BT_NAMES[b->state], b->t, b->round, b->energy, b->banked, b->player_hp, b->enemy_hp, b->combo); ctext(x, lx, y, pw - 24, 1.0f, txt, l); y += LH; }
     y += 6;
     // 3. Cards: is the mouse where the game thinks, and what did a press land on
@@ -735,7 +736,7 @@ static void draw_debug_overlay(Game *g, Platform *pf) {
         static const char *PS[] = { "FREE", "ATTACK", "PARRY", "DODGE", "HURT", "DEAD", "SCRIPTED" };
         static const char *BS[] = { "IDLE", "APPROACH", "WINDUP", "ACTIVE", "RECOVER", "STAGGER", "DEAD", "SCRIPTED" };
         char l[8][160]; int n = 0;
-        snprintf(l[n++], 160, "fps %.0f  draws %u  tick %u  %s", g->fps, g->gfx.draw_calls, g->tick, g->paused ? "PAUSED" : "");
+        snprintf(l[n++], 160, "fps %.0f  %.1f ms  draws %u  props drawn %u culled %u  tick %u  %s", g->fps, g->frame_ms, g->gfx.draw_calls, g->props.props_drawn, g->props.props_culled, g->tick, g->paused ? "PAUSED" : "");
         snprintf(l[n++], 160, "game %s %.2fs   cam %s  vol %s", GS[g->state], g->state_t, g->cam.mode == CAM_ORBIT ? (g->cam.locked ? "orbit+lock" : "orbit") : "scene", "-");
         snprintf(l[n++], 160, "player %s t=%.2f  pos %.1f %.1f %.1f  yaw %.0f  hp %.0f  anim %s", PS[g->player.state], g->player.t, g->player.c.pos.x, g->player.c.pos.y, g->player.c.pos.z, g->player.c.yaw / DEG2RAD, g->player.c.hp, anim_name(g->player.c.anim));
         const BossMove *m = &g->boss.def.moves[g->boss.move];
