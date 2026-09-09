@@ -98,6 +98,7 @@ int main(int argc, char **argv) {
     }
     if (shot) game_screenshot(&game, shot);
     if (tool_shot) game_tool_screenshot(&game, tool_shot);
+    SDL_Log("perf: %.1f ms/frame (%.0f fps) draws %u props %d\n", game.frame_ms, game.frame_ms > 0 ? 1000.0f / game.frame_ms : 0, game.gfx.draw_calls, game.level.nprops);
     SDL_Log("stats: battle=%d enemy_hp=%d round=%d | state=%d parries=%u hits_taken=%u deaths=%u boss_hp=%.0f player_hp=%.0f player_yaw=%.0f flash=%.2f t=%.3f player=(%.1f %.1f %.1f) boss=(%.1f %.1f %.1f) cam=(%.1f %.1f %.1f) dist=%.1f",
             game.battle.state, game.battle.enemy_hp, game.battle.round, game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, game.player.c.hp, game.player.c.yaw / DEG2RAD, game.flash, game.time,
             game.player.c.pos.x, game.player.c.pos.y, game.player.c.pos.z, game.boss.c.pos.x, game.boss.c.pos.y, game.boss.c.pos.z, game.cam.eye.x, game.cam.eye.y, game.cam.eye.z, game.cam.cur_dist);

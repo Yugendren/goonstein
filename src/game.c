@@ -884,6 +884,7 @@ void game_render(Game *g, Platform *pf, float alpha) {
     (void)alpha;
     g->frames++;
     if (g->time - g->fps_t >= 0.5) { g->fps = (float)(g->frames / (g->time - g->fps_t)); g->frames = 0; g->fps_t = g->time; }
+    { static Uint64 last = 0; Uint64 now = SDL_GetPerformanceCounter(); if (last) { float ms = (float)((now - last) * 1000.0 / (double)SDL_GetPerformanceFrequency()); g->frame_ms = g->frame_ms > 0 ? g->frame_ms * 0.95f + ms * 0.05f : ms; } last = now; }
 
     const Level *lv = &g->level;
     Look tod_look; const Look *lk = &lv->look;
@@ -1017,7 +1018,7 @@ void game_render(Game *g, Platform *pf, float alpha) {
         for (int i = 0; i < lv->nlights; i++) gfx_draw_box_wire(x, lv->lights[i].pos, v3(0.2f, 0.2f, 0.2f), v4(lv->lights[i].color.x, lv->lights[i].color.y, lv->lights[i].color.z, 1));
     }
     draw_hud(g, pf);
-    PostParams pp = { .grain = 0.015f, .vignette = 0.45f, .fade = g->fade, .flash_color = g->flash_color, .flash = g->flash,
+    PostParams pp = { .grain = 0, .vignette = 0.45f, .fade = g->fade, .flash_color = g->flash_color, .flash = g->flash,
                       .exposure = lk->exposure, .saturation = lk->saturation, .contrast = lk->contrast, .bloom = lk->bloom,
                       .lift = lk->lift, .gain = lk->gain, .bloom_threshold = lk->bloom_threshold, .bloom_knee = 0.5f };
     gfx_end(x, pf, &pp, g->time);

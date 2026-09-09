@@ -26,7 +26,7 @@ bool platform_init(Platform *pf, const char *title, int w, int h) {
     if (!pf->gpu) return false;
     if (!SDL_ClaimWindowForGPUDevice(pf->gpu, pf->window)) return false;
     SDL_SetGPUSwapchainParameters(pf->gpu, pf->window,
-                                  SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
+                                  SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_getenv("HOLLOW_NOVSYNC") && SDL_WindowSupportsGPUPresentMode(pf->gpu, pf->window, SDL_GPU_PRESENTMODE_IMMEDIATE) ? SDL_GPU_PRESENTMODE_IMMEDIATE : SDL_GPU_PRESENTMODE_VSYNC);
 
     SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(pf->gpu));
     SDL_SetWindowRelativeMouseMode(pf->window, true);
