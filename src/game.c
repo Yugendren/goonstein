@@ -62,6 +62,24 @@ static void play_scene(Game *g, const char *name, GState after) {
 
 // ---------------------------------------------------------------- setup and resets
 
+// The hero's character file and its model reload when they change on disk (checked once a second).
+static long long path_mtime(const char *path) { SDL_PathInfo info; return SDL_GetPathInfo(path, &info) ? (long long)info.modify_time : 0; }
+static void hero_hot_reload(Game *g) {
+    static Uint64 last = 0; static long long cfg_m = -1, model_m = -1; static char watched[128] = "";
+    Uint64 now = SDL_GetTicks(); if (now - last < 1000) return; last = now;
+    if (g->tool_mode == 4) return;   // the builder owns the hero while it is open
+    const char *hero = g->hero_config[0] ? g->hero_config : "hero";
+    char cfg[640]; snprintf(cfg, sizeof cfg, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, hero);
+    char mdl[640]; snprintf(mdl, sizeof mdl, "%s/%s", HOLLOW_ASSET_DIR, g->player_model.spec.model[0] ? g->player_model.spec.model : g->player_model.spec.sprite);
+    long long cm = path_mtime(cfg), mm = path_mtime(mdl);
+    if (strcmp(watched, hero) != 0) { snprintf(watched, sizeof watched, "%s", hero); cfg_m = cm; model_m = mm; return; }
+    if (cm == cfg_m && mm == model_m) return;
+    cfg_m = cm; model_m = mm;
+    CharModel fresh; memset(&fresh, 0, sizeof fresh);
+    if (charmodel_load(&g->gfx, &fresh, cfg)) { charmodel_destroy(&g->gfx, &g->player_model); g->player_model = fresh; say(g, "hero hot-reloaded"); dbg_log("hero hot-reloaded from %s", cfg); }
+    else say(g, "hero reload failed (see hollow.log)");
+}
+
 // Characters stand on the terrain surface wherever the level has one.
 static void snap_to_terrain(Game *g) {
     if (!g->terrain.present) return;
@@ -530,6 +548,8 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
         setup_level_content(g);
     }
     if (level_reload_if_changed(&g->level)) { say(g, "level hot-reloaded"); setup_level_content(g); }
+    { int n = props_hot_reload(&g->gfx, &g->props); if (n) { char m[64]; snprintf(m, sizeof m, "%d model file%s hot-reloaded", n, n > 1 ? "s" : ""); say(g, m); } }
+    hero_hot_reload(g);
 
     if (g->paused && !g->step_once) { camera_update(&g->cam, dt); return; }
     g->step_once = false;
@@ -587,6 +607,7 @@ static void ctext(Gfx *x, float lx, float y, float maxw, float scale, Vec4 c, co
 }
 
 static void apply_builder(Game *g, int flags);
+static void settings_set(Game *g, const char *key, const char *value);
 
 // Dialogue portrait: the speaking character's head, posed by its emotion, through the pixel pass.
 static const char *emote_clip(const Model *m, const char *e) {
@@ -647,6 +668,17 @@ static void draw_console(Game *g, Platform *pf) {
     Vec4 head = v4(0.6f, 0.9f, 1, 1), txt = v4(0.85f, 0.9f, 0.95f, 1), dim = v4(0.55f, 0.6f, 0.65f, 1), red = v4(1, 0.45f, 0.4f, 1), amber = v4(1, 0.85f, 0.5f, 1), green = v4(0.75f, 0.95f, 0.8f, 1);
     float y = 10, lx = px + 12; char l[240];
     ctext(x, lx, y, pw - 24, 1.4f, head, windowed ? "DEBUGGER     \\ closes     Ctrl+G / F8 copies everything to the clipboard" : "DEBUGGER  (window failed, inline)   \\ closes   F8 copies"); y += gfx_ui_line_h(1.4f) + 10;
+    if (windowed) {   // frame rate: cap buttons and vsync, saved to settings.txt
+        UiInput uin = { .mx = pf->input.tool_mx, .my = pf->input.tool_my, .down = pf->input.tool_down, .pressed = pf->input.tool_pressed, .released = pf->input.tool_released, .wheel = pf->input.tool_wheel };
+        ui_begin(&g->ui, x, uin);
+        ctext(x, lx, y, pw - 24, 1.1f, head, "FRAME RATE   cap and vsync, saved to settings.txt; the simulation always runs 60 ticks a second"); y += SH + 8;
+        static const int caps[] = { 0, 30, 60, 90, 120, 144, 240 }; float bw = (pw - 24 - 7 * 6) / 8;
+        for (int i = 0; i < 7; i++) { bool on = pf->fps_cap == caps[i]; char lab[16]; snprintf(lab, sizeof lab, caps[i] ? "%d" : "display", caps[i]);
+            if (ui_toggle(&g->ui, lx + i * (bw + 6), y, bw, 26, lab, &on) && on) { pf->fps_cap = caps[i]; pf->next_frame_ns = 0; char v[16]; snprintf(v, sizeof v, "%d", caps[i]); settings_set(g, "fps", v); } }
+        { bool vs = pf->vsync; if (ui_toggle(&g->ui, lx + 7 * (bw + 6), y, bw, 26, "vsync", &vs)) { platform_set_vsync(pf, vs); settings_set(g, "vsync", vs ? "1" : "0"); } }
+        ui_end(&g->ui);
+        y += 34;
+    }
 
     // 1. Warnings from data files and assets: the usual cause of "why is this not showing up"
     int nw = dbg_warning_count();
@@ -1056,6 +1088,19 @@ bool game_shot_moment(Game *g, const char *when) {
 
 
 
+// settings.txt: replace or add one `key value` line, keeping the rest (comments included).
+static void settings_set(Game *g, const char *key, const char *value) {
+    (void)g;
+    char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR);
+    size_t n = 0; char *st = SDL_LoadFile(sp, &n); char out[4096] = {0}; size_t on = 0; bool had = false; size_t kl = strlen(key);
+    if (st) { char *cur = st; while (*cur) { char *nl = strchr(cur, '\n'); size_t len = nl ? (size_t)(nl - cur) : strlen(cur);
+        if (!strncmp(cur, key, kl) && (cur[kl] == ' ' || cur[kl] == '\t')) { on += (size_t)snprintf(out + on, sizeof out - on, "%s %s\n", key, value); had = true; }
+        else if (len) on += (size_t)snprintf(out + on, sizeof out - on, "%.*s\n", (int)len, cur);
+        cur = nl ? nl + 1 : cur + len; } SDL_free(st); }
+    if (!had) on += (size_t)snprintf(out + on, sizeof out - on, "%s %s\n", key, value);
+    FILE *f = fopen(sp, "wb"); if (f) { fwrite(out, 1, on, f); fclose(f); }
+}
+
 // The builder edits a spec; the hero is rebuilt from it so every change shows in the world.
 static void apply_builder(Game *g, int flags) {
     Builder *b = &g->builder; CharModel *cm = &g->player_model;
@@ -1085,12 +1130,8 @@ static void apply_builder(Game *g, int flags) {
     }
     if (flags & BLD_USE) {
         snprintf(g->hero_config, sizeof g->hero_config, "%s", b->name);
-        // settings.txt: replace or add the hero line
-        char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR);
-        size_t n = 0; char *st = SDL_LoadFile(sp, &n); char out[4096] = {0}; size_t on = 0; bool had = false;
-        if (st) { char *cur = st; while (*cur) { char *nl = strchr(cur, '\n'); size_t len = nl ? (size_t)(nl - cur) : strlen(cur); if (!strncmp(cur, "hero ", 5)) { on += (size_t)snprintf(out + on, sizeof out - on, "hero %s\n", b->name); had = true; } else if (len) on += (size_t)snprintf(out + on, sizeof out - on, "%.*s\n", (int)len, cur); cur = nl ? nl + 1 : cur + len; } SDL_free(st); }
-        if (!had) on += (size_t)snprintf(out + on, sizeof out - on, "hero %s\n", b->name);
-        FILE *f = fopen(sp, "wb"); if (f) { fwrite(out, 1, on, f); fclose(f); snprintf(b->msg, sizeof b->msg, "%s is now the hero (settings.txt)", b->name); b->msg_t = 3; }
+        settings_set(g, "hero", b->name);
+        snprintf(b->msg, sizeof b->msg, "%s is now the hero (settings.txt)", b->name); b->msg_t = 3;
     }
     }
 

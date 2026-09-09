@@ -655,7 +655,7 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
     case BT_ENEMY_TELL: {
         shot_enemy_attack(b);
         boss->c.tell = clampf(b->t / 0.9f, 0, 1);
-        if (in->parry || in->click || in->rclick) { b->parry_pressed_t = b->t - 0.9f; b->press_used = false; audio_play(SND_WHIFF, 0.35f, 1.3f); play_bound(pm, ANIM_PARRY, 0.05f, 0.35f, 0.02f); }
+        if (in->parry || in->click || in->rclick) { float age = clampf(in->parry ? in->parry_age : in->click_age, 0, 0.05f); b->parry_pressed_t = b->t - 0.9f - age; b->press_used = false; audio_play(SND_WHIFF, 0.35f, 1.3f); play_bound(pm, ANIM_PARRY, 0.05f, 0.35f, 0.02f); }
         if (b->t >= 0.9f) { b->state = BT_ENEMY_ATTACK; b->t = 0; boss->c.tell = 1; audio_play_file(SFX("Whoosh & Slash/Slash4.wav"), 0.9f, 0.7f);
             if (bm->is_sprite) { const EnemyAttack *a = &b->enemy.attacks[b->cur_attack]; charmodel_sprite_play(bm, a->clip, a->lead, true); } }
     } break;
@@ -663,7 +663,7 @@ void battle_tick(Battle *b, const Input *in, float mx, float my, float dt_real,
     case BT_ENEMY_ATTACK: {
         const EnemyAttack *a = &b->enemy.attacks[b->cur_attack];
         shot_enemy_attack(b);
-        if (in->parry || in->click || in->rclick) { b->parry_pressed_t = b->t; b->press_used = false; audio_play(SND_WHIFF, 0.35f, 1.3f); play_bound(pm, ANIM_PARRY, 0.05f, 0.35f, 0.02f); dbg_log("parry press t=%.3f (beats %.3f %.3f)", b->t, b->hit_t[0], a->hits > 1 ? b->hit_t[1] : 0.0f); }
+        if (in->parry || in->click || in->rclick) { float age = clampf(in->parry ? in->parry_age : in->click_age, 0, 0.05f); b->parry_pressed_t = b->t - age; b->press_used = false; audio_play(SND_WHIFF, 0.35f, 1.3f); play_bound(pm, ANIM_PARRY, 0.05f, 0.35f, 0.02f); dbg_log("parry press t=%.3f (beats %.3f %.3f)", b->t, b->hit_t[0], a->hits > 1 ? b->hit_t[1] : 0.0f); }
         if (in->dodge && !b->dodging) { b->dodging = true; b->dodge_t = b->t; play_bound(pm, ANIM_DODGE, 0, 0.45f, 0.03f); audio_play(SND_WHIFF, 0.5f, 0.9f); }
         if (b->dodging && b->t > b->dodge_t + 0.45f) b->dodging = false;
         float window = W_GOOD * (b->wide_windows ? 1.5f : 1.0f);

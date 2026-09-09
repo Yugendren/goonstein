@@ -100,7 +100,7 @@ bool platform_poll(Platform *pf) {
             case SDL_SCANCODE_E: in->interact = true; break;
             case SDL_SCANCODE_Q: case SDL_SCANCODE_TAB: in->lockon = true; break;
             case SDL_SCANCODE_J: in->attack = true; break;   // keyboard-only fallbacks
-            case SDL_SCANCODE_K: in->parry = true; break;
+            case SDL_SCANCODE_K: in->parry = true; pf->parry_ns = e.key.timestamp; break;
             default: break;
             }
             break;
@@ -112,8 +112,8 @@ bool platform_poll(Platform *pf) {
                 break;
             }
             dbg_log("[in] mouse %s down at %.0f %.0f", e.button.button == SDL_BUTTON_LEFT ? "left" : e.button.button == SDL_BUTTON_RIGHT ? "right" : "middle", e.button.x, e.button.y);
-            if (e.button.button == SDL_BUTTON_LEFT) { in->attack = true; in->click = true; in->mouse_held = true; }
-            else if (e.button.button == SDL_BUTTON_RIGHT) { in->parry = true; in->rclick = true; in->rmouse_held = true; }
+            if (e.button.button == SDL_BUTTON_LEFT) { in->attack = true; in->click = true; in->mouse_held = true; pf->click_ns = e.button.timestamp; }
+            else if (e.button.button == SDL_BUTTON_RIGHT) { in->parry = true; in->rclick = true; in->rmouse_held = true; pf->parry_ns = e.button.timestamp; }
             else if (e.button.button == SDL_BUTTON_MIDDLE) in->lockon = true;
             in->mouse_x = e.button.x; in->mouse_y = e.button.y;
             break;
@@ -151,7 +151,7 @@ bool platform_poll(Platform *pf) {
             switch (e.gbutton.button) {
             // Sekiro pad layout: RB attack, LB deflect, B step/sprint, A interact, R3 lock-on
             case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: in->attack = true; break;
-            case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER:  in->parry = true; break;
+            case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER:  in->parry = true; pf->parry_ns = e.gbutton.timestamp; break;
             case SDL_GAMEPAD_BUTTON_EAST:  in->dodge = true; break;
             case SDL_GAMEPAD_BUTTON_SOUTH: in->interact = true; break;
             case SDL_GAMEPAD_BUTTON_START: in->skip = true; break;
@@ -164,6 +164,8 @@ bool platform_poll(Platform *pf) {
         }
     }
 
+    // How long ago the latest parry / click press happened, so the sim can judge it between ticks.
+    { Uint64 now = SDL_GetTicksNS(); in->parry_age = pf->parry_ns && now > pf->parry_ns ? (float)((now - pf->parry_ns) / 1e9) : 0; in->click_age = pf->click_ns && now > pf->click_ns ? (float)((now - pf->click_ns) / 1e9) : 0; }
     // Held movement: keyboard, overridden by stick if it's deflected.
     const bool *keys = SDL_GetKeyboardState(NULL);
     in->sprint = keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT];
@@ -197,10 +199,23 @@ void platform_begin_frame(Platform *pf) {
     if (pf->console_win && !SDL_AcquireGPUSwapchainTexture(pf->cmd, pf->console_win, &pf->console_swap, &pf->console_w, &pf->console_h)) pf->console_swap = NULL;
 }
 
+void platform_set_vsync(Platform *pf, bool on) {
+    pf->vsync = on;
+    SDL_GPUPresentMode want = on ? SDL_GPU_PRESENTMODE_VSYNC : SDL_GPU_PRESENTMODE_IMMEDIATE;
+    if (!on && !SDL_WindowSupportsGPUPresentMode(pf->gpu, pf->window, want)) want = SDL_GPU_PRESENTMODE_VSYNC;
+    SDL_SetGPUSwapchainParameters(pf->gpu, pf->window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, want);
+}
+
 void platform_end_frame(Platform *pf) {
     if (pf->cmd) SDL_SubmitGPUCommandBuffer(pf->cmd);
     pf->cmd = NULL;
     pf->swapchain = NULL;
+    if (pf->fps_cap > 0) {   // frame cap: sleep the remainder of the period
+        Uint64 period = SDL_NS_PER_SECOND / (Uint64)pf->fps_cap, now = SDL_GetTicksNS();
+        if (pf->next_frame_ns == 0 || now > pf->next_frame_ns + period * 4) pf->next_frame_ns = now;
+        pf->next_frame_ns += period;
+        if (pf->next_frame_ns > now) SDL_DelayPrecise(pf->next_frame_ns - now);
+    }
 }
 
 // Tile: the game window on the left, the tool window on the right, together filling the display

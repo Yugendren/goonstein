@@ -26,6 +26,7 @@ typedef struct Input {
     bool  tool_key_down[512];         // key presses that landed in the tool window, cleared per tick (game logic)
     bool  tool_key_frame[512];        // the same presses, cleared per rendered frame (tool panels run in render)
     bool  ctrl, shift_held;
+    float parry_age, click_age;       // seconds since the latest parry / click press (sub-tick judgement)
     // Mouse in the tool window (editor / debugger), in that window's points
     float tool_mx, tool_my; bool tool_down, tool_pressed, tool_released; float tool_wheel;
     bool tool_rdown, tool_rpressed;   // right button in the tool window (sprite editor colour pick / erase)
@@ -46,6 +47,9 @@ typedef struct Platform {
     SDL_Window *console_win; SDL_GPUTexture *console_swap; Uint32 console_w, console_h;   // separate tool window (debugger, editors)
     int tool_w, tool_h;   // its logical size in points (the UI coordinate space)
     SDL_Rect saved_game_rect; bool game_rect_saved;   // game window placement before the tool window tiled it
+    int fps_cap; bool vsync;   // frame cap (0 = display rate) and vsync; platform_end_frame enforces the cap
+    Uint64 next_frame_ns;
+    Uint64 parry_ns, click_ns;
     bool tool_focus;      // the tool window has keyboard focus: held keys and movement do not reach the game
 } Platform;
 
@@ -60,6 +64,7 @@ void platform_tool_window(Platform *pf, bool open, int w, int h, const char *tit
 void platform_tool_window_share(Platform *pf, bool open, float share, const char *title);
 void platform_begin_frame(Platform *pf);
 void platform_end_frame(Platform *pf);
+void platform_set_vsync(Platform *pf, bool on);   // applies immediately
 void platform_shutdown(Platform *pf);
 // Show a free cursor (menus, cards) or capture it for camera look.
 void platform_set_cursor(Platform *pf, bool free_cursor);

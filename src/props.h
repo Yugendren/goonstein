@@ -7,12 +7,14 @@
 #define PROPS_MAX_MODELS 96
 
 // bcen/brad: rest-pose bounding sphere, taken from the bounds once per file and reused every frame.
-typedef struct PropModel { char file[128]; Model model; ModelPose rest; bool ok; PartDoc *part;   // part: an assembly instead of a model
+typedef struct PropModel { char file[128]; Model model; ModelPose rest; bool ok; PartDoc *part; long long mtime;   // part: an assembly instead of a model
                            Vec3 bcen; float brad; int bsphere; } PropModel;                       // bsphere: 0 not computed yet, 1 valid, -1 no bounds
 typedef struct PropCache { PropModel models[PROPS_MAX_MODELS]; int n;
                            unsigned props_drawn, props_culled; } PropCache;   // last props_draw, for the debugger
 
 void props_clear(Gfx *g, PropCache *pc);
+// Reload any loaded model or part file that changed on disk (checked about once a second). Returns how many.
+int  props_hot_reload(Gfx *g, PropCache *pc);
 // Load every prop the level references (cached by file). Missing files log and are skipped.
 void props_load_level(Gfx *g, PropCache *pc, const Level *lv);
 void props_draw(Gfx *g, PropCache *pc, const Level *lv, float time);

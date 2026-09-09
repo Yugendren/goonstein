@@ -72,6 +72,8 @@ void props_draw(Gfx *g, PropCache *pc, const Level *lv, float time) {
     gfx_set_material(g, NULL);
 }
 
+static long long file_mtime(const char *path) { SDL_PathInfo info; return SDL_GetPathInfo(path, &info) ? (long long)info.modify_time : 0; }
+static bool load_into(Gfx *g, PropModel *pm, const char *file);
 static PropModel *load_one(Gfx *g, PropCache *pc, const char *file) {
     PropModel *pm = find(pc, file);
     if (pm) return pm->ok ? pm : NULL;
@@ -79,17 +81,37 @@ static PropModel *load_one(Gfx *g, PropCache *pc, const char *file) {
     pm = &pc->models[pc->n++];
     memset(pm, 0, sizeof *pm);
     snprintf(pm->file, sizeof pm->file, "%s", file);
+    load_into(g, pm, file);
+    return pm->ok ? pm : NULL;
+}
+int props_hot_reload(Gfx *g, PropCache *pc) {
+    static Uint64 last = 0; Uint64 now = SDL_GetTicks(); if (now - last < 1000) return 0; last = now;
+    int n = 0;
+    for (int i = 0; i < pc->n; i++) {
+        PropModel *pm = &pc->models[i];
+        char path[1024]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, pm->file);
+        long long m = file_mtime(path);
+        if (m == 0 || m == pm->mtime) continue;
+        if (pm->ok && pm->part) { free(pm->part); pm->part = NULL; } else if (pm->ok) model_destroy(g, &pm->model);
+        pm->ok = false; pm->bsphere = 0;
+        load_into(g, pm, pm->file);
+        SDL_Log("hot reload: %s", pm->file); n++;
+    }
+    return n;
+}
+static bool load_into(Gfx *g, PropModel *pm, const char *file) {
     char path[1024]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, file);
+    pm->mtime = file_mtime(path);
     size_t L = strlen(file);
     if (L > 5 && !strcmp(file + L - 5, ".part")) {
         pm->part = malloc(sizeof *pm->part);
         pm->ok = pm->part && part_load(pm->part, path);
         if (!pm->ok) { free(pm->part); pm->part = NULL; }
-        return pm->ok ? pm : NULL;
+        return pm->ok;
     }
     pm->ok = model_load(g, &pm->model, path, 512);
     if (pm->ok) { AnimPlayer rest = { .clip = -1, .prev = -1 }; model_pose(&pm->model, &rest, &pm->rest); }
-    return pm->ok ? pm : NULL;
+    return pm->ok;
 }
 
 void props_draw_matrix(Gfx *g, PropCache *pc, const char *file, Mat4 world, Vec4 tint, Vec3 glow, int depth) {

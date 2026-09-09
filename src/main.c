@@ -24,14 +24,15 @@ int main(int argc, char **argv) {
     // --volume V      master volume 0..1;  --quiet = 0.15;  --debug starts with the overlay on
     // --hero NAME     play with assets/characters/NAME.txt as the player
     int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
-    bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0;
+    bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1;
     static Game game;   // large; static keeps it off the stack (and zeroed)
     // settings.txt next to the assets folder: volume V, debug 0|1, hero NAME, fps N (0 = display rate). Command-line flags override it.
     { char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR); size_t sn; char *st = SDL_LoadFile(sp, &sn);
       if (st) { char *cur = st; while (*cur) { char *line = cur; char *nl = strchr(cur, '\n'); if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
           char *hash = strchr(line, '#'); if (hash) *hash = 0; char key[32], val[128];
-          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); else if (!strcmp(key, "fps")) fps_cap = atoi(val); } }
+          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); else if (!strcmp(key, "fps")) fps_cap = atoi(val); else if (!strcmp(key, "vsync")) vsync = atoi(val); } }
       if (SDL_getenv("HOLLOW_FPS")) fps_cap = atoi(SDL_getenv("HOLLOW_FPS"));
+      if (SDL_getenv("HOLLOW_NOVSYNC")) vsync = 0;
         SDL_free(st); } }
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = atoi(argv[++i]);
@@ -63,6 +64,7 @@ int main(int argc, char **argv) {
     pf.debug = debug_on;
     if (console_on) game_set_tool(&game, 1);
     if (start) game_start_at(&game, start);
+    pf.fps_cap = fps_cap; if (!vsync) platform_set_vsync(&pf, false); else pf.vsync = true;
     if (tool_mode) game_set_tool(&game, tool_mode);
     game.bot = bot;
     audio_set_master(volume * 0.8f);
@@ -95,12 +97,6 @@ int main(int argc, char **argv) {
         game_render(&game, &pf, (float)alpha);
         platform_end_frame(&pf);
         platform_clear_frame_edges(&pf);
-        if (fps_cap > 0) {   // frame cap: sleep the remainder of the period (vsync still on, so this only lowers the rate)
-            static Uint64 next = 0; Uint64 period = SDL_NS_PER_SECOND / (Uint64)fps_cap, now = SDL_GetTicksNS();
-            if (next == 0 || now > next + period * 4) next = now;
-            next += period;
-            if (next > now) SDL_DelayPrecise(next - now);
-        }
         if (max_frames >= 0 && --max_frames == 0) running = false;
         if (shot_when && shot && game_shot_moment(&game, shot_when)) { game_screenshot(&game, shot); shot = NULL; running = false; }
     }

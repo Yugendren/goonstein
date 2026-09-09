@@ -151,10 +151,18 @@ Poly Haven scans: `--start level:showcase`, `HOLLOW_NOSHADOW=1` to compare.
 
 The simulation is a fixed 60 ticks per second (parry windows, card timings and animations are
 counted in ticks, so play is identical everywhere). Rendering runs at the display's rate with
-vsync and draws characters and the camera interpolated between the last two ticks, so 90, 120 or
-144 Hz screens show motion every frame. `fps N` in `assets/settings.txt` (or `HOLLOW_FPS=N`) caps
-the frame rate at 30, 40, 60 or 120 for battery and heat; 0 leaves it at the display's rate.
+vsync and draws characters and the camera interpolated between the last two ticks, so 90, 120,
+144 or 240 Hz screens show motion every frame. Parry presses are dated to the moment of the press,
+not to the tick that saw them, so the rhythm judgement is exact at any frame rate. The debugger
+(`\`) has a FRAME RATE row: display, 30, 60, 90, 120, 144, 240 and a vsync toggle, saved to
+`assets/settings.txt` (`fps N`, `vsync 0|1`; `HOLLOW_FPS=N`, `HOLLOW_NOVSYNC=1` override).
 `HOLLOW_NOINTERP=1` draws the raw tick state.
+
+### Hot reload
+
+While the game runs: the level file, its terrain, every loaded model or part file, and the hero's
+character file and model reload within a second of being saved. Edit a character in a text editor,
+export a new glTF over an old one, or save from the tools, and the world updates in place.
 
 ### Performance budget
 
