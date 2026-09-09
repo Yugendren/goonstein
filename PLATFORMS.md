@@ -159,6 +159,12 @@ Two modes, chosen by `-DHOLLOW_PORTABLE`:
 `cmake --build build/<preset> --target package` makes `goonstein-0.0.1-<System>-<arch>.tar.gz`
 (`.zip` on Windows) with that same layout. `--target dist` stages it inside the build dir instead.
 
+Note that a release preset's `build/<preset>/bin/goonstein` will **not** run in place: it is a
+portable build, so it looks for `assets` beside itself and there is nothing there until you
+install. Run `--target dist` and use `build/<preset>/dist/bin/goonstein`, or just use a debug
+preset, which points at the source tree. Running it in place gives the shader error above naming
+the missing directory, not a crash.
+
 ## Steam Deck
 
 The Deck is just Linux: build with the `linux-release` preset. There is no `HOLLOW_STEAMDECK`
