@@ -184,6 +184,17 @@ arms or legs); weights and all 76 clips are kept, so the result is a new body wi
 animation set (`assets/characters/knight_big.txt` is one). `decimate.py` brings a heavy scan or CAD
 export (OBJ, STL, FBX, glTF) down to a triangle budget, stands it on the ground and exports glTF.
 
+### Making borrowed assets ours
+
+Two levers, and neither is per-asset drawing. **World style** (LOOK tab, `style` look line): the
+whole frame passes through our palette (`palette snap`), gets inked edges from the depth buffer
+(`ink edges`), can be posterised (`colour levels`) and pixelated (`world pixel size` 2 to 4, so
+scans and packs become pixel art like the characters). One slider changes every asset in the
+game at once. **Per-asset recolour**: a `MODEL.recolor` file beside a model (`r g b  r2 g2 b2`
+per line, 0..255) moves that paint colour with its shading kept, applied on load; tint, stretch and
+grouping in the world editor cover the rest. Meshes come from CAD, packs or scans and are
+reshaped with the Blender scripts. `assets/models/polyhaven/barrel_03/*.recolor` is an example.
+
 ### The art pipeline in one paragraph
 
 Characters and props are 3D, drawn through the pixel-art pass (small layer, grid-snapped camera,

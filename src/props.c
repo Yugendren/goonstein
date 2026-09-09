@@ -72,6 +72,22 @@ void props_draw(Gfx *g, PropCache *pc, const Level *lv, float time) {
     gfx_set_material(g, NULL);
 }
 
+// FILE.recolor beside a model: lines of `r g b  r2 g2 b2` (0-255) move that paint colour, shading kept.
+static void apply_recolor_sidecar(Gfx *g, Model *m, const char *model_path) {
+    char sp[1100]; snprintf(sp, sizeof sp, "%s.recolor", model_path);
+    size_t n = 0; char *text = SDL_LoadFile(sp, &n); if (!text) return;
+    unsigned char from[32][3], to[32][3]; int count = 0;
+    char *cur = text;
+    while (*cur && count < 32) {
+        char *line = cur; char *nl = strchr(cur, '\n'); if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
+        char *hash = strchr(line, '#'); if (hash) *hash = 0;
+        int v[6]; if (sscanf(line, "%d %d %d %d %d %d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) != 6) continue;
+        for (int c = 0; c < 3; c++) { from[count][c] = (unsigned char)v[c]; to[count][c] = (unsigned char)v[3 + c]; }
+        count++;
+    }
+    SDL_free(text);
+    if (count) { model_recolor(g, m, from, to, count); SDL_Log("recolour: %s (%d colours)", sp, count); }
+}
 static long long file_mtime(const char *path) { SDL_PathInfo info; return SDL_GetPathInfo(path, &info) ? (long long)info.modify_time : 0; }
 static bool load_into(Gfx *g, PropModel *pm, const char *file);
 static PropModel *load_one(Gfx *g, PropCache *pc, const char *file) {
@@ -110,7 +126,7 @@ static bool load_into(Gfx *g, PropModel *pm, const char *file) {
         return pm->ok;
     }
     pm->ok = model_load(g, &pm->model, path, 512);
-    if (pm->ok) { AnimPlayer rest = { .clip = -1, .prev = -1 }; model_pose(&pm->model, &rest, &pm->rest); }
+    if (pm->ok) { AnimPlayer rest = { .clip = -1, .prev = -1 }; model_pose(&pm->model, &rest, &pm->rest); apply_recolor_sidecar(g, &pm->model, path); }
     return pm->ok;
 }
 

@@ -49,7 +49,7 @@ static bool parse_level(Level *out, const char *path) {
         .toon_softness = 0.08f, .shadow_floor = 0.15f, .rim_power = 3.0f,
         .exposure = 1.0f, .saturation = 1.1f, .contrast = 1.05f, .bloom = 0.35f, .bloom_threshold = 1.0f,
         .lift = v3(0.01f, 0.01f, 0.03f), .gain = v3(1, 1, 1),
-        .pixel_scale = 3, .pixel_levels = 8, .pixel_outline = 1, .pixel_palette = 1, .pixel_inner = 0.6f, .shadow = 1.0f,
+        .pixel_scale = 3, .pixel_levels = 8, .pixel_outline = 1, .pixel_palette = 1, .pixel_inner = 0.6f, .shadow = 1.0f, .style_snap = 0, .style_outline = 0, .style_levels = 0, .style_pixel = 1,
         .daytime = -1.0f };
 
     size_t size = 0;
@@ -179,6 +179,11 @@ static bool parse_level(Level *out, const char *path) {
             float f[5];
             if (n != 6 || !parse_floats(tok, 1, 5, f)) { SDL_Log("level_load:%d: bad grade line", line_no); continue; }
             out->look.exposure = f[0]; out->look.saturation = f[1]; out->look.contrast = f[2]; out->look.bloom = f[3]; out->look.bloom_threshold = f[4];
+        } else if (strcmp(cmd, "style") == 0) {
+            // style SNAP OUTLINE LEVELS PIXEL
+            float f[4] = { 0, 0, 0, 1 };
+            if (n < 5 || !parse_floats(tok, 1, 4, f)) { SDL_Log("level_load:%d: bad style line", line_no); continue; }
+            out->look.style_snap = f[0]; out->look.style_outline = f[1]; out->look.style_levels = f[2]; out->look.style_pixel = f[3];
         } else if (strcmp(cmd, "shadow") == 0) {
             float f[1]; if (n < 2 || !parse_floats(tok, 1, 1, f)) { SDL_Log("level_load:%d: bad shadow line", line_no); continue; }
             out->look.shadow = f[0];
@@ -357,6 +362,7 @@ bool level_save(const Level *lv, const char *path) {
     fprintf(f, "gain     %.3f %.3f %.3f\n", lk->gain.x, lk->gain.y, lk->gain.z);
     fprintf(f, "pixel    %.0f %.0f %.2f %.0f %.2f\n", lk->pixel_scale, lk->pixel_levels, lk->pixel_outline, lk->pixel_palette, lk->pixel_inner);
     fprintf(f, "shadow   %.2f\n", lk->shadow);
+    fprintf(f, "style    %.2f %.2f %.0f %.0f\n", lk->style_snap, lk->style_outline, lk->style_levels, lk->style_pixel);
     if (lk->daytime >= 0) fprintf(f, "daytime  %.2f\n", lk->daytime);
 
     if (lv->scene_intro[0])   fprintf(f, "scene intro %s\n", lv->scene_intro);

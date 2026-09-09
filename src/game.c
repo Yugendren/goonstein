@@ -1066,7 +1066,9 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     draw_hud(g, pf);
     PostParams pp = { .grain = 0, .vignette = 0.45f, .fade = g->fade, .flash_color = g->flash_color, .flash = g->flash,
                       .exposure = lk->exposure, .saturation = lk->saturation, .contrast = lk->contrast, .bloom = lk->bloom,
-                      .lift = lk->lift, .gain = lk->gain, .bloom_threshold = lk->bloom_threshold, .bloom_knee = 0.5f };
+                      .lift = lk->lift, .gain = lk->gain, .bloom_threshold = lk->bloom_threshold, .bloom_knee = 0.5f,
+                      .style_snap = lk->style_snap, .style_outline = lk->style_outline, .style_levels = lk->style_levels, .style_pixel = lk->style_pixel };
+    if (SDL_getenv("HOLLOW_STYLE")) sscanf(SDL_getenv("HOLLOW_STYLE"), "%f %f %f %f", &pp.style_snap, &pp.style_outline, &pp.style_levels, &pp.style_pixel);   // tuning override
     gfx_end(x, pf, &pp, g->time);
 }
 

@@ -37,6 +37,7 @@ typedef struct PostParams {
     float exposure, saturation, contrast, bloom;
     Vec3  lift, gain;
     float bloom_threshold, bloom_knee;
+    float style_snap, style_outline, style_levels, style_pixel;   // world style layer: palette snap, depth-edge ink, colour levels, pixel size
 } PostParams;
 
 #define UI_MAX_VERTS 262144

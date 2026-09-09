@@ -41,6 +41,8 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
     lift     r g b                             # added to shadows (cool blue lifts read as night)
     gain     r g b                             # multiplied into highlights
     shadow   strength                          # sun shadow map strength 0..1 (0 = off)
+    style    snap outline levels pixel         # world style layer: snap the whole frame to the palette 0..1, ink depth edges 0..1,
+                                               # colour levels (0 = palette instead), world pixel size (1 = off, 2..4 = pixel-art world)
     pixel    scale levels outline palette inner # 3D characters as pixel art: scale = screen pixels per art pixel (0 off),
                                                # levels = colours per channel when palette is 0, palette 1 = snap to Endesga 32,
                                                # outline 0..1 = dark silhouette line, inner 0..1 = crease lines

@@ -30,7 +30,7 @@ typedef struct FrameUniforms {
 } FrameUniforms;
 typedef struct MaterialUniforms { Vec4 tint, emissive, rim; } MaterialUniforms;
 typedef struct SkyUniforms { Mat4 inv_view_proj; Vec4 cam_pos, sun_dir, sun_color, zenith, horizon, ground, params, fog_color; } SkyUniforms;
-typedef struct PostUniforms { Vec4 params, res, flash, grade, lift, gain; } PostUniforms;
+typedef struct PostUniforms { Vec4 params, res, flash, grade, lift, gain, style; } PostUniforms;
 typedef struct PixUniforms { Vec4 res, offset, params; } PixUniforms;
 
 // ---------------------------------------------------------------- shaders and helpers
@@ -56,7 +56,7 @@ static SDL_GPUShader *load_shader(Gfx *g, const char *name, SDL_GPUShaderStage s
 static SDL_GPUTexture *make_target(Gfx *g, SDL_GPUTextureFormat fmt, int w, int h, bool depth) {
     return SDL_CreateGPUTexture(g->dev, &(SDL_GPUTextureCreateInfo){
         .type = SDL_GPU_TEXTURETYPE_2D, .format = fmt,
-        .usage = depth ? SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET : (SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER),
+        .usage = depth ? (SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER) : (SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER),
         .width = (Uint32)w, .height = (Uint32)h, .layer_count_or_depth = 1, .num_levels = 1 });
 }
 
@@ -228,7 +228,7 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     SDL_GPUShader *fs_vs = load_shader(g, "fs.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 0);
     SDL_GPUShader *bright_fs = load_shader(g, "bright.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
     SDL_GPUShader *blur_fs = load_shader(g, "blur.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
-    SDL_GPUShader *post_fs = load_shader(g, "post.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
+    SDL_GPUShader *post_fs = load_shader(g, "post.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1);
     SDL_GPUShader *blit_fs = load_shader(g, "blit.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0);
     SDL_GPUShader *pixcomp_fs = load_shader(g, "pixcomp.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
     SDL_GPUShader *ui_vs = load_shader(g, "ui.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
@@ -414,7 +414,7 @@ void gfx_portrait_begin(Gfx *g, Platform *pf, const FrameParams *fp, int size, V
         SDL_GPUTextureCreateInfo di = { .type = SDL_GPU_TEXTURETYPE_2D, .format = DEPTH_FMT, .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
                                         .width = (Uint32)size, .height = (Uint32)size, .layer_count_or_depth = 1, .num_levels = 1 };
         g->por_depth = SDL_CreateGPUTexture(g->dev, &di);
-        di.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET; g->por_comp_depth = SDL_CreateGPUTexture(g->dev, &di);
+        g->por_comp_depth = SDL_CreateGPUTexture(g->dev, &di);
         g->por_size = size;
     }
     g->cmd = pf->cmd; g->frame = *fp; g->material = material_default(); g->bound_pipe = NULL; g->bound_tex = NULL;
@@ -450,8 +450,8 @@ void gfx_portrait_end(Gfx *g) {
     {
         PostUniforms u = { .params = v4(0, 0, 0, 1), .res = v4((float)g->por_size, (float)g->por_size, 0, 0), .flash = v4(0, 0, 0, 0),
                            .grade = v4(1, 1, 1, 0), .lift = v4(0, 0, 0, 0), .gain = v4(1, 1, 1, 0) };
-        SDL_GPUTextureSamplerBinding sb[2] = { { .texture = g->por_comp, .sampler = g->samp_nearest }, { .texture = g->por_comp, .sampler = g->samp_nearest } };
-        fullscreen_pass(g, g->cmd, g->pipe_post, g->portrait.tex, sb, 2, &u, sizeof u, NULL);
+        SDL_GPUTextureSamplerBinding sb[3] = { { .texture = g->por_comp, .sampler = g->samp_nearest }, { .texture = g->por_comp, .sampler = g->samp_nearest }, { .texture = g->por_comp_depth, .sampler = g->samp_nearest } };
+        fullscreen_pass(g, g->cmd, g->pipe_post, g->portrait.tex, sb, 3, &u, sizeof u, NULL);
     }
 }
 
@@ -883,9 +883,10 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
         PostUniforms u = { .params = v4((float)time, pp->grain, pp->vignette, pp->fade), .res = v4((float)g->iw, (float)g->ih, 0, 0),
             .flash = v4(pp->flash_color.x, pp->flash_color.y, pp->flash_color.z, pp->flash),
             .grade = v4(pp->exposure, pp->saturation, pp->contrast, pp->bloom),
-            .lift = v4(pp->lift.x, pp->lift.y, pp->lift.z, 0), .gain = v4(pp->gain.x, pp->gain.y, pp->gain.z, 0) };
-        SDL_GPUTextureSamplerBinding s[2] = { { .texture = g->hdr, .sampler = g->samp_clamp }, { .texture = g->bloom_a, .sampler = g->samp_clamp } };
-        fullscreen_pass(g, pf->cmd, g->pipe_post, g->ldr, s, 2, &u, sizeof u, NULL);
+            .lift = v4(pp->lift.x, pp->lift.y, pp->lift.z, 0), .gain = v4(pp->gain.x, pp->gain.y, pp->gain.z, 0),
+            .style = v4(pp->style_snap, pp->style_outline, pp->style_levels, pp->style_pixel) };
+        SDL_GPUTextureSamplerBinding s[3] = { { .texture = g->hdr, .sampler = g->samp_clamp }, { .texture = g->bloom_a, .sampler = g->samp_clamp }, { .texture = g->depth, .sampler = g->samp_nearest } };
+        fullscreen_pass(g, pf->cmd, g->pipe_post, g->ldr, s, 3, &u, sizeof u, NULL);
     }
     // UI over the LDR image
     if (g->ui_count > 0) {

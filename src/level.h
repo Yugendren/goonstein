@@ -61,6 +61,7 @@ typedef struct Look {
     Vec3 lift, gain;
     float pixel_scale, pixel_levels, pixel_outline, pixel_palette, pixel_inner;   // pixel-art character layer (scale 0 = off)
     float shadow;                                                                  // sun shadow strength 0..1 (0 = off)
+    float style_snap, style_outline, style_levels, style_pixel;                    // world style layer (post): palette snap, edge ink, colour levels, pixel size
     float daytime;   // hour of the clock 0..24 driving the sun and sky (see daylight.h); negative = use the values above
 } Look;
 
