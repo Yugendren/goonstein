@@ -2,11 +2,8 @@
 // (scale, offset, colour, alpha over age) live in uifx_draw so the two stay decoupled, same
 // split as particles.c.
 #include "uifx.h"
+#include <stdio.h>    // snprintf: Apple's headers pull this in for free, glibc does not
 #include <string.h>
-
-#ifdef UIFX_TEST
-#include <stdio.h>
-#endif
 
 // ---------------------------------------------------------------- deterministic rng
 

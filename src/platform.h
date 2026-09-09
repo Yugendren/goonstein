@@ -53,6 +53,10 @@ typedef struct Platform {
     bool tool_focus;      // the tool window has keyboard focus: held keys and movement do not reach the game
 } Platform;
 
+// Packaged (HOLLOW_PORTABLE) builds: make the executable's own directory the working directory so
+// the relative "assets" path resolves. No-op in a dev build. platform_init calls it; call it first
+// from main() as well if anything is loaded before the window exists (settings.txt is, today).
+void platform_use_base_dir(void);
 bool platform_init(Platform *pf, const char *title, int w, int h);
 bool platform_poll(Platform *pf);       // returns false on quit. Edge inputs accumulate until platform_clear_edges.
 void platform_clear_edges(Platform *pf);         // per simulation tick

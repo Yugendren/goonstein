@@ -1,12 +1,29 @@
-cmake_minimum_required(VERSION 3.24)
-project(goonstein LANGUAGES C)
+# Bumped from 3.24 -> 3.25 so CMakePresets.json can use schema version 6
+# (LINUX variable also needs 3.25).
+cmake_minimum_required(VERSION 3.25)
+project(goonstein VERSION 0.0.1 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-if(NOT CMAKE_BUILD_TYPE)
+# Load assets from ./assets next to the executable instead of the absolute
+# source-tree path. Used for packaged/installed builds. The matching chdir
+# lives in src/platform.c under #ifdef HOLLOW_PORTABLE.
+option(HOLLOW_PORTABLE "Load assets from ./assets next to the working directory (packaged builds)" OFF)
+
+# Only single-config generators (Makefiles, Ninja) need a default build type;
+# multi-config generators (Visual Studio, Xcode) pick the config at build time.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+endif()
+
+if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR LINUX)
+  find_package(Threads REQUIRED)
 endif()
 
 # --- SDL3, fetched and pinned so every platform and CI builds the same thing.
@@ -31,14 +48,78 @@ target_include_directories(${PROJECT_NAME} PRIVATE src)
 target_link_libraries(${PROJECT_NAME} PRIVATE SDL3::SDL3)
 
 if(MSVC)
-  target_compile_options(${PROJECT_NAME} PRIVATE /W4)
+  # /fp:precise is MSVC's default; stated explicitly so it survives someone
+  # later flipping optimization flags. /utf-8 keeps narrow-string literals in
+  # UTF-8 regardless of the build machine's locale. _CRT_SECURE_NO_WARNINGS
+  # silences the deprecation warnings on snprintf/sscanf/etc that MSVC's CRT
+  # emits in favor of its own _s variants, which we don't use.
+  target_compile_options(${PROJECT_NAME} PRIVATE /W4 /fp:precise /utf-8)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
-  target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic -Wshadow)
+  # -ffp-contract=off disables FMA contraction so float results match across
+  # compilers/platforms. This does NOT give us full cross-platform
+  # determinism (that would also need strict IEEE math, no vectorizer
+  # reassociation, etc) -- it isn't required because the netcode host is
+  # authoritative and clients just render whatever state it sends.
+  target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic -Wshadow -ffp-contract=off)
 endif()
+
 target_compile_definitions(${PROJECT_NAME} PRIVATE
-  $<$<CONFIG:Debug>:HOLLOW_DEBUG=1>
-  HOLLOW_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
+  $<$<CONFIG:Debug>:HOLLOW_DEBUG=1>)
+
+if(HOLLOW_PORTABLE)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE
+    HOLLOW_ASSET_DIR="assets"
+    HOLLOW_PORTABLE=1)
+else()
+  target_compile_definitions(${PROJECT_NAME} PRIVATE
+    HOLLOW_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
+endif()
+
+# --- Platform link needs
+if(WIN32)
+  # ws2_32: netcode uses Winsock. winmm: used for timing.
+  target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 winmm)
+  # FALSE keeps a console attached so `--frames N` CI runs can print to
+  # stdout. Flip to TRUE for a shipping/consumer build to drop the console
+  # window.
+  set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE FALSE)
+  if(MINGW)
+    target_link_options(${PROJECT_NAME} PRIVATE -static-libgcc)
+    if(CMAKE_CXX_COMPILER_LOADED)
+      target_link_options(${PROJECT_NAME} PRIVATE -static-libstdc++)
+    endif()
+  endif()
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR LINUX)
+  target_link_libraries(${PROJECT_NAME} PRIVATE m ${CMAKE_DL_LIBS} Threads::Threads)
+endif()
 
 # Put the binary next to the assets dir layout we ship with.
 set_target_properties(${PROJECT_NAME} PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# --- Install / packaging
+install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
+# Assets sit next to the binary so a HOLLOW_PORTABLE build run from bin/
+# finds ./assets. Candidates to exclude later: *.blend, models/import (raw
+# CAD/import sources not needed at runtime).
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/ DESTINATION bin/assets)
+
+if(APPLE)
+  set(CPACK_GENERATOR "TGZ")
+elseif(WIN32)
+  set(CPACK_GENERATOR "ZIP")
+else()
+  set(CPACK_GENERATOR "TGZ")
+endif()
+set(CPACK_PACKAGE_NAME "goonstein")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+include(CPack)
+
+# Convenience: `cmake --build . --target dist` installs into build/dist
+# without touching a system prefix.
+add_custom_target(dist
+  COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix ${CMAKE_BINARY_DIR}/dist
+  COMMENT "Installing into ${CMAKE_BINARY_DIR}/dist")
+add_dependencies(dist ${PROJECT_NAME})   # never lay out a stale binary

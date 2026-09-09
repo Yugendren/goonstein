@@ -1,11 +1,37 @@
 #include "platform.h"
 #include "debug.h"
+#include <stdio.h>    // sscanf: Apple's headers pull this in for free, glibc does not
 #include <string.h>
+
+// Packaged builds (-DHOLLOW_PORTABLE=ON) compile HOLLOW_ASSET_DIR as the relative path "assets",
+// so the process has to stand next to it. Dev builds bake in an absolute source path and this is
+// a no-op, which keeps relative --screenshot paths resolving against the shell's cwd as before.
+#ifdef HOLLOW_PORTABLE
+#ifdef _WIN32
+#include <direct.h>
+#define hollow_chdir _chdir
+#else
+#include <unistd.h>
+#define hollow_chdir chdir
+#endif
+#endif
+
+void platform_use_base_dir(void) {
+#ifdef HOLLOW_PORTABLE
+    static bool done = false;
+    if (done) return;
+    done = true;
+    const char *base = SDL_GetBasePath();   // the directory holding the executable, with a separator
+    if (!base || !*base) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "no base path: assets must be in the working directory"); return; }
+    if (hollow_chdir(base) != 0) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "could not chdir to %s", base);
+#endif
+}
 
 static float dead(float v) { return (v > -0.15f && v < 0.15f) ? 0.0f : v; }
 
 bool platform_init(Platform *pf, const char *title, int w, int h) {
     memset(pf, 0, sizeof *pf);
+    platform_use_base_dir();   // before anything reads an asset
 
     SDL_SetAppMetadata(title, "0.0.1", "dev.hollow");
     SDL_SetHint(SDL_HINT_ASSERT, "abort");  // never block on a dialog; log and die
