@@ -1,0 +1,23 @@
+# Quaternius humanoid fighter (CC0), the realistic-proportion counterpart to the KayKit chibi cast:
+# a Modular Character Outfits ranger over a Universal Base Characters body, with all 84 Universal
+# Animation Library 1 + 2 clips baked onto the one 53-joint rig. The clips are sword moves but the
+# outfit ships no weapon, so a Fantasy Props MegaKit blade rides the right hand.
+model models/quaternius/ranger_male.glb
+scale 0.93
+texture_size 512
+yaw_offset 0
+attach models/quaternius/sword_bronze.glb hand_r  0 0.03 0  0 -90 0  1.0
+anim idle       Sword_Idle loop
+anim walk       Walk_Loop loop
+anim run        Jog_Fwd_Loop loop
+anim attack     Sword_Regular_A contact 0.45
+anim attack2    Sword_Regular_B contact 0.45
+anim attack3    Sword_Regular_C contact 0.45
+anim parry      Sword_Block contact 0.25
+anim parry_hit  Idle_Shield_Break contact 0.15
+anim dodge      Roll
+anim hurt       Hit_Chest
+anim kneel      Fixing_Kneeling hold
+anim dead       Death01 hold
+anim roar       Yes
+anim stagger    Hit_Knockback

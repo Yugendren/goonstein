@@ -1,0 +1,20 @@
+# Quaternius plain human (CC0): Modular Character Outfits peasant over a Universal Base
+# Characters body, same merged rig and clip set as q_hero.txt.
+model models/quaternius/peasant_male.glb
+scale 0.93
+texture_size 512
+yaw_offset 0
+anim idle       Idle_Loop loop
+anim walk       Walk_Loop loop
+anim run        Jog_Fwd_Loop loop
+anim attack     Punch_Cross contact 0.4
+anim attack2    Punch_Jab contact 0.35
+anim attack3    Melee_Hook contact 0.45
+anim parry      Idle_FoldArms_Loop contact 0.25
+anim parry_hit  Hit_Head contact 0.15
+anim dodge      Roll
+anim hurt       Hit_Chest
+anim kneel      Sitting_Idle_Loop hold
+anim dead       Death01 hold
+anim roar       Yes
+anim stagger    Hit_Knockback
