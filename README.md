@@ -155,6 +155,18 @@ few pixels; bounding spheres are cached per file. A generated world with 1779 pi
 with shadows on. Textures cap at 512 for props. The debugger shows frame time, draw calls and the
 drawn/culled counts; `HOLLOW_NOVSYNC=1` and the `perf:` line at exit measure headlessly.
 
+### Headless Blender (installed with Homebrew, never opened)
+
+Two scripts in `tools/blender`, run from the repo root:
+
+    blender -b --python tools/blender/variant.py -- assets/models/kaykit/Knight.glb assets/models/characters/knight_big.glb --height 1.15 --width 1.2 --head 1.3
+    blender -b --python tools/blender/decimate.py -- scan.obj assets/models/import/scan.glb --target 20000
+
+`variant.py` makes proportion variants of a KayKit character (taller, wider, bigger head, longer
+arms or legs); weights and all 76 clips are kept, so the result is a new body with the full
+animation set (`assets/characters/knight_big.txt` is one). `decimate.py` brings a heavy scan or CAD
+export (OBJ, STL, FBX, glTF) down to a triangle budget, stands it on the ground and exports glTF.
+
 ### The art pipeline in one paragraph
 
 Characters and props are 3D, drawn through the pixel-art pass (small layer, grid-snapped camera,
