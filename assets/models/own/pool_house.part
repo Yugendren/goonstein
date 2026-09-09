@@ -1,0 +1,32 @@
+# pool_house -- bathhouse beside the pool, 9x5 footprint, three open arches face -z, low hipped roof
+piece models/shapes/plate.obj    0 0 0        10.0 1.5 6.0    0 0 0    0.78 0.76 0.70
+piece models/shapes/box.obj      0 0.2 0      9.0 3.4 5.0     0 0 0    0.86 0.82 0.72
+# parapet around the low roof
+piece models/shapes/box.obj      0 3.6 -2.4    9.2 0.35 0.3   0 0 0    0.93 0.92 0.88
+piece models/shapes/box.obj      0 3.6  2.4    9.2 0.35 0.3   0 0 0    0.93 0.92 0.88
+piece models/shapes/box.obj      4.4 3.6 0     0.3 0.35 5.2   0 0 0    0.93 0.92 0.88
+piece models/shapes/box.obj     -4.4 3.6 0     0.3 0.35 5.2   0 0 0    0.93 0.92 0.88
+# arch 1, x=-3
+piece models/shapes/box.obj     -4.1 0.2 -2.6   0.4 2.0 0.3   0 0 0    0.93 0.92 0.88
+piece models/shapes/box.obj     -1.9 0.2 -2.6   0.4 2.0 0.3   0 0 0    0.93 0.92 0.88
+piece models/shapes/box.obj     -3.0 0.2 -2.5   1.8 2.0 0.12  0 0 0    0.13 0.16 0.20
+piece models/shapes/cylinder.obj -3.0 2.2 -2.75  1.8 0.15 1.8  0 90 0  0.93 0.92 0.88
+# arch 2, x=0
+piece models/shapes/box.obj     -1.1 0.2 -2.6   0.4 2.0 0.3   0 0 0    0.93 0.92 0.88
+piece models/shapes/box.obj      1.1 0.2 -2.6   0.4 2.0 0.3   0 0 0    0.93 0.92 0.88
+piece models/shapes/box.obj      0.0 0.2 -2.5   1.8 2.0 0.12  0 0 0    0.13 0.16 0.20
+piece models/shapes/cylinder.obj  0.0 2.2 -2.75  1.8 0.15 1.8  0 90 0  0.93 0.92 0.88
+# arch 3, x=3
+piece models/shapes/box.obj      1.9 0.2 -2.6   0.4 2.0 0.3   0 0 0    0.93 0.92 0.88
+piece models/shapes/box.obj      4.1 0.2 -2.6   0.4 2.0 0.3   0 0 0    0.93 0.92 0.88
+piece models/shapes/box.obj      3.0 0.2 -2.5   1.8 2.0 0.12  0 0 0    0.13 0.16 0.20
+piece models/shapes/cylinder.obj  3.0 2.2 -2.75  1.8 0.15 1.8  0 90 0  0.93 0.92 0.88
+# teak benches under the arches
+piece models/shapes/box.obj     -3.0 0.2 -2.3   1.2 0.4 0.4   0 0 0    0.46 0.33 0.20
+piece models/shapes/box.obj      3.0 0.2 -2.3   1.2 0.4 0.4   0 0 0    0.46 0.33 0.20
+# low hipped roof
+piece models/shapes/wedge.obj    0 3.6 -1.5    10.0 1.0 3.0    0 0 0    0.16 0.55 0.58
+piece models/shapes/wedge.obj    0 3.6  1.5    10.0 1.0 3.0  180 0 0    0.16 0.55 0.58
+piece models/shapes/wedge.obj    3.5 3.6 0      6.0 1.0 3.0  270 0 0    0.16 0.55 0.58
+piece models/shapes/wedge.obj   -3.5 3.6 0      6.0 1.0 3.0   90 0 0    0.16 0.55 0.58
+piece models/shapes/box.obj      0 4.6 0        4.5 0.3 0.9    0 0 0    0.11 0.42 0.46

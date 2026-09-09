@@ -1,0 +1,26 @@
+# Goon C: Pip -- Quaternius ranger, unarmed, teal-cyan outfit.
+model models/quaternius/ranger_male.glb
+scale 0.90
+texture_size 512
+yaw_offset 0
+recolor 45 72 27  25 150 150
+recolor 10 31 15  8 40 46
+anim idle       Idle_Loop loop
+anim walk       Walk_Loop loop
+anim run        Jog_Fwd_Loop loop
+anim attack     Punch_Jab contact 0.35
+anim attack2    Punch_Cross contact 0.40
+anim attack3    Melee_Hook contact 0.45
+anim parry      Interact contact 0.25
+anim parry_hit  Hit_Knockback contact 0.15
+anim dodge      Roll
+anim hurt       Hit_Chest
+anim kneel      Fixing_Kneeling hold
+anim dead       Death01 hold
+anim roar       Yes
+anim stagger    Hit_Knockback
+anim sprint     Sprint_Loop loop
+anim block      Push_Loop loop
+anim hurt_head  Hit_Head
+anim hurt_heavy Hit_Knockback
+anim attack_run OverhandThrow contact 0.35

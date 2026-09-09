@@ -1,0 +1,59 @@
+# villa -- main compound house, 20x12 footprint, hipped turquoise roof, front colonnade faces -z
+# cream limestone wall 0.86 0.82 0.72, white plaster trim 0.93 0.92 0.88, turquoise roof 0.16 0.55 0.58
+piece models/shapes/plate.obj   0 0 0        24.0 1.5 16.0   0 0 0    0.78 0.76 0.70
+piece models/shapes/plate.obj   0 0.2 0      20.6 1.0 12.6   0 0 0    0.86 0.82 0.72
+piece models/shapes/box.obj     0 0.2 0      20.0 5.4 12.0   0 0 0    0.86 0.82 0.72
+# front colonnade, -z
+piece models/shapes/box.obj     0 0.2 -7.4   21.0 0.3 0.9    0 0 0    0.93 0.92 0.88
+piece models/shapes/cylinder.obj -8.4 0.5 -7.4  0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/cylinder.obj -6.0 0.5 -7.4  0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/cylinder.obj -3.6 0.5 -7.4  0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/cylinder.obj -1.2 0.5 -7.4  0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/cylinder.obj  1.2 0.5 -7.4  0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/cylinder.obj  3.6 0.5 -7.4  0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/cylinder.obj  6.0 0.5 -7.4  0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/cylinder.obj  8.4 0.5 -7.4  0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/box.obj      0 5.1 -7.4    21.0 0.55 0.9  0 0 0   0.93 0.92 0.88
+# back colonnade, +z, wider spacing
+piece models/shapes/box.obj      0 0.2 7.4     21.0 0.3 0.9   0 0 0   0.93 0.92 0.88
+piece models/shapes/cylinder.obj -8.0 0.5 7.4   0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/cylinder.obj -4.0 0.5 7.4   0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/cylinder.obj  0.0 0.5 7.4   0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/cylinder.obj  4.0 0.5 7.4   0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/cylinder.obj  8.0 0.5 7.4   0.62 4.6 0.62  0 0 0  0.93 0.92 0.88
+piece models/shapes/box.obj      0 5.1 7.4     21.0 0.55 0.9  0 0 0   0.93 0.92 0.88
+# door, teak frame, -z face
+piece models/shapes/box.obj      0 0.15 -6.02   2.6 3.4 0.06  0 0 0   0.46 0.33 0.20
+piece models/shapes/box.obj      0 0.2  -6.08   2.2 3.0 0.16  0 0 0   0.13 0.16 0.20
+# pediment over the door
+piece models/shapes/box.obj      0 5.65 -7.35   3.2 0.45 0.75  0 0 0  0.93 0.92 0.88
+piece models/shapes/box.obj      0 6.10 -7.35   3.5 0.12 0.85  0 0 0  0.11 0.42 0.46
+# front parapet rail and windows
+piece models/shapes/box.obj      0 5.65 -7.4    21.0 0.35 0.12  0 0 0 0.93 0.92 0.88
+piece models/shapes/box.obj      2.4 1.7 -6.06   1.0 1.6 0.12   0 0 0 0.13 0.16 0.20
+piece models/shapes/box.obj     -2.4 1.7 -6.06   1.0 1.6 0.12   0 0 0 0.13 0.16 0.20
+piece models/shapes/box.obj      4.8 1.7 -6.06   1.0 1.6 0.12   0 0 0 0.13 0.16 0.20
+piece models/shapes/box.obj     -4.8 1.7 -6.06   1.0 1.6 0.12   0 0 0 0.13 0.16 0.20
+piece models/shapes/box.obj      7.2 1.7 -6.06   1.0 1.6 0.12   0 0 0 0.13 0.16 0.20
+piece models/shapes/box.obj     -7.2 1.7 -6.06   1.0 1.6 0.12   0 0 0 0.13 0.16 0.20
+# back parapet rail and windows
+piece models/shapes/box.obj      0 5.65 7.4     21.0 0.35 0.12  0 0 0 0.93 0.92 0.88
+piece models/shapes/box.obj      4.0 1.7 6.06    1.0 1.6 0.12   0 0 0 0.13 0.16 0.20
+piece models/shapes/box.obj     -4.0 1.7 6.06    1.0 1.6 0.12   0 0 0 0.13 0.16 0.20
+# corner pilasters
+piece models/shapes/box.obj     10.0 0.2 -6.0    0.6 5.4 0.6    0 0 0 0.93 0.92 0.88
+piece models/shapes/box.obj    -10.0 0.2 -6.0    0.6 5.4 0.6    0 0 0 0.93 0.92 0.88
+piece models/shapes/box.obj     10.0 0.2  6.0    0.6 5.4 0.6    0 0 0 0.93 0.92 0.88
+piece models/shapes/box.obj    -10.0 0.2  6.0    0.6 5.4 0.6    0 0 0 0.93 0.92 0.88
+# entrance planters
+piece models/shapes/box.obj      1.8 0.15 -7.6   0.5 0.5 0.5    0 0 0 0.46 0.33 0.20
+piece models/shapes/box.obj     -1.8 0.15 -7.6   0.5 0.5 0.5    0 0 0 0.46 0.33 0.20
+# hipped roof, ridge along x
+piece models/shapes/wedge.obj    0 5.7 -3.45   21.8 2.6 6.9    0 0 0    0.16 0.55 0.58
+piece models/shapes/wedge.obj    0 5.7  3.45   21.8 2.6 6.9  180 0 0    0.16 0.55 0.58
+piece models/shapes/wedge.obj    7.45 5.7 0    13.8 2.6 6.9  270 0 0    0.16 0.55 0.58
+piece models/shapes/wedge.obj   -7.45 5.7 0    13.8 2.6 6.9   90 0 0    0.16 0.55 0.58
+piece models/shapes/box.obj      0 8.3 0        8.6 0.3 1.0    0 0 0    0.11 0.42 0.46
+# chimneys
+piece models/shapes/box.obj      5.0 8.3 0       0.6 0.8 0.6    0 0 0   0.86 0.82 0.72
+piece models/shapes/box.obj     -5.0 8.3 0       0.6 0.8 0.6    0 0 0   0.86 0.82 0.72

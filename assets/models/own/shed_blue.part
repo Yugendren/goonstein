@@ -1,0 +1,16 @@
+# shed_blue -- small blue-roofed utility shed, front faces -Z
+piece models/shapes/box.obj          0.000   0.000   0.000    4.500  2.300  3.500     0.0   0.0   0.0   0.93 0.92 0.88
+piece models/shapes/wedge.obj        0.000   2.300  -1.075    5.300  0.900  2.150     0.0   0.0   0.0   0.16 0.55 0.58
+piece models/shapes/wedge.obj        0.000   2.300   1.075    5.300  0.900  2.150   180.0   0.0   0.0   0.16 0.55 0.58
+piece models/shapes/box.obj          0.000   3.150   0.000    5.400  0.150  0.300     0.0   0.0   0.0   0.12 0.42 0.45
+piece models/shapes/box.obj          0.000   0.000  -1.760    1.000  1.900  0.120     0.0   0.0   0.0   0.10 0.11 0.13
+piece models/shapes/box.obj         -0.580   0.000  -1.750    0.150  2.000  0.150     0.0   0.0   0.0   0.46 0.33 0.20
+piece models/shapes/box.obj          0.580   0.000  -1.750    0.150  2.000  0.150     0.0   0.0   0.0   0.46 0.33 0.20
+piece models/shapes/box.obj          1.300   1.100  -1.760    0.600  0.600  0.100     0.0   0.0   0.0   0.10 0.11 0.13
+piece models/shapes/box.obj          1.300   0.750  -1.780    0.700  0.100  0.150     0.0   0.0   0.0   0.46 0.33 0.20
+piece models/shapes/plate.obj        0.000   0.000  -2.000    1.300  1.500  0.600     0.0   0.0   0.0   0.62 0.61 0.57
+piece models/shapes/box.obj          2.260   1.600   0.000    0.120  0.400  0.400     0.0   0.0   0.0   0.42 0.42 0.40
+piece models/shapes/box.obj          2.200   0.000   1.700    0.150  2.300  0.150     0.0   0.0   0.0   0.46 0.33 0.20
+piece models/shapes/box.obj          2.200   0.000  -1.700    0.150  2.300  0.150     0.0   0.0   0.0   0.46 0.33 0.20
+piece models/shapes/box.obj         -2.200   0.000   1.700    0.150  2.300  0.150     0.0   0.0   0.0   0.46 0.33 0.20
+piece models/shapes/box.obj         -2.200   0.000  -1.700    0.150  2.300  0.150     0.0   0.0   0.0   0.46 0.33 0.20

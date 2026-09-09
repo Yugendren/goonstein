@@ -1,0 +1,16 @@
+# palm_bent -- windswept shore palm, ~5.5m, hard lean toward +X, 6 fronds swept back toward -X
+# trunk: 4 tapered cylinder segments, each rolled harder to bend the crown ~2m off centre
+piece models/shapes/cylinder.obj   0.000 0.000 0.000   0.42 1.60 0.42    0 0 -8    0.52 0.46 0.36
+piece models/shapes/cylinder.obj   0.223 1.584 0.000   0.36 1.50 0.36    0 0 -18   0.52 0.46 0.36
+piece models/shapes/cylinder.obj   0.686 3.011 0.000   0.31 1.40 0.31    0 0 -30   0.52 0.46 0.36
+piece models/shapes/cylinder.obj   1.386 4.223 0.000   0.28 1.30 0.28    0 0 -42   0.52 0.46 0.36
+# crown center ~= (2.256, 5.190, 0) -- 6 fronds swept back toward -X (yaw fanned around 180)
+piece models/shapes/box.obj        1.780 4.540 -1.020  2.6 0.10 0.50  115 0 -30    0.22 0.40 0.18
+piece models/shapes/box.obj        1.369 4.389 -0.512  2.6 0.10 0.50  150 0 -38    0.24 0.42 0.19
+piece models/shapes/box.obj        1.098 4.599 -0.040  2.6 0.10 0.50  178 0 -27    0.26 0.44 0.20
+piece models/shapes/box.obj        1.402 4.303  0.417  2.6 0.10 0.50  206 0 -43    0.28 0.46 0.20
+piece models/shapes/box.obj        1.631 4.481  0.893  2.6 0.10 0.50  235 0 -33    0.30 0.48 0.21
+piece models/shapes/box.obj        1.998 4.354  0.962  2.6 0.10 0.50  255 0 -40    0.32 0.50 0.22
+# a couple of coconuts nestled at the crown base
+piece models/shapes/sphere.obj     2.356 4.960  0.060  0.28 0.28 0.28    0 0 0     0.35 0.28 0.18
+piece models/shapes/sphere.obj     2.176 4.940 -0.100  0.28 0.28 0.28    0 0 0     0.35 0.28 0.18

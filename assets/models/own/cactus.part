@@ -1,0 +1,17 @@
+# cactus -- columnar saguaro-style cactus, ~2.4m tall, three-armed silhouette
+piece models/shapes/cylinder.obj   0.0000 0.0000 0.0000   0.50 2.20 0.50    0 0 0     0.30 0.44 0.28
+piece models/shapes/sphere.obj     0.0000 2.2000 0.0000   0.50 0.50 0.50    0 0 0     0.30 0.44 0.28
+# right arm: elbow bends out from the trunk, then a vertical column back up, capped
+piece models/shapes/cylinder.obj   0.2200 1.3000 0.0000   0.26 0.55 0.26    0 0 -70   0.30 0.44 0.28
+piece models/shapes/cylinder.obj   0.7368 1.4881 0.0000   0.26 1.00 0.26    0 0 0     0.30 0.44 0.28
+piece models/shapes/sphere.obj     0.7368 2.4881 0.0000   0.30 0.30 0.30    0 0 0     0.30 0.44 0.28
+# left arm: mirrored, slightly lower
+piece models/shapes/cylinder.obj  -0.2200 1.0500 0.0000   0.26 0.55 0.26    0 0 70    0.30 0.44 0.28
+piece models/shapes/cylinder.obj  -0.7368 1.2381 0.0000   0.26 0.95 0.26    0 0 0     0.30 0.44 0.28
+piece models/shapes/sphere.obj    -0.7368 2.1881 0.0000   0.28 0.28 0.28    0 0 0     0.30 0.44 0.28
+# tiny pale flowers near the tops
+piece models/shapes/sphere.obj     0.15 2.55  0.10   0.08 0.08 0.08   0 0 0   0.95 0.55 0.60
+piece models/shapes/sphere.obj    -0.12 2.50 -0.15   0.08 0.08 0.08   0 0 0   0.95 0.55 0.60
+piece models/shapes/sphere.obj     0.80 2.70  0.12   0.08 0.08 0.08   0 0 0   0.95 0.55 0.60
+piece models/shapes/sphere.obj    -0.80 2.40 -0.10   0.08 0.08 0.08   0 0 0   0.95 0.55 0.60
+piece models/shapes/sphere.obj     0.65 2.65 -0.15   0.08 0.08 0.08   0 0 0   0.95 0.55 0.60

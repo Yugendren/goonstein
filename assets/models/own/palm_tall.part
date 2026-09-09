@@ -1,0 +1,20 @@
+# palm_tall -- coconut palm, ~9m, gentle lean, 8-frond crown with coconuts at the base
+# trunk: 5 tapered cylinder segments, each rolled to continue the curve from the last
+piece models/shapes/cylinder.obj   0.000 0.000 0.000   0.42 1.75 0.42   0 0 -1    0.52 0.46 0.36
+piece models/shapes/cylinder.obj   0.031 1.750 0.000   0.38 1.70 0.38   0 0 -3    0.52 0.46 0.36
+piece models/shapes/cylinder.obj   0.120 3.447 0.000   0.34 1.65 0.34   0 0 -6    0.52 0.46 0.36
+piece models/shapes/cylinder.obj   0.292 5.088 0.000   0.31 1.60 0.31   0 0 -9    0.52 0.46 0.36
+piece models/shapes/cylinder.obj   0.542 6.669 0.000   0.28 1.40 0.28   0 0 -13   0.52 0.46 0.36
+# crown center ~= (0.857, 8.033, 0) -- 8 drooping fronds spread around it
+piece models/shapes/box.obj        2.270 7.282 0.000   3.2 0.10 0.55   0 0 -28   0.22 0.40 0.18
+piece models/shapes/box.obj        1.784 7.115 -0.927  3.2 0.10 0.55  45 0 -35   0.23 0.41 0.19
+piece models/shapes/box.obj        0.736 7.233 -1.380  3.2 0.10 0.55  95 0 -30   0.25 0.43 0.19
+piece models/shapes/box.obj       -0.082 7.004 -0.788  3.2 0.10 0.55 140 0 -40   0.26 0.44 0.20
+piece models/shapes/box.obj       -0.575 7.331  0.125  3.2 0.10 0.55 185 0 -26   0.28 0.46 0.20
+piece models/shapes/box.obj        0.047 7.048  0.966  3.2 0.10 0.55 230 0 -38   0.29 0.47 0.21
+piece models/shapes/box.obj        0.974 7.161  1.337  3.2 0.10 0.55 275 0 -33   0.31 0.49 0.21
+piece models/shapes/box.obj        1.768 6.962  0.764  3.2 0.10 0.55 320 0 -42   0.32 0.50 0.22
+# coconuts nestled at the crown base
+piece models/shapes/sphere.obj     0.957 7.800  0.050  0.30 0.30 0.30   0 0 0    0.35 0.28 0.18
+piece models/shapes/sphere.obj     0.777 7.780  0.120  0.30 0.30 0.30   0 0 0    0.35 0.28 0.18
+piece models/shapes/sphere.obj     0.877 7.750 -0.130  0.30 0.30 0.30   0 0 0    0.35 0.28 0.18

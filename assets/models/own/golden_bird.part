@@ -1,0 +1,14 @@
+# golden_bird -- stylised gilded bird statue, ~2.6 m tall
+piece models/shapes/box.obj          0.000   0.000   0.000    0.500  0.080  0.500     0.0   0.0   0.0   0.75 0.58 0.22
+piece models/shapes/cylinder.obj     0.120   0.080   0.000    0.060  0.800  0.060     0.0   0.0   0.0   1.00 0.80 0.30
+piece models/shapes/cylinder.obj    -0.120   0.080   0.000    0.060  0.800  0.060     0.0   0.0   0.0   1.00 0.80 0.30
+piece models/shapes/sphere.obj       0.000   0.820   0.000    0.640  0.550  0.400     0.0   0.0   0.0   1.00 0.80 0.30
+piece models/shapes/cylinder.obj     0.000   1.000   0.050    0.130  0.850  0.130     0.0 -45.0   0.0   1.00 0.80 0.30
+piece models/shapes/sphere.obj       0.000   1.450   0.500    0.360  0.340  0.340     0.0   0.0   0.0   1.00 0.80 0.30
+piece models/shapes/sphere.obj       0.000   1.740   0.540    0.140  0.120  0.140     0.0   0.0   0.0   1.00 0.80 0.30
+piece models/shapes/wedge.obj        0.000   1.520   0.680    0.150  0.130  0.280    90.0   0.0   0.0   1.00 0.80 0.30
+piece models/shapes/box.obj          0.500   1.050   0.000    1.200  0.090  0.500     0.0   0.0  42.0   1.00 0.80 0.30
+piece models/shapes/box.obj         -0.500   1.050   0.000    1.200  0.090  0.500     0.0   0.0 -42.0   1.00 0.80 0.30
+piece models/shapes/box.obj          0.000   0.950   0.300    0.180  0.060  1.100     0.0   0.0   0.0   1.00 0.80 0.30
+piece models/shapes/box.obj          0.000   0.950   0.280    0.180  0.060  1.050    20.0   0.0   0.0   1.00 0.80 0.30
+piece models/shapes/box.obj          0.000   0.950   0.280    0.180  0.060  1.050   -20.0   0.0   0.0   1.00 0.80 0.30
