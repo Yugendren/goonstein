@@ -66,6 +66,7 @@ typedef struct Look {
     float pixel_scale, pixel_levels, pixel_outline, pixel_palette, pixel_inner;   // pixel-art character layer (scale 0 = off)
     float shadow;                                                                  // sun shadow strength 0..1 (0 = off)
     float style_snap, style_outline, style_levels, style_pixel;                    // world style layer (post): palette snap, edge ink, colour levels, pixel size
+    float cam_pitch, cam_dist, cam_fov, cam_yaw;                                   // overworld camera (degrees, metres, degrees, degrees)
     float daytime;   // hour of the clock 0..24 driving the sun and sky (see daylight.h); negative = use the values above
 } Look;
 
@@ -80,6 +81,7 @@ typedef struct Level {
     CamVolume cams[LEVEL_MAX_CAMS];       int ncams;
     Trigger   triggers[LEVEL_MAX_TRIGGERS]; int ntriggers;
     struct { char name[32], file[128]; } scenes[16]; int nscenes;   // scene NAME FILE: a trigger named NAME plays FILE
+    bool combat_realtime;   // combat realtime: the boss fight is the third-person action fight instead of the card battle
     Npc       npcs[LEVEL_MAX_NPCS]; int nnpcs;
     Vec3  spawn;      float spawn_yaw;    // player start (yaw in radians)
     Vec3  boss_spawn; float boss_yaw;

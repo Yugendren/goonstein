@@ -415,6 +415,7 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     player_update(&g->player, in, dir, &g->level, NULL, dt, &ev);
     snap_to_terrain(g);
     apply_events(g, &ev);
+    { const Look *ck = &g->level.look; camera_iso_set(ck->cam_pitch, ck->cam_dist, ck->cam_fov, ck->cam_yaw); if (SDL_getenv("HOLLOW_CAM")) { float a = ck->cam_pitch, b = ck->cam_dist, c = ck->cam_fov, d = ck->cam_yaw; sscanf(SDL_getenv("HOLLOW_CAM"), "%f %f %f %f", &a, &b, &c, &d); camera_iso_set(a, b, c, d); } }
     camera_iso(&g->cam, g->player.c.pos, &g->level, dt);
     Trigger *t = level_trigger_at(&g->level, g->player.c.pos);
     if (t) {
@@ -460,7 +461,7 @@ static void tick_scene(Game *g, const Input *in, float dt) {
     if (g->scene.done) {
         g->player.state = PS_FREE; character_set_anim(&g->player.c, ANIM_IDLE);
         g->player.c.scripted_moving = false; g->boss.c.scripted_moving = false;
-        if (g->after_scene == GS_FIGHT && g->battle_loaded) {
+        if (g->after_scene == GS_FIGHT && g->battle_loaded && !g->level.combat_realtime) {
             start_battle(g);
         } else if (g->after_scene == GS_FIGHT) {
             g->boss.state = BS_IDLE; g->boss.think = 1.2f;

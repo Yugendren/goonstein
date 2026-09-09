@@ -56,17 +56,19 @@ void camera_toggle_lock(Camera *c) { if (c->has_lock) c->locked = !c->locked; }
 #define ISO_YAW   (-35.0f * DEG2RAD)
 #define ISO_PITCH (36.0f * DEG2RAD)
 #define ISO_DIST  14.0f
+static float iso_pitch = ISO_PITCH, iso_dist = ISO_DIST, iso_fov = 32, iso_yaw = ISO_YAW;
+void camera_iso_set(float pitch_deg, float dist, float fov_deg, float yaw_deg) { iso_pitch = pitch_deg * DEG2RAD; iso_dist = dist; iso_fov = fov_deg; iso_yaw = yaw_deg * DEG2RAD; }
 void camera_iso(Camera *c, Vec3 pp, const Level *lv, float dt) {
     (void)lv;
     bool entering = c->mode != CAM_ISO;
     c->mode = CAM_ISO;
-    c->yaw = ISO_YAW; c->pitch = ISO_PITCH; c->dist = c->cur_dist = SDL_getenv("HOLLOW_ISO_DIST") ? (float)atof(SDL_getenv("HOLLOW_ISO_DIST")) : ISO_DIST;   // env: overview captures
+    c->yaw = iso_yaw; c->pitch = iso_pitch; c->dist = c->cur_dist = SDL_getenv("HOLLOW_ISO_DIST") ? (float)atof(SDL_getenv("HOLLOW_ISO_DIST")) : iso_dist;   // env: overview captures
     Vec3 pivot = v3(pp.x, pp.y + 1.0f, pp.z);
     Vec3 eye = v3_add(pivot, v3_scale(orbit_dir(c->yaw, c->pitch), c->dist));
     if (entering) { c->eye = eye; c->target = pivot; }
     c->eye = v3_damp(c->eye, eye, 8, dt);
     c->target = v3_damp(c->target, pivot, 8, dt);
-    c->fov = damp(c->fov, 32, 4, dt);   // long lens flattens the view, the isometric feel
+    c->fov = damp(c->fov, iso_fov, 4, dt);   // a long lens flattens the view (isometric feel); a wider one reads as over the shoulder
 }
 
 void camera_snap_behind(Camera *c, Vec3 pp, float yaw, const Level *lv) {

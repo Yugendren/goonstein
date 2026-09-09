@@ -49,7 +49,7 @@ static bool parse_level(Level *out, const char *path) {
         .toon_softness = 0.08f, .shadow_floor = 0.15f, .rim_power = 3.0f,
         .exposure = 1.0f, .saturation = 1.1f, .contrast = 1.05f, .bloom = 0.35f, .bloom_threshold = 1.0f,
         .lift = v3(0.01f, 0.01f, 0.03f), .gain = v3(1, 1, 1),
-        .pixel_scale = 3, .pixel_levels = 8, .pixel_outline = 1, .pixel_palette = 1, .pixel_inner = 0.6f, .shadow = 1.0f, .style_snap = 0, .style_outline = 0, .style_levels = 0, .style_pixel = 1,
+        .pixel_scale = 3, .pixel_levels = 8, .pixel_outline = 1, .pixel_palette = 1, .pixel_inner = 0.6f, .shadow = 1.0f, .style_snap = 0, .style_outline = 0, .style_levels = 0, .style_pixel = 1, .cam_pitch = 36, .cam_dist = 14, .cam_fov = 32, .cam_yaw = -35,
         .daytime = -1.0f };
 
     size_t size = 0;
@@ -180,6 +180,13 @@ static bool parse_level(Level *out, const char *path) {
             float f[5];
             if (n != 6 || !parse_floats(tok, 1, 5, f)) { SDL_Log("level_load:%d: bad grade line", line_no); continue; }
             out->look.exposure = f[0]; out->look.saturation = f[1]; out->look.contrast = f[2]; out->look.bloom = f[3]; out->look.bloom_threshold = f[4];
+        } else if (strcmp(cmd, "combat") == 0) {
+            out->combat_realtime = n >= 2 && strcmp(tok[1], "realtime") == 0;
+        } else if (strcmp(cmd, "camera") == 0) {
+            // camera PITCH DIST FOV [YAW]   (overworld camera: 36 14 32 -35 is the isometric default; 25 9 50 = closer over-the-shoulder)
+            float f[4] = { 36, 14, 32, -35 };
+            if (n < 4 || !parse_floats(tok, 1, n - 1 > 4 ? 4 : n - 1, f)) { SDL_Log("level_load:%d: bad camera line", line_no); continue; }
+            out->look.cam_pitch = f[0]; out->look.cam_dist = f[1]; out->look.cam_fov = f[2]; out->look.cam_yaw = f[3];
         } else if (strcmp(cmd, "style") == 0) {
             // style SNAP OUTLINE LEVELS PIXEL
             float f[4] = { 0, 0, 0, 1 };
@@ -372,11 +379,13 @@ bool level_save(const Level *lv, const char *path) {
     fprintf(f, "pixel    %.0f %.0f %.2f %.0f %.2f\n", lk->pixel_scale, lk->pixel_levels, lk->pixel_outline, lk->pixel_palette, lk->pixel_inner);
     fprintf(f, "shadow   %.2f\n", lk->shadow);
     fprintf(f, "style    %.2f %.2f %.0f %.0f\n", lk->style_snap, lk->style_outline, lk->style_levels, lk->style_pixel);
+    fprintf(f, "camera   %.0f %.1f %.0f %.0f\n", lk->cam_pitch, lk->cam_dist, lk->cam_fov, lk->cam_yaw);
     if (lk->daytime >= 0) fprintf(f, "daytime  %.2f\n", lk->daytime);
 
     if (lv->scene_intro[0])   fprintf(f, "scene intro %s\n", lv->scene_intro);
     if (lv->scene_boss[0])    fprintf(f, "scene boss %s\n", lv->scene_boss);
     if (lv->scene_victory[0]) fprintf(f, "scene victory %s\n", lv->scene_victory);
+    if (lv->combat_realtime) fprintf(f, "combat realtime\n");
     for (int i = 0; i < lv->nscenes; i++) fprintf(f, "scene %s %s\n", lv->scenes[i].name, lv->scenes[i].file);
     for (int i = 0; i < lv->nnpcs; i++) fprintf(f, "npc %s %s %.3f %.3f %.3f %.1f %s %.2f\n", lv->npcs[i].name, lv->npcs[i].file, lv->npcs[i].pos.x, lv->npcs[i].pos.y, lv->npcs[i].pos.z, lv->npcs[i].yaw / DEG2RAD, lv->npcs[i].scene, lv->npcs[i].radius);
     if (lv->terrain_file[0])  fprintf(f, "terrain %s\n", lv->terrain_file);

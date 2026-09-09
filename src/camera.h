@@ -25,6 +25,7 @@ void camera_orbit(Camera *c, Vec3 player_pos, float look_x, float look_y, bool h
 void camera_toggle_lock(Camera *c);
 // Fixed-angle isometric follow for the overworld. yaw fixed, pitch fixed, distance fixed.
 void camera_iso(Camera *c, Vec3 player_pos, const Level *lv, float dt);
+void camera_iso_set(float pitch_deg, float dist, float fov_deg, float yaw_deg);   // overworld framing (from the level's camera line)
 // Put the camera behind the player facing yaw (used on restarts).
 void camera_snap_behind(Camera *c, Vec3 player_pos, float player_yaw, const Level *lv);
 // Cutscene: absolute.

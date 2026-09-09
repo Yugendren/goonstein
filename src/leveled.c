@@ -773,6 +773,9 @@ void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h)
           y += two_col ? 26 : 52; sy = y; }
         SL(0, "outline", &k->pixel_outline, 0, 1); SL(1, "inner lines", &k->pixel_inner, 0, 1); ROW();
         { bool pal = k->pixel_palette > 0.5f; if (ui_toggle(ui, x, y, cw, P_ROW, "snap to the 32-colour palette", &pal)) { k->pixel_palette = pal ? 1 : 0; e->dirty = true; } y += P_ROW + 10; }
+        SECTION("CAMERA   overworld framing: pitch (higher = more top-down), distance, lens");
+        SL(0, "pitch", &k->cam_pitch, 15, 75); SL(1, "distance", &k->cam_dist, 5, 30); ROW();
+        SL(0, "lens fov", &k->cam_fov, 20, 70); SL(1, "yaw", &k->cam_yaw, -180, 180); ROW();
         SECTION(w >= 760 ? "WORLD STYLE   make every asset ours: palette, ink edges, pixel size" : "WORLD STYLE");
         SL(0, "palette snap", &k->style_snap, 0, 1); SL(1, "ink edges", &k->style_outline, 0, 1); ROW();
         { float lv3 = k->style_levels; float px3 = k->style_pixel; float _y = y;
