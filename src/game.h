@@ -15,18 +15,24 @@
 #include "builder.h"
 #include "terrain.h"
 #include "widgets.h"
+#include "netgame.h"
 
 #define INTERNAL_W 1280
 #define INTERNAL_H 800
 
 typedef enum GState { GS_EXPLORE, GS_SCENE, GS_FIGHT, GS_DEAD, GS_END, GS_BATTLE } GState;
 
+// The local player and its model. Slots 1..3 are filled by joining clients.
+#define PLAYER(g)       ((g)->players[(g)->local])
+#define PLAYER_MODEL(g) ((g)->player_models[(g)->local])
+
 typedef struct Game {
     double   time; unsigned tick;
     Gfx      gfx; WorldTextures wt;
     Level    level; Camera cam; Scene scene;
-    Player   player; Boss boss; PlayerDef player_def; BossDef boss_def;
-    CharModel player_model, boss_model;
+    Player players[NET_MAX_PLAYERS]; int local;    // every seated player; `local` is the one this process drives
+    Boss boss; PlayerDef player_def; BossDef boss_def;
+    CharModel player_models[NET_MAX_PLAYERS], boss_model;
     PropCache props; Particles particles; Battle battle; Uifx fx; bool battle_loaded;
     LevelEd leveled; bool leveled_ready;
     Builder builder; bool builder_ready;
@@ -46,7 +52,7 @@ typedef struct Game {
     char     msg[128]; float msg_t;
     // stats
     float    fps; unsigned frames, frames_total; double fps_t; float frame_ms;   // frame_ms: smoothed render+present time
-    Vec3 prev_player, prev_boss, prev_eye, prev_target; bool prev_valid;   // previous tick, for render interpolation
+    Vec3 prev_players[NET_MAX_PLAYERS], prev_boss, prev_eye, prev_target; bool prev_valid;   // previous tick, for render interpolation
     float    last_hit_text_t; char hit_text[32];
     unsigned parries, hits_taken, deaths;
     // feedback
@@ -55,6 +61,10 @@ typedef struct Game {
     bool     bot;                 // test harness: plays the fight by itself
     char     level_path[512];     // override (harness --level)
     Platform *pf;
+    NetGame  net;
+    bool     no_scenes;           // multiplayer: skip cutscene playback from triggers and NPC talk
+    bool     force_third;         // --third: force third-person view
+    char     log_path[256];       // --log FILE (default hollow.log)
 } Game;
 
 void game_init(Game *g);
@@ -62,6 +72,10 @@ bool game_init_gfx(Game *g, Platform *pf);
 void game_tick(Game *g, const Input *in, double dt);
 void game_render(Game *g, Platform *pf, float alpha);
 void game_shutdown(Game *g);
+// Loads the hero character model into player_models[slot] if not already loaded.
+void game_ensure_player_model(Game *g, int slot);
+// Puts players[slot] at the level spawn, spread out.
+void game_spawn_player(Game *g, int slot);
 void game_screenshot(Game *g, const char *path);
 void game_tool_screenshot(Game *g, const char *path);
 // Test harness: jump to a state ("explore", "fight", "end").

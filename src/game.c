@@ -18,7 +18,7 @@ static void debug_snapshot(Game *g) {
     char h[2048]; size_t n = 0;
     const Battle *b = &g->battle;
     n += (size_t)snprintf(h + n, sizeof h - n, "game %s t=%.2f fps %.0f level %s\n", GS_NAMES[g->state], g->state_t, g->fps, g->level.path);
-    n += (size_t)snprintf(h + n, sizeof h - n, "player pos %.1f %.1f %.1f yaw %.0f hp %.0f anim %s | boss hp %.0f anim %s\n", g->player.c.pos.x, g->player.c.pos.y, g->player.c.pos.z, g->player.c.yaw / DEG2RAD, g->player.c.hp, anim_name(g->player.c.anim), g->boss.c.hp, anim_name(g->boss.c.anim));
+    n += (size_t)snprintf(h + n, sizeof h - n, "player pos %.1f %.1f %.1f yaw %.0f hp %.0f anim %s | boss hp %.0f anim %s\n", PLAYER(g).c.pos.x, PLAYER(g).c.pos.y, PLAYER(g).c.pos.z, PLAYER(g).c.yaw / DEG2RAD, PLAYER(g).c.hp, anim_name(PLAYER(g).c.anim), g->boss.c.hp, anim_name(g->boss.c.anim));
     if (g->state == GS_BATTLE) {
         n += (size_t)snprintf(h + n, sizeof h - n, "battle %s t=%.2f round %d energy %d/%d banked %d hp %d/%d enemy %d/%d guard %d combo %d\n", BT_NAMES[b->state], b->t, b->round, b->energy, b->energy_max, b->banked, b->player_hp, b->player_hp_max, b->enemy_hp, b->enemy_hp_max, b->guard, b->combo);
         n += (size_t)snprintf(h + n, sizeof h - n, "hand:"); for (int i = 0; i < b->nhand; i++) n += (size_t)snprintf(h + n, sizeof h - n, " %s(p%d)", b->cards[b->hand[i].def].name, b->hand[i].phase);
@@ -34,7 +34,7 @@ static void debug_snapshot(Game *g) {
 // ---------------------------------------------------------------- scene host
 
 static Character *actor(Game *g, const char *name) {
-    if (!strcmp(name, "player")) return &g->player.c;
+    if (!strcmp(name, "player")) return &PLAYER(g).c;
     if (!strcmp(name, "boss")) return &g->boss.c;
     for (int i = 0; i < g->nnpcs; i++) if (!strcmp(g->level.npcs[i].name, name)) return &g->npcs[i].c;
     return NULL;
@@ -69,7 +69,7 @@ static void play_scene(Game *g, const char *name, GState after) {
     dbg_log("scene %s", name);
     scene_start(&g->scene);
     g->state = GS_SCENE; g->after_scene = after; g->state_t = 0;
-    g->player.state = PS_SCRIPTED; character_set_anim(&g->player.c, ANIM_IDLE);
+    PLAYER(g).state = PS_SCRIPTED; character_set_anim(&PLAYER(g).c, ANIM_IDLE);
     g->boss.state = BS_SCRIPTED;
 }
 
@@ -83,21 +83,25 @@ static void hero_hot_reload(Game *g) {
     if (g->tool_mode == 4) return;   // the builder owns the hero while it is open
     const char *hero = g->hero_config[0] ? g->hero_config : "hero";
     char cfg[640]; snprintf(cfg, sizeof cfg, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, hero);
-    char mdl[640]; snprintf(mdl, sizeof mdl, "%s/%s", HOLLOW_ASSET_DIR, g->player_model.spec.model[0] ? g->player_model.spec.model : g->player_model.spec.sprite);
+    char mdl[640]; snprintf(mdl, sizeof mdl, "%s/%s", HOLLOW_ASSET_DIR, PLAYER_MODEL(g).spec.model[0] ? PLAYER_MODEL(g).spec.model : PLAYER_MODEL(g).spec.sprite);
     long long cm = path_mtime(cfg), mm = path_mtime(mdl);
     if (strcmp(watched, hero) != 0) { snprintf(watched, sizeof watched, "%s", hero); cfg_m = cm; model_m = mm; return; }
     if (cm == cfg_m && mm == model_m) return;
     cfg_m = cm; model_m = mm;
     CharModel fresh; memset(&fresh, 0, sizeof fresh);
-    if (charmodel_load(&g->gfx, &fresh, cfg)) { charmodel_destroy(&g->gfx, &g->player_model); g->player_model = fresh; say(g, "hero hot-reloaded"); dbg_log("hero hot-reloaded from %s", cfg); }
+    if (charmodel_load(&g->gfx, &fresh, cfg)) { charmodel_destroy(&g->gfx, &PLAYER_MODEL(g)); PLAYER_MODEL(g) = fresh; say(g, "hero hot-reloaded"); dbg_log("hero hot-reloaded from %s", cfg); }
     else say(g, "hero reload failed (see hollow.log)");
 }
 
 // Characters stand on the terrain surface wherever the level has one.
 static void snap_to_terrain(Game *g) {
     if (!g->terrain.present) return;
-    Character *cs[2] = { &g->player.c, &g->boss.c };
-    for (int i = 0; i < 2; i++) if (terrain_inside(&g->terrain, cs[i]->pos.x, cs[i]->pos.z)) cs[i]->pos.y = terrain_height(&g->terrain, cs[i]->pos.x, cs[i]->pos.z);
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) {
+        if (!g->net.slots[i].active) continue;
+        Character *c = &g->players[i].c;
+        if (terrain_inside(&g->terrain, c->pos.x, c->pos.z)) c->pos.y = terrain_height(&g->terrain, c->pos.x, c->pos.z);
+    }
+    if (terrain_inside(&g->terrain, g->boss.c.pos.x, g->boss.c.pos.z)) g->boss.c.pos.y = terrain_height(&g->terrain, g->boss.c.pos.x, g->boss.c.pos.z);
 }
 
 static void setup_npcs(Game *g) {
@@ -212,26 +216,40 @@ static bool load_defs(Game *g) {
     return ok;
 }
 
+// Loads the hero character model into player_models[slot] if not already loaded.
+void game_ensure_player_model(Game *g, int slot) {
+    if (g->player_models[slot].loaded) return;
+    char path[640]; snprintf(path, sizeof path, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, g->hero_config[0] ? g->hero_config : "hero");
+    charmodel_load(&g->gfx, &g->player_models[slot], path);
+}
+
+// Puts players[slot] at the level spawn, spread out so seated players don't stack.
+void game_spawn_player(Game *g, int slot) {
+    Vec3 pos = v3_add(g->level.spawn, v3(((float)slot - 1.5f) * 1.5f, 0, 0));
+    if (g->terrain.present && terrain_inside(&g->terrain, pos.x, pos.z)) pos.y = terrain_height(&g->terrain, pos.x, pos.z);
+    player_init(&g->players[slot], &g->player_def, pos, g->level.spawn_yaw);
+}
+
 static void reset_to_start(Game *g) {
     level_reset_triggers(&g->level);
-    player_init(&g->player, &g->player_def, g->level.spawn, g->level.spawn_yaw);
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) game_spawn_player(g, i);
     boss_init(&g->boss, &g->boss_def, g->level.boss_spawn, g->level.boss_yaw);
     g->boss.state = BS_SCRIPTED;   // dormant until the fight starts
     g->state = GS_EXPLORE; g->state_t = 0;
     g->fade = 0; g->letterbox = 0; g->hitstop = 0; g->fight_intensity = 0;
     audio_music_play(MUSIC("1 - Adventure Begin.ogg"), true, 0.28f, 2.0f);
     camera_init(&g->cam);
-    camera_snap_behind(&g->cam, g->player.c.pos, g->player.c.yaw, &g->level);
+    camera_snap_behind(&g->cam, PLAYER(g).c.pos, PLAYER(g).c.yaw, &g->level);
     g->hint_t = 8.0f;
 }
 
 static void restart_fight(Game *g) {
     Vec3 p = v3(0, 0, g->level.arena_min.z + 9.0f);
-    player_reset(&g->player, p, 0);
+    player_reset(&PLAYER(g), p, 0);
     boss_reset(&g->boss, g->level.boss_spawn, g->level.boss_yaw);
     g->state = GS_FIGHT; g->state_t = 0; g->hitstop = 0;
     g->fade = 0;
-    camera_snap_behind(&g->cam, g->player.c.pos, g->player.c.yaw, &g->level);
+    camera_snap_behind(&g->cam, PLAYER(g).c.pos, PLAYER(g).c.yaw, &g->level);
     g->cam.locked = true;
 }
 
@@ -239,14 +257,14 @@ static void start_battle(Game *g) {
     Vec3 f = v3(sinf(g->level.boss_yaw), 0, cosf(g->level.boss_yaw));   // direction the boss faces
     Vec3 centre = v3_add(g->level.boss_spawn, v3_scale(f, 2.6f));       // stage centre in front of the boss
     float stage_yaw = g->level.boss_yaw + PI;                            // the player faces the boss
-    battle_start(&g->battle, centre, stage_yaw, 5.2f, (int)g->player.c.hp, (int)g->player.c.hp_max);
-    g->boss.state = BS_SCRIPTED; g->player.state = PS_SCRIPTED;
+    battle_start(&g->battle, centre, stage_yaw, 5.2f, (int)PLAYER(g).c.hp, (int)PLAYER(g).c.hp_max);
+    g->boss.state = BS_SCRIPTED; PLAYER(g).state = PS_SCRIPTED;
     g->boss.c.hp = g->boss.c.hp_max;
-    character_set_anim(&g->boss.c, ANIM_IDLE); character_set_anim(&g->player.c, ANIM_IDLE);
+    character_set_anim(&g->boss.c, ANIM_IDLE); character_set_anim(&PLAYER(g).c, ANIM_IDLE);
     if (g->boss_model.is_sprite) charmodel_sprite_play(&g->boss_model, "idle", 0, true);
     else if (g->boss_model.loaded) anim_play(&g->boss_model.player, &g->boss_model.model, g->boss_model.bind[ANIM_IDLE].clip, 1, true, false, 0.2f);
-    if (g->player_model.is_sprite) charmodel_sprite_play(&g->player_model, "idle", 0, true);
-    else if (g->player_model.loaded) anim_play(&g->player_model.player, &g->player_model.model, g->player_model.bind[ANIM_IDLE].clip, 1, true, false, 0.2f);
+    if (PLAYER_MODEL(g).is_sprite) charmodel_sprite_play(&PLAYER_MODEL(g), "idle", 0, true);
+    else if (PLAYER_MODEL(g).loaded) anim_play(&PLAYER_MODEL(g).player, &PLAYER_MODEL(g).model, PLAYER_MODEL(g).bind[ANIM_IDLE].clip, 1, true, false, 0.2f);
     g->state = GS_BATTLE; g->state_t = 0; g->fade = 1;
     uifx_clear(&g->fx);
     audio_music_play(MUSIC("17 - Fight.ogg"), true, 0.3f, 0.8f);
@@ -265,8 +283,9 @@ bool game_init_gfx(Game *g, Platform *pf) {
     if (!gfx_init(&g->gfx, pf, INTERNAL_W, INTERNAL_H)) return false;
     world_textures_create(&g->gfx, &g->wt);
     if (!load_defs(g)) return false;
+    g->net.slots[g->local].active = true;   // the local player is always seated; netgame_start seats the rest
     // Skinned models are optional: without them the box figures draw.
-    { char hp[640]; snprintf(hp, sizeof hp, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, g->hero_config[0] ? g->hero_config : "hero"); charmodel_load(&g->gfx, &g->player_model, hp); }
+    game_ensure_player_model(g, g->local);
     charmodel_load(&g->gfx, &g->boss_model, ASSET("characters/warden.txt"));
     particles_init(&g->particles);
     uifx_init(&g->fx);
@@ -286,7 +305,7 @@ void game_shutdown(Game *g) {
     terrain_destroy(&g->gfx, &g->terrain);
     dbg_shutdown();
     props_clear(&g->gfx, &g->props);
-    charmodel_destroy(&g->gfx, &g->player_model);
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) charmodel_destroy(&g->gfx, &g->player_models[i]);
     charmodel_destroy(&g->gfx, &g->boss_model);
     world_textures_destroy(&g->gfx, &g->wt);
     gfx_shutdown(&g->gfx);
@@ -303,11 +322,11 @@ void game_start_at(Game *g, const char *where) {
     else if (!strcmp(where, "battle")) { if (g->battle_loaded) start_battle(g); }
     else if (!strcmp(where, "end")) { g->state = GS_END; g->state_t = 0; }
     else if (!strcmp(where, "boss_intro")) {
-        g->player.c.pos = v3(0, 0, 24.2f); g->player.c.yaw = 0;
+        PLAYER(g).c.pos = v3(0, 0, 24.2f); PLAYER(g).c.yaw = 0;
         play_scene(g, g->level.scene_boss, GS_FIGHT);
     } else if (!strcmp(where, "victory")) {
         restart_fight(g);
-        g->player.c.pos = v3_add(g->level.boss_spawn, v3(0.9f, 0, -1.6f));
+        PLAYER(g).c.pos = v3_add(g->level.boss_spawn, v3(0.9f, 0, -1.6f));
         g->boss.c.hp = 0; g->boss.state = BS_DEAD; character_set_anim(&g->boss.c, ANIM_DEAD);
         play_scene(g, g->level.scene_victory, GS_END);
     }
@@ -316,7 +335,7 @@ void game_start_at(Game *g, const char *where) {
 // A deliberately simple bot: parry when a parryable windup is about to land, dodge the rest,
 // otherwise close in and attack. Exists so the fight can be exercised headlessly.
 static void bot_input(Game *g, Input *in) {
-    const Boss *b = &g->boss; const Player *p = &g->player;
+    const Boss *b = &g->boss; const Player *p = &PLAYER(g);
     in->move_x = in->move_y = 0; in->attack = in->parry = in->dodge = false;
     if (g->state == GS_EXPLORE) {
         // walk the path toward +Z, expressed in camera-relative stick terms
@@ -385,9 +404,9 @@ static void apply_events(Game *g, const CombatEvents *ev) {
     if (g->bot) {
         if (ev->boss_swing) SDL_Log("t=%.2f boss swing %s", g->time, g->boss.def.moves[g->boss.move].name);
         if (ev->parried) SDL_Log("t=%.2f DEFLECT  boss posture %.0f", g->time, g->boss.c.posture);
-        if (ev->player_blocked) SDL_Log("t=%.2f blocked, player posture %.0f", g->time, g->player.c.posture);
+        if (ev->player_blocked) SDL_Log("t=%.2f blocked, player posture %.0f", g->time, PLAYER(g).c.posture);
         if (ev->player_staggered) SDL_Log("t=%.2f PLAYER POSTURE BROKEN", g->time);
-        if (ev->player_hit) SDL_Log("t=%.2f player hit, hp %.0f", g->time, g->player.c.hp);
+        if (ev->player_hit) SDL_Log("t=%.2f player hit, hp %.0f", g->time, PLAYER(g).c.hp);
         if (ev->boss_hit) SDL_Log("t=%.2f boss hit, hp %.0f", g->time, g->boss.c.hp);
         if (ev->boss_staggered) SDL_Log("t=%.2f BOSS STAGGERED", g->time);
         if (ev->phase2) SDL_Log("t=%.2f phase 2", g->time);
@@ -451,15 +470,15 @@ static void camera_above_terrain(Game *g) {
 static void tick_explore(Game *g, const Input *in, float dt) {
     CombatEvents ev = {0};
     Vec3 dir = camera_move_dir(&g->cam, in->move_x, in->move_y);
-    player_update(&g->player, in, dir, &g->level, NULL, dt, &ev);
+    player_update(&PLAYER(g), in, dir, &g->level, NULL, dt, &ev);
     snap_to_terrain(g);
     apply_events(g, &ev);
     { const Look *ck = &g->level.look; camera_iso_set(ck->cam_pitch, ck->cam_dist, ck->cam_fov, ck->cam_yaw); if (SDL_getenv("HOLLOW_CAM")) { float a = ck->cam_pitch, b = ck->cam_dist, c = ck->cam_fov, d = ck->cam_yaw; sscanf(SDL_getenv("HOLLOW_CAM"), "%f %f %f %f", &a, &b, &c, &d); camera_iso_set(a, b, c, d); } }
-    if (g->level.third_person) { camera_orbit(&g->cam, g->player.c.pos, in->look_x, in->look_y, false, v3(0, 0, 0), &g->level, dt); camera_above_terrain(g); }   // view third: behind the hero, mouse look
-    else camera_iso(&g->cam, g->player.c.pos, &g->level, dt);
-    Trigger *t = level_trigger_at(&g->level, g->player.c.pos);
+    if (g->level.third_person) { camera_orbit(&g->cam, PLAYER(g).c.pos, in->look_x, in->look_y, false, v3(0, 0, 0), &g->level, dt); camera_above_terrain(g); }   // view third: behind the hero, mouse look
+    else camera_iso(&g->cam, PLAYER(g).c.pos, &g->level, dt);
+    Trigger *t = level_trigger_at(&g->level, PLAYER(g).c.pos);
     if (t) {
-        dbg_log("trigger %s at %.1f %.1f", t->name, g->player.c.pos.x, g->player.c.pos.z);
+        dbg_log("trigger %s at %.1f %.1f", t->name, PLAYER(g).c.pos.x, PLAYER(g).c.pos.z);
         if (!strcmp(t->name, "intro")) play_scene(g, g->level.scene_intro, GS_EXPLORE);
         else if (!strcmp(t->name, "boss_door")) play_scene(g, g->level.scene_boss, GS_FIGHT);
         else if (!strcmp(t->name, "arena")) audio_play(SND_STING, 0.6f, 0.9f);
@@ -469,8 +488,8 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     g->talk_npc = -1;
     for (int i = 0; i < g->nnpcs; i++) {
         Character *c = &g->npcs[i].c; const Npc *np = &g->level.npcs[i];
-        float d = hypotf(g->player.c.pos.x - c->pos.x, g->player.c.pos.z - c->pos.z);
-        if (d < 5.0f && !c->scripted_moving) { float want = atan2f(g->player.c.pos.x - c->pos.x, g->player.c.pos.z - c->pos.z); float diff = want - c->yaw; while (diff > PI) diff -= 2 * PI; while (diff < -PI) diff += 2 * PI; c->yaw += diff * fminf(1, dt * 6); }
+        float d = hypotf(PLAYER(g).c.pos.x - c->pos.x, PLAYER(g).c.pos.z - c->pos.z);
+        if (d < 5.0f && !c->scripted_moving) { float want = atan2f(PLAYER(g).c.pos.x - c->pos.x, PLAYER(g).c.pos.z - c->pos.z); float diff = want - c->yaw; while (diff > PI) diff -= 2 * PI; while (diff < -PI) diff += 2 * PI; c->yaw += diff * fminf(1, dt * 6); }
         if (d < np->radius && g->talk_npc < 0) g->talk_npc = i;
     }
     if (g->talk_npc >= 0 && in->interact && g->state == GS_EXPLORE) { const Npc *np = &g->level.npcs[g->talk_npc]; dbg_log("talk to %s", np->name); play_scene(g, np->scene, GS_EXPLORE); }
@@ -482,7 +501,7 @@ static void tick_scene(Game *g, const Input *in, float dt) {
     SceneHost host = HOST_TEMPLATE; host.ud = g;
     if (in->skip) scene_skip(&g->scene, &host);
     else scene_update(&g->scene, dt, &host);
-    character_script_update(&g->player.c, dt);
+    character_script_update(&PLAYER(g).c, dt);
     character_script_update(&g->boss.c, dt);
     if (g->scene.cam_valid) camera_set_scene(&g->cam, g->scene.cam_eye, g->scene.cam_target, g->scene.cam_fov, true);
     if (g->scene.shake > 0) camera_add_shake(&g->cam, g->scene.shake);
@@ -499,22 +518,22 @@ static void tick_scene(Game *g, const Input *in, float dt) {
     } else g->dlg_shown_chars = 0;
     audio_set_drone(0.5f);
     if (g->scene.done) {
-        g->player.state = PS_FREE; character_set_anim(&g->player.c, ANIM_IDLE);
-        g->player.c.scripted_moving = false; g->boss.c.scripted_moving = false;
+        PLAYER(g).state = PS_FREE; character_set_anim(&PLAYER(g).c, ANIM_IDLE);
+        PLAYER(g).c.scripted_moving = false; g->boss.c.scripted_moving = false;
         if (g->after_scene == GS_FIGHT && g->battle_loaded && !g->level.combat_realtime) {
             start_battle(g);
         } else if (g->after_scene == GS_FIGHT) {
             g->boss.state = BS_IDLE; g->boss.think = 1.2f;
             character_set_anim(&g->boss.c, ANIM_IDLE);
             g->state = GS_FIGHT;
-            camera_snap_behind(&g->cam, g->player.c.pos, g->player.c.yaw, &g->level);
+            camera_snap_behind(&g->cam, PLAYER(g).c.pos, PLAYER(g).c.yaw, &g->level);
             g->cam.locked = true;
         } else if (g->after_scene == GS_END) {
             g->state = GS_END;
         } else {
             g->boss.state = BS_SCRIPTED;
             g->state = GS_EXPLORE;
-            camera_snap_behind(&g->cam, g->player.c.pos, g->player.c.yaw, &g->level);
+            camera_snap_behind(&g->cam, PLAYER(g).c.pos, PLAYER(g).c.yaw, &g->level);
         }
         g->state_t = 0;
     }
@@ -524,23 +543,23 @@ static void tick_fight(Game *g, const Input *in, float dt) {
     CombatEvents ev = {0};
     // Swing timing follows the hero's own clips: each swing connects on the frame its blade lands.
     { static const Anim SWINGS[PLAYER_SWINGS] = { ANIM_ATTACK, ANIM_ATTACK2, ANIM_ATTACK3, ANIM_ATTACK_RUN };
-      for (int i = 0; i < PLAYER_SWINGS; i++) { float contact; if (charmodel_clip_timing(&g->player_model, SWINGS[i], &contact, NULL)) g->player.swing_lead[i] = contact; } }
+      for (int i = 0; i < PLAYER_SWINGS; i++) { float contact; if (charmodel_clip_timing(&PLAYER_MODEL(g), SWINGS[i], &contact, NULL)) PLAYER(g).swing_lead[i] = contact; } }
     Vec3 dir = camera_move_dir(&g->cam, in->move_x, in->move_y);
-    player_update(&g->player, in, dir, &g->level, &g->boss, dt, &ev);
-    boss_update(&g->boss, &g->player, &g->level, dt, &ev);
-    if (g->boss.state != BS_DEAD) character_separate(&g->player.c, &g->boss.c, &g->level);
+    player_update(&PLAYER(g), in, dir, &g->level, &g->boss, dt, &ev);
+    boss_update(&g->boss, &PLAYER(g), &g->level, dt, &ev);
+    if (g->boss.state != BS_DEAD) character_separate(&PLAYER(g).c, &g->boss.c, &g->level);
     snap_to_terrain(g);
     apply_events(g, &ev);
     if (in->lockon) camera_toggle_lock(&g->cam);
-    camera_orbit(&g->cam, g->player.c.pos, in->look_x, in->look_y, g->boss.state != BS_DEAD, g->boss.c.pos, &g->level, dt);
+    camera_orbit(&g->cam, PLAYER(g).c.pos, in->look_x, in->look_y, g->boss.state != BS_DEAD, g->boss.c.pos, &g->level, dt);
     camera_above_terrain(g);
     g->fight_intensity = damp(g->fight_intensity, g->boss.phase2 ? 1.0f : 0.7f, 2, dt);
     audio_set_drone(0.35f);
     audio_set_fight(g->fight_intensity);
     if (ev.boss_died) {
         g->state = GS_DEAD; g->state_t = 0;  // brief hold on the kill before the scene
-        g->player.state = PS_SCRIPTED;
-        character_set_anim(&g->player.c, ANIM_IDLE);
+        PLAYER(g).state = PS_SCRIPTED;
+        character_set_anim(&PLAYER(g).c, ANIM_IDLE);
     } else if (ev.player_died) {
         g->state = GS_DEAD; g->state_t = 0;
     }
@@ -549,9 +568,9 @@ static void tick_fight(Game *g, const Input *in, float dt) {
 static void tick_dead(Game *g, const Input *in, float dt) {
     (void)in;
     g->state_t += dt;
-    character_script_update(&g->player.c, dt);
+    character_script_update(&PLAYER(g).c, dt);
     g->boss.c.anim_t += dt;
-    camera_orbit(&g->cam, g->player.c.pos, 0, 0, false, v3(0, 0, 0), &g->level, dt);
+    camera_orbit(&g->cam, PLAYER(g).c.pos, 0, 0, false, v3(0, 0, 0), &g->level, dt);
     bool boss_dead = g->boss.state == BS_DEAD;
     if (boss_dead) {
         audio_set_fight(fmaxf(0, 1.0f - g->state_t));
@@ -568,7 +587,7 @@ static void tick_battle(Game *g, const Input *in_real, Platform *pf, float dt) {
     float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my);
     if (g->bot) battle_bot(&g->battle, &g->boss_model, &in, &mx, &my, g->tick);
     CombatEvents ev = {0};
-    battle_tick(&g->battle, &in, mx, my, dt, &g->player, &g->boss, &g->player_model, &g->boss_model, &g->cam, &g->particles, &g->fx, &ev);
+    battle_tick(&g->battle, &in, mx, my, dt, &PLAYER(g), &g->boss, &PLAYER_MODEL(g), &g->boss_model, &g->cam, &g->particles, &g->fx, &ev);
     if (ev.shake > 0) camera_add_shake(&g->cam, ev.shake);
     if (ev.parried) { screen_flash(g, v3(1, 1, 0.9f), 0.18f); g->parries++; }
     if (ev.player_hit) { screen_flash(g, v3(0.6f, 0, 0), 0.25f); g->hits_taken++; }
@@ -578,12 +597,12 @@ static void tick_battle(Game *g, const Input *in_real, Platform *pf, float dt) {
     if (battle_over(&g->battle, &won)) {
         if (won) {
             g->boss.state = BS_DEAD; g->boss.c.hp = 0; character_set_anim(&g->boss.c, ANIM_DEAD);
-            g->player.state = PS_SCRIPTED;
+            PLAYER(g).state = PS_SCRIPTED;
             play_scene(g, g->level.scene_victory, GS_END);
             audio_music_play(MUSIC("11 - Clearing.ogg"), true, 0.26f, 1.5f);
         } else {
             g->deaths++;
-            g->player.c.hp = g->player.c.hp_max;
+            PLAYER(g).c.hp = PLAYER(g).c.hp_max;
             start_battle(g);
         }
     }
@@ -598,7 +617,8 @@ static void tick_end(Game *g, const Input *in, float dt) {
 
 void game_tick(Game *g, const Input *in_real, double ddt) {
     float dt = (float)ddt;
-    g->prev_player = g->player.c.pos; g->prev_boss = g->boss.c.pos; g->prev_eye = g->cam.eye; g->prev_target = g->cam.target; g->prev_valid = true;
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) g->prev_players[i] = g->players[i].c.pos;
+    g->prev_boss = g->boss.c.pos; g->prev_eye = g->cam.eye; g->prev_target = g->cam.target; g->prev_valid = true;
     Input bot_in; const Input *in = in_real;
     if (g->bot) { bot_in = *in_real; bot_input(g, &bot_in); in = &bot_in; }
     g->time += ddt; g->tick++;
@@ -627,14 +647,14 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
       bool capture = play && g->tool_mode == 0 && !g->pf->tool_focus && !g->paused && !g->bot;
       static int captured = -1;
       if (captured != (int)capture) { captured = capture; platform_set_cursor(g->pf, !capture); } }
-    if (g->tool_mode == 4) { charmodel_drive_player(&g->player_model, &g->player, dt); }
+    if (g->tool_mode == 4) { charmodel_drive_player(&PLAYER_MODEL(g), &PLAYER(g), dt); }
     if (g->tool_mode == 2 && g->leveled.open && g->state != GS_BATTLE && g->state != GS_SCENE) {
         float mx, my; platform_mouse_ui(g->pf, INTERNAL_W, INTERNAL_H, &mx, &my);
         leveled_tick(&g->leveled, &g->level, &g->terrain, &g->cam, in, mx, my, dt, &g->gfx, &g->props);
         if (g->leveled.props_stale) { props_clear(&g->gfx, &g->props); g->leveled.props_stale = false; }
         props_load_level(&g->gfx, &g->props, &g->level);
         snap_to_terrain(g);
-        charmodel_drive_player(&g->player_model, &g->player, dt);
+        charmodel_drive_player(&PLAYER_MODEL(g), &PLAYER(g), dt);
         uifx_update(&g->fx, dt); update_particles(g, dt);
         g->fade = 1; g->letterbox = 0; g->hint_t = 0;
         return;
@@ -644,7 +664,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     if (in->step) g->step_once = true;
     if (in->reload || (in->ctrl && in->key_down[SDL_SCANCODE_R])) {
         bool ok = load_defs(g);
-        g->player.def = g->player_def; g->boss.def = g->boss_def;
+        PLAYER(g).def = g->player_def; g->boss.def = g->boss_def;
         g->boss.c.hp_max = g->boss_def.hp; g->boss.c.posture_max = g->boss_def.posture;
         say(g, ok ? "reloaded level, player, boss" : "reload failed, see log");
         setup_level_content(g);
@@ -672,7 +692,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
         g->letterbox = damp(g->letterbox, 0, 6, dt);
         if (g->state != GS_DEAD) g->fade = damp(g->fade, 1, 3, dt);
     }
-    if (g->state != GS_BATTLE) { charmodel_drive_player(&g->player_model, &g->player, dt); charmodel_drive_boss(&g->boss_model, &g->boss, dt); }
+    if (g->state != GS_BATTLE) { charmodel_drive_player(&PLAYER_MODEL(g), &PLAYER(g), dt); charmodel_drive_boss(&g->boss_model, &g->boss, dt); }
     uifx_update(&g->fx, dt);
     update_particles(g, dt);
     if (g->hint_t > 0) g->hint_t -= dt;
@@ -729,7 +749,7 @@ static void render_portrait(Game *g, Platform *pf, const FrameParams *fp) {
     if (g->state != GS_SCENE || !g->scene.subtitle[0] || !g->scene.speaker[0]) return;
     int which = portrait_model_for(g, g->scene.speaker);
     if (!which) return;
-    CharModel *cm = which == 2 ? &g->boss_model : which >= 3 ? &g->npcs[which - 3].model : &g->player_model;
+    CharModel *cm = which == 2 ? &g->boss_model : which >= 3 ? &g->npcs[which - 3].model : &PLAYER_MODEL(g);
     if (!cm->loaded || cm->is_sprite) return;
     Model *m = &cm->model;
     // restart the emotion clip when the line or the speaker changes
@@ -817,7 +837,7 @@ static void draw_console(Game *g, Platform *pf) {
     }
     // 5. Sprites: which frame of which sheet, the usual cause of "the art looks wrong"
     ctext(x, lx, y, pw - 24, 1.1f, head, "SPRITES"); y += SH;
-    sprite_line(l, sizeof l, "hero", &g->player_model); ctext(x, lx, y, pw - 24, 1.0f, txt, l); y += LH;
+    sprite_line(l, sizeof l, "hero", &PLAYER_MODEL(g)); ctext(x, lx, y, pw - 24, 1.0f, txt, l); y += LH;
     sprite_line(l, sizeof l, "boss", &g->boss_model); ctext(x, lx, y, pw - 24, 1.0f, txt, l); y += LH + 8;
     // 6. Inputs and the actions they caused
     ctext(x, lx, y, pw - 24, 1.1f, head, "INPUT -> ACTION   (amber = what you pressed, green = what the game did)"); y += SH;
@@ -856,7 +876,7 @@ static void draw_tool_window(Game *g, Platform *pf) {
         if (!windowed) { float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my); uin.mx = mx - 560; uin.my = my; uin.down = pf->input.mouse_held; uin.pressed = pf->input.click; uin.released = false; uin.wheel = pf->input.wheel; }
         Input keys = pf->input; memcpy(keys.key_down, pf->input.tool_key_frame, sizeof keys.key_down);
         ui_begin(&g->ui, x, uin);
-        int flags = builder_panel(&g->builder, &g->ui, &keys, w, h, g->player_model.loaded && !g->player_model.is_sprite ? &g->player_model.model : NULL);
+        int flags = builder_panel(&g->builder, &g->ui, &keys, w, h, PLAYER_MODEL(g).loaded && !PLAYER_MODEL(g).is_sprite ? &PLAYER_MODEL(g).model : NULL);
         ui_end(&g->ui);
         gfx_ui_target(x, 0);
         apply_builder(g, flags);
@@ -875,7 +895,7 @@ static void draw_debug_overlay(Game *g, Platform *pf) {
         char l[8][160]; int n = 0;
         snprintf(l[n++], 160, "fps %.0f  %.1f ms  draws %u  props drawn %u culled %u  tick %u  %s", g->fps, g->frame_ms, g->gfx.draw_calls, g->props.props_drawn, g->props.props_culled, g->tick, g->paused ? "PAUSED" : "");
         snprintf(l[n++], 160, "game %s %.2fs   cam %s  vol %s", GS[g->state], g->state_t, g->cam.mode == CAM_ORBIT ? (g->cam.locked ? "orbit+lock" : "orbit") : "scene", "-");
-        snprintf(l[n++], 160, "player %s t=%.2f  pos %.1f %.1f %.1f  yaw %.0f  hp %.0f  anim %s", PS[g->player.state], g->player.t, g->player.c.pos.x, g->player.c.pos.y, g->player.c.pos.z, g->player.c.yaw / DEG2RAD, g->player.c.hp, anim_name(g->player.c.anim));
+        snprintf(l[n++], 160, "player %s t=%.2f  pos %.1f %.1f %.1f  yaw %.0f  hp %.0f  anim %s", PS[PLAYER(g).state], PLAYER(g).t, PLAYER(g).c.pos.x, PLAYER(g).c.pos.y, PLAYER(g).c.pos.z, PLAYER(g).c.yaw / DEG2RAD, PLAYER(g).c.hp, anim_name(PLAYER(g).c.anim));
         const BossMove *m = &g->boss.def.moves[g->boss.move];
         snprintf(l[n++], 160, "boss %s t=%.2f move %s  hp %.0f  posture %.0f  %s", BS[g->boss.state], g->boss.t, m->name, g->boss.c.hp, g->boss.c.posture, g->boss.phase2 ? "PHASE2" : "");
         if (g->state == GS_SCENE) snprintf(l[n++], 160, "scene t=%.2f next %d/%d  fade %.2f", g->scene.time, g->scene.next, g->scene.n, g->scene.fade);
@@ -914,8 +934,8 @@ static void draw_hud(Game *g, Platform *pf) {
 
     if (g->state == GS_FIGHT || (g->state == GS_DEAD)) {
         // Player
-        bar(x, 24, H - 40, 180, 8, g->player.c.hp / g->player.c.hp_max, v4(0.25f, 0.05f, 0.05f, 1), v4(0.75f, 0.15f, 0.12f, 1));
-        bar(x, 24, H - 30, 180, 4, g->player.c.posture / g->player.c.posture_max, v4(0.15f, 0.12f, 0.05f, 1), v4(0.95f, 0.75f, 0.25f, 1));   // posture: guard breaks when it empties
+        bar(x, 24, H - 40, 180, 8, PLAYER(g).c.hp / PLAYER(g).c.hp_max, v4(0.25f, 0.05f, 0.05f, 1), v4(0.75f, 0.15f, 0.12f, 1));
+        bar(x, 24, H - 30, 180, 4, PLAYER(g).c.posture / PLAYER(g).c.posture_max, v4(0.15f, 0.12f, 0.05f, 1), v4(0.95f, 0.75f, 0.25f, 1));   // posture: guard breaks when it empties
         // Boss: health and posture
         float bw = 320, bx = (W - bw) * 0.5f;
         gfx_ui_text(x, bx, H - 64, 1.0f, dim, g->boss.def.name);
@@ -1026,11 +1046,11 @@ static Vec3 lerp_or_cut(Vec3 a, Vec3 b, float t) { return v3_len(v3_sub(b, a)) >
 void game_render_at(Game *g, Platform *pf, float alpha);
 void game_render(Game *g, Platform *pf, float alpha) {
     if (!g->prev_valid || alpha <= 0 || alpha >= 1 || SDL_getenv("HOLLOW_NOINTERP")) { game_render_at(g, pf, alpha); return; }
-    Vec3 sp = g->player.c.pos, sb = g->boss.c.pos, se = g->cam.eye, st = g->cam.target;
-    g->player.c.pos = lerp_or_cut(g->prev_player, sp, alpha); g->boss.c.pos = lerp_or_cut(g->prev_boss, sb, alpha);
+    Vec3 sp = PLAYER(g).c.pos, sb = g->boss.c.pos, se = g->cam.eye, st = g->cam.target;
+    PLAYER(g).c.pos = lerp_or_cut(g->prev_players[g->local], sp, alpha); g->boss.c.pos = lerp_or_cut(g->prev_boss, sb, alpha);
     g->cam.eye = lerp_or_cut(g->prev_eye, se, alpha); g->cam.target = lerp_or_cut(g->prev_target, st, alpha);
     game_render_at(g, pf, alpha);
-    g->player.c.pos = sp; g->boss.c.pos = sb; g->cam.eye = se; g->cam.target = st;
+    PLAYER(g).c.pos = sp; g->boss.c.pos = sb; g->cam.eye = se; g->cam.target = st;
 }
 void game_render_at(Game *g, Platform *pf, float alpha) {
     (void)alpha;
@@ -1062,7 +1082,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         float fl = l->flicker > 0 ? 1.0f + l->flicker * (0.5f * sinf(t * 13.0f + i * 1.7f) + 0.3f * sinf(t * 29.0f + i * 0.9f) + 0.2f * sinf(t * 7.0f + i)) : 1.0f;
         fp.lights[fp.nlights++] = (PointLight){ .pos = l->pos, .radius = l->radius, .color = l->color, .intensity = l->intensity * fl };
     }
-    const Character *pc = &g->player.c, *bc = &g->boss.c;
+    const Character *pc = &PLAYER(g).c, *bc = &g->boss.c;
     if (bc->tell > 0 && fp.nlights < GFX_MAX_LIGHTS)
         fp.lights[fp.nlights++] = (PointLight){ .pos = v3(bc->pos.x, bc->pos.y + bc->height * 0.6f, bc->pos.z), .radius = 6.0f,
                                                 .color = bc->tell_color, .intensity = 2.5f * bc->tell * bc->tell };
@@ -1086,7 +1106,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             draw_level(x, lv, &g->wt);
             if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain); }
             props_draw(x, &g->props, lv, t);
-            if (g->player_model.loaded && !g->player_model.is_sprite) charmodel_draw(x, &g->player_model, pc, v4(1, 1, 1, 1));
+            if (PLAYER_MODEL(g).loaded && !PLAYER_MODEL(g).is_sprite) charmodel_draw(x, &PLAYER_MODEL(g), pc, v4(1, 1, 1, 1));
             if (g->boss_model.loaded && !g->boss_model.is_sprite) charmodel_draw(x, &g->boss_model, bc, v4(1, 1, 1, 1));
             for (int i = 0; i < g->nnpcs; i++) if (g->npcs[i].ok && !g->npcs[i].model.is_sprite) charmodel_draw(x, &g->npcs[i].model, &g->npcs[i].c, v4(1, 1, 1, 1));
             gfx_shadow_end(x);
@@ -1116,7 +1136,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         if (SDL_getenv("HOLLOW_PIX")) sscanf(SDL_getenv("HOLLOW_PIX"), "%f %f %f %f %f", &pxs, &pxl, &pxo, &pxp, &pxi);   // tuning override: "scale levels outline palette inner"
         bool pix_on = pxs >= 1 && !SDL_getenv("HOLLOW_NOPIX");
         gfx_set_pixel_look(x, pix_on ? (int)pxs : 0, pxl, pxo, pxp, pxi);
-        bool player_pix = pix_on && g->player_model.loaded && !g->player_model.is_sprite;
+        bool player_pix = pix_on && PLAYER_MODEL(g).loaded && !PLAYER_MODEL(g).is_sprite;
         bool boss_pix = pix_on && g->boss_model.loaded && !g->boss_model.is_sprite;
         bool npc_pix = pix_on && g->nnpcs > 0;
         if (player_pix || boss_pix || npc_pix) {
@@ -1128,7 +1148,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             float ox = -dr / texel, oy = du / texel;
             if (SDL_getenv("HOLLOW_PIXOFF")) { float mx2 = 1, my2 = 1; sscanf(SDL_getenv("HOLLOW_PIXOFF"), "%f %f", &mx2, &my2); ox *= mx2; oy *= my2; }   // alignment test aid
             gfx_pixel_begin(x, camera_view_proj_offset(&g->cam, (float)INTERNAL_W / INTERNAL_H, off), ox, oy);
-            if (player_pix) { gfx_set_material(x, &pm); charmodel_draw(x, &g->player_model, pc, pt); }
+            if (player_pix) { gfx_set_material(x, &pm); charmodel_draw(x, &PLAYER_MODEL(g), pc, pt); }
             if (boss_pix) { gfx_set_material(x, &bm); charmodel_draw(x, &g->boss_model, bc, bt); }
             gfx_set_material(x, &pm);
             for (int i = 0; i < g->nnpcs; i++) if (g->npcs[i].ok && !g->npcs[i].model.is_sprite) charmodel_draw(x, &g->npcs[i].model, &g->npcs[i].c, v4(1, 1, 1, 1));
@@ -1138,7 +1158,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         if (!npc_pix) { gfx_set_material(x, &pm); for (int i = 0; i < g->nnpcs; i++) if (g->npcs[i].ok && !g->npcs[i].model.is_sprite) charmodel_draw(x, &g->npcs[i].model, &g->npcs[i].c, v4(1, 1, 1, 1)); }
         if (!player_pix) {
             gfx_set_material(x, &pm);
-            if (g->player_model.loaded) charmodel_draw(x, &g->player_model, pc, pt);
+            if (PLAYER_MODEL(g).loaded) charmodel_draw(x, &PLAYER_MODEL(g), pc, pt);
             else draw_character(x, pc, g->player_def.color, g->player_def.size, false, &g->wt.tex[TEX_PLASTER]);
         }
         if (!boss_pix) {
@@ -1162,10 +1182,10 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             Vec3 c = v3_add(bc->pos, v3_scale(f, m->range * 0.5f));
             gfx_draw_box_wire(x, v3(c.x, 1.0f, c.z), v3(m->range, 0.2f, m->range), g->boss.state == BS_ACTIVE ? v4(1, 0, 0, 1) : v4(1, 0.6f, 0, 1));
         }
-        if (g->player.state == PS_ATTACK) {
+        if (PLAYER(g).state == PS_ATTACK) {
             Vec3 f = v3(sinf(pc->yaw), 0, cosf(pc->yaw));
-            Vec3 c = v3_add(pc->pos, v3_scale(f, g->player.def.attack_range * 0.5f));
-            gfx_draw_box_wire(x, v3(c.x, 1.0f, c.z), v3(g->player.def.attack_range, 0.2f, g->player.def.attack_range), v4(0.3f, 0.6f, 1, 1));
+            Vec3 c = v3_add(pc->pos, v3_scale(f, PLAYER(g).def.attack_range * 0.5f));
+            gfx_draw_box_wire(x, v3(c.x, 1.0f, c.z), v3(PLAYER(g).def.attack_range, 0.2f, PLAYER(g).def.attack_range), v4(0.3f, 0.6f, 1, 1));
         }
         for (int i = 0; i < lv->ntriggers; i++) {
             const Trigger *tr = &lv->triggers[i];
@@ -1216,7 +1236,7 @@ static void settings_set(Game *g, const char *key, const char *value) {
 
 // The builder edits a spec; the hero is rebuilt from it so every change shows in the world.
 static void apply_builder(Game *g, int flags) {
-    Builder *b = &g->builder; CharModel *cm = &g->player_model;
+    Builder *b = &g->builder; CharModel *cm = &PLAYER_MODEL(g);
     if (flags & BLD_RELOAD) {
         charmodel_destroy(&g->gfx, cm);
         if (!charmodel_apply(&g->gfx, cm, &b->spec)) { snprintf(b->msg, sizeof b->msg, "model failed to load: %s", b->spec.model); b->msg_t = 4; }
@@ -1234,7 +1254,7 @@ static void apply_builder(Game *g, int flags) {
         if (same) cm->spec = b->spec;
         else { charmodel_destroy(&g->gfx, cm); charmodel_apply(&g->gfx, cm, &b->spec); builder_model_loaded(b, cm->loaded ? &cm->model : NULL); }
     }
-    if ((flags & BLD_PLAY_CLIP) && cm->loaded && !cm->is_sprite && b->clip_sel >= 0) { anim_play(&cm->player, &cm->model, b->clip_sel, 1, true, false, 0.1f); cm->last_anim = g->player.c.anim; cm->last_anim_t = g->player.c.anim_t; }
+    if ((flags & BLD_PLAY_CLIP) && cm->loaded && !cm->is_sprite && b->clip_sel >= 0) { anim_play(&cm->player, &cm->model, b->clip_sel, 1, true, false, 0.1f); cm->last_anim = PLAYER(g).c.anim; cm->last_anim_t = PLAYER(g).c.anim_t; }
     if (flags & BLD_SAVE) {
         if (!b->name[0]) snprintf(b->name, sizeof b->name, "%s", "my_hero");
         char path[640]; snprintf(path, sizeof path, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, b->name);
@@ -1265,9 +1285,9 @@ void game_set_tool(Game *g, int mode) {
     if (mode == 4) {
         platform_tool_window(g->pf, true, 720, 820, "hollow character builder");
         if (!g->builder_ready) { say(g, "character builder: no rigged .glb files found under assets/models"); return; }
-        if (g->player_model.loaded && g->player_model.is_sprite) say(g, "the hero is a sprite; pick a base model to build a 3D hero");
-        builder_open(&g->builder, &g->player_model.spec, g->hero_config[0] && strcmp(g->hero_config, "hero") ? g->hero_config : "my_hero");
-        builder_model_loaded(&g->builder, g->player_model.loaded && !g->player_model.is_sprite ? &g->player_model.model : NULL);
+        if (PLAYER_MODEL(g).loaded && PLAYER_MODEL(g).is_sprite) say(g, "the hero is a sprite; pick a base model to build a 3D hero");
+        builder_open(&g->builder, &PLAYER_MODEL(g).spec, g->hero_config[0] && strcmp(g->hero_config, "hero") ? g->hero_config : "my_hero");
+        builder_model_loaded(&g->builder, PLAYER_MODEL(g).loaded && !PLAYER_MODEL(g).is_sprite ? &PLAYER_MODEL(g).model : NULL);
         if (g->state == GS_SCENE) { SceneHost host = HOST_TEMPLATE; host.ud = g; scene_skip(&g->scene, &host); }
     }
 }

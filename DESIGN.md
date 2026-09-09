@@ -1,6 +1,8 @@
 # Goonstein Island (working title; alt: "Rescue Something")
 
-Four idiots on a motor boat go to rescue what they think are kids from a billionaire's island.
+The Goon Squad: four idiots on a motor boat go to rescue what they think are kids from a billionaire's island.
+The name is a double pun: the meme word "goon" and the historical goon squads, hired muscle of the 19th and
+20th centuries (strikebreakers, union enforcers). They are enthusiastic, unqualified and paid by nobody.
 There are no kids. There is a conspiracy hole, and the deeper they go the dumber it gets.
 Co-op physics comedy for four, played with friends for a few evenings. Fun and games, nothing serious.
 
