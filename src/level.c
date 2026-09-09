@@ -247,6 +247,7 @@ static bool parse_level(Level *out, const char *path) {
                     if (i < n && strcmp(tok[i], "deck") == 0) { pr->collide_deck = true; i += 1; }
                 }
                 else if (strcmp(tok[i], "stretch") == 0 && i + 3 < n && parse_floats(tok, i + 1, 3, g3)) { pr->stretch = v3(g3[0], g3[1], g3[2]); i += 4; }
+                else if (strcmp(tok[i], "name") == 0 && i + 1 < n) { SDL_strlcpy(pr->name, tok[i + 1], sizeof pr->name); i += 2; }   // a cutscene actor: `actor prop:NAME move ...`
                 else { SDL_Log("level_load:%d: bad prop option '%s'", line_no, tok[i]); break; }
             }
             if (pr->collide > 0 && out->nblocks < LEVEL_MAX_BLOCKS) {
@@ -453,6 +454,7 @@ bool level_save(const Level *lv, const char *path) {
             fprintf(f, " glow %.3f %.3f %.3f", pr->glow.x, pr->glow.y, pr->glow.z);
         if (pr->stretch.x != 1.0f || pr->stretch.y != 1.0f || pr->stretch.z != 1.0f)
             fprintf(f, " stretch %.3f %.3f %.3f", pr->stretch.x, pr->stretch.y, pr->stretch.z);
+        if (pr->name[0]) fprintf(f, " name %s", pr->name);
         if (pr->collide > 0.0f) {
             fprintf(f, " collide %.3f", pr->collide);
             if (pr->collide_h > 0.0f || pr->collide_deck) fprintf(f, " %.3f", pr->collide_h > 0 ? pr->collide_h : 5.0f);

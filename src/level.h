@@ -42,6 +42,7 @@ typedef struct Trigger {
 
 typedef struct Prop {
     char  file[128];         // relative to assets/
+    char  name[32];          // `name NAME`: what a cutscene calls it (actor prop:NAME ...); empty = anonymous
     Vec3  pos; float yaw, scale; Vec3 stretch;   // stretch: per-axis size multiplier (default 1 1 1)
     Vec4  tint; Vec3 glow;   // glow = emissive colour
     float collide;           // radius of an invisible solid box at the prop's base (0 = none)

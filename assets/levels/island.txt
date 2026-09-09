@@ -80,7 +80,7 @@ prop models/shapes/cylinder.obj -78 -1.60 -117.4 0 1 stretch 0.42 4.0 0.42 tint 
 # the boat, moored alongside on the north side, bow pointing east up the channel
 # the deck is walkable: `collide R H deck` is an invisible box whose top face is a floor and which
 # never blocks movement, so the goons can stand in the boat (2.7 m square, deck top at y = 0.72)
-prop models/own/boat.part -70 -0.30 -118.6 90 1.0 collide 1.35 1.02 deck
+prop models/own/boat.part -70 -0.30 -118.6 90 1.0 collide 1.35 1.02 deck name boat
 prop models/shapes/sphere.obj -65.65 1.30 -118.6 0 1 stretch 0.26 0.26 0.26 tint 1.0 0.4 0.3 glow 2.4 0.5 0.3
 light -65.65 1.90 -118.6 1.0 0.35 0.25 10 1.2
 light -78 4.2 -112   1.0 0.86 0.60   14 1.5 flicker 0.06

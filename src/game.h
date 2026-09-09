@@ -26,6 +26,11 @@ typedef enum GState { GS_EXPLORE, GS_SCENE, GS_FIGHT, GS_DEAD, GS_END, GS_BATTLE
 #define PLAYER(g)       ((g)->players[(g)->local])
 #define PLAYER_MODEL(g) ((g)->player_models[(g)->local])
 
+// A level prop a cutscene drives like an actor (`actor prop:NAME move|teleport|face ...`). Anyone
+// standing on its deck rides along: see game.c's prop_move_to.
+#define GAME_PROP_ACTORS 8
+typedef struct PropActor { int prop; bool moving; Vec3 from, to; float t, dur; } PropActor;
+
 typedef struct Game {
     double   time; unsigned tick;
     Gfx      gfx; WorldTextures wt;
@@ -38,6 +43,7 @@ typedef struct Game {
     Builder builder; bool builder_ready;
     Terrain terrain; bool gen_done;
     struct { Character c; CharModel model; bool ok; } npcs[LEVEL_MAX_NPCS]; int nnpcs; int talk_npc;   // talk_npc: the one in reach (-1 none)
+    PropActor prop_actors[GAME_PROP_ACTORS]; int nprop_actors;   // props a scene is driving right now
     float daytime_from, daytime_to, daytime_t, daytime_dur;   // scene-driven time of day transition
     Ui ui; int tool_mode;            // 0 none, 1 debugger, 2 environment editor, 3 sprite editor
     float sprite_refresh_t;

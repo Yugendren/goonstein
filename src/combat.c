@@ -45,7 +45,7 @@ bool character_in_arc(const Character *from, Vec3 target, float range) {
 void character_script_move(Character *c, Vec3 to, float dur) {
     c->move_from = c->pos; c->move_to = to; c->move_t = 0; c->move_dur = dur;
     c->scripted_moving = true;
-    if (dur <= 0.0f) { c->pos = to; c->scripted_moving = false; return; }
+    if (dur <= 0.0f) { c->pos = to; c->scripted_moving = false; c->ground_block = -1; c->grounded = false; return; }   // a skipped scene: this is a teleport, so their footing goes with it
     c->yaw = yaw_to(c->pos, to);
     character_set_anim(c, ANIM_WALK);
 }

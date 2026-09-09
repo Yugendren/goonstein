@@ -20,5 +20,13 @@ One command per line, `#` starts a comment. The first field is the time in secon
     T music FILE|stop                          # a file under assets/sprites/ninja/Audio/Musics, cross-faded
     T end
 
-Actors: player, boss, and any NPC name from the level's `npc` lines. Speakers named after an NPC get
+Actors: player, boss, any NPC name from the level's `npc` lines, and `prop:NAME` -- a level prop
+tagged `name NAME` on its `prop` line. A prop takes `move`, `teleport` and `face` (not `anim`); its
+move is eased in and out, because a boat does not start and stop like a lift. The prop's collider
+travels with it and anyone standing on that collider is carried along, so four men can ride a boat
+in and step off it.
+
+An actor's y in `move` and `teleport` is a floor, not the final answer: characters are put on
+whatever ground is under them, so `move x 0 z dur` walks along the terrain, while a larger y (a
+quay, a deck) lifts them onto it. Speakers named after an NPC get
 that NPC's live portrait; "Hero" and "The Warden" are mapped in assets/portraits.txt.

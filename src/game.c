@@ -33,6 +33,62 @@ static void debug_snapshot(Game *g) {
 
 // ---------------------------------------------------------------- scene host
 
+// ---- prop actors -----------------------------------------------------------
+// A scene can name a level prop (`prop ... name boat`) and drive it: `actor prop:boat move x y z
+// dur`. The prop's invisible collider moves with it, and anyone standing on that collider is
+// carried, which is the whole point: four men in a boat that is actually going somewhere.
+
+static int prop_by_name(Game *g, const char *name) {
+    for (int i = 0; i < g->level.nprops; i++) if (g->level.props[i].name[0] && !strcmp(g->level.props[i].name, name)) return i;
+    return -1;
+}
+// "prop:NAME" -> its index in the level, or -1 if this actor is not a prop at all.
+static int actor_prop(Game *g, const char *a) {
+    if (strncmp(a, "prop:", 5) != 0) return -1;
+    int i = prop_by_name(g, a + 5);
+    if (i < 0) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "scene: no prop named '%s' in %s", a + 5, g->level.path);
+    return i;
+}
+static PropActor *prop_actor_slot(Game *g, int prop) {
+    for (int i = 0; i < g->nprop_actors; i++) if (g->prop_actors[i].prop == prop) return &g->prop_actors[i];
+    if (g->nprop_actors >= GAME_PROP_ACTORS) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "scene: too many prop actors"); return NULL; }
+    PropActor *pa = &g->prop_actors[g->nprop_actors++];
+    memset(pa, 0, sizeof *pa); pa->prop = prop;
+    return pa;
+}
+static void carry_rider(Character *c, int block, Vec3 d) {
+    if (c->ground_block != block) return;
+    c->pos = v3_add(c->pos, d);
+    if (c->scripted_moving) { c->move_from = v3_add(c->move_from, d); c->move_to = v3_add(c->move_to, d); }   // walking on a moving deck
+}
+// Put a prop somewhere, taking its collider and everyone standing on it along.
+static void prop_move_to(Game *g, int pi, Vec3 pos) {
+    Prop *pr = &g->level.props[pi];
+    Vec3 d = v3_sub(pos, pr->pos);
+    pr->pos = pos;
+    int bi = pr->collide_block;
+    if (bi < 0 || bi >= g->level.nblocks) return;
+    g->level.blocks[bi].center = v3_add(g->level.blocks[bi].center, d);
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) carry_rider(&g->players[i].c, bi, d);
+    carry_rider(&g->boss.c, bi, d);
+    for (int i = 0; i < g->nnpcs; i++) carry_rider(&g->npcs[i].c, bi, d);
+}
+// Scene-driven prop motion, eased in and out: a boat does not start and stop like a lift.
+static void update_prop_actors(Game *g, float dt) {
+    for (int i = 0; i < g->nprop_actors; i++) {
+        PropActor *pa = &g->prop_actors[i];
+        if (!pa->moving || pa->prop < 0 || pa->prop >= g->level.nprops) continue;
+        pa->t += dt;
+        float k = clampf(pa->t / fmaxf(pa->dur, 1e-4f), 0, 1);
+        prop_move_to(g, pa->prop, v3_lerp(pa->from, pa->to, k * k * (3 - 2 * k)));
+        if (k >= 1) pa->moving = false;
+    }
+}
+static void prop_actors_finish(Game *g) {   // a skipped scene leaves nothing drifting
+    for (int i = 0; i < g->nprop_actors; i++)
+        if (g->prop_actors[i].moving) { prop_move_to(g, g->prop_actors[i].prop, g->prop_actors[i].to); g->prop_actors[i].moving = false; }
+}
+
 static Character *actor(Game *g, const char *name) {
     if (!strcmp(name, "player")) return &PLAYER(g).c;
     if (!strcmp(name, "boss")) return &g->boss.c;
@@ -40,10 +96,38 @@ static Character *actor(Game *g, const char *name) {
     return NULL;
 }
 static int npc_index(Game *g, const char *name) { for (int i = 0; i < g->nnpcs; i++) if (!strcmp(g->level.npcs[i].name, name)) return i; return -1; }
-static void host_move(void *ud, const char *a, Vec3 pos, float dur) { Character *c = actor(ud, a); if (c) character_script_move(c, pos, dur); }
-static void host_face(void *ud, const char *a, Vec3 t) { Character *c = actor(ud, a); if (c) c->yaw = atan2f(t.x - c->pos.x, t.z - c->pos.z); }
-static void host_anim(void *ud, const char *a, const char *anim) { Character *c = actor(ud, a); if (c) character_set_anim(c, anim_from_name(anim)); }
-static void host_teleport(void *ud, const char *a, Vec3 pos, float yaw) { Character *c = actor(ud, a); if (c) { c->pos = pos; c->yaw = yaw * DEG2RAD; c->scripted_moving = false; } }
+static void host_move(void *ud, const char *a, Vec3 pos, float dur) {
+    Game *g = ud; int pi = actor_prop(g, a);
+    if (pi >= 0) {
+        PropActor *pa = prop_actor_slot(g, pi); if (!pa) return;
+        if (dur <= 0) { prop_move_to(g, pi, pos); pa->moving = false; return; }
+        pa->from = g->level.props[pi].pos; pa->to = pos; pa->t = 0; pa->dur = dur; pa->moving = true;
+        return;
+    }
+    if (strncmp(a, "prop:", 5) == 0) return;
+    Character *c = actor(g, a); if (c) character_script_move(c, pos, dur);
+}
+static void host_face(void *ud, const char *a, Vec3 t) {
+    Game *g = ud; int pi = actor_prop(g, a);
+    if (pi >= 0) { Prop *pr = &g->level.props[pi]; pr->yaw = atan2f(t.x - pr->pos.x, t.z - pr->pos.z); return; }
+    if (strncmp(a, "prop:", 5) == 0) return;
+    Character *c = actor(g, a); if (c) c->yaw = atan2f(t.x - c->pos.x, t.z - c->pos.z);
+}
+static void host_anim(void *ud, const char *a, const char *anim) { if (!strncmp(a, "prop:", 5)) return; Character *c = actor(ud, a); if (c) character_set_anim(c, anim_from_name(anim)); }
+static void host_teleport(void *ud, const char *a, Vec3 pos, float yaw) {
+    Game *g = ud; int pi = actor_prop(g, a);
+    if (pi >= 0) {
+        PropActor *pa = prop_actor_slot(g, pi); if (pa) pa->moving = false;
+        g->level.props[pi].yaw = yaw * DEG2RAD;
+        prop_move_to(g, pi, pos);
+        return;
+    }
+    if (strncmp(a, "prop:", 5) == 0) return;
+    Character *c = actor(g, a);
+    // Whatever they were standing on, they are not standing on it any more: a stale ground_block
+    // would let a moving prop carry an actor who has just been teleported off it.
+    if (c) { c->pos = pos; c->yaw = yaw * DEG2RAD; c->scripted_moving = false; c->ground_block = -1; c->grounded = false; c->vy = 0; }
+}
 static void host_sound(void *ud, const char *name) {
     (void)ud;
     static const char *names[SND_COUNT] = { "footstep", "swing", "hit", "parry", "hurt", "stagger", "roar", "death", "blip", "heart", "door", "sting", "whiff", "fail" };
@@ -178,6 +262,7 @@ static void setup_npcs(Game *g) {
 }
 
 static void setup_level_content(Game *g) {
+    g->nprop_actors = 0;   // prop indices and their collider blocks are rebuilt by the load
     if (g->force_first) g->level.view = VIEW_FIRST;        // --first / --third override the level's view line
     else if (g->force_third) g->level.view = VIEW_THIRD;
     props_load_level(&g->gfx, &g->props, &g->level);
@@ -578,7 +663,7 @@ static void tick_explore(Game *g, const Input *in, float dt) {
 
 static void tick_scene(Game *g, const Input *in, float dt) {
     SceneHost host = HOST_TEMPLATE; host.ud = g;
-    if (in->skip) scene_skip(&g->scene, &host);
+    if (in->skip) { scene_skip(&g->scene, &host); prop_actors_finish(g); }
     else scene_update(&g->scene, dt, &host);
     character_script_update(&PLAYER(g).c, dt);
     character_script_update(&g->boss.c, dt);
@@ -764,6 +849,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     if (g->hitstop > 0) { g->hitstop -= dt; netgame_pre_tick(g, dt); netgame_post_tick(g, dt); camera_update(&g->cam, dt); return; }
 
     netgame_pre_tick(g, dt);
+    update_prop_actors(g, dt);
     switch (g->state) {
     case GS_EXPLORE: tick_explore(g, in, dt); break;
     case GS_SCENE:   tick_scene(g, in, dt); break;
