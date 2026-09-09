@@ -368,6 +368,10 @@ static void host_simulate(Game *g, float dt) {
         CombatEvents ev = {0};
         player_update(&g->players[i], &in, dir, &g->level, NULL, dt, &ev);
         Character *c = &g->players[i].c;
+        // First person: the client's body faces its view, not its movement, so replay the yaw it
+        // sent instead of the one player_update turned toward the move direction. Without this a
+        // strafing client looks sideways to everyone else.
+        if (g->level.view == VIEW_FIRST && s->have_input) c->yaw = dq_yaw(s->input.yaw);
         if (g->terrain.present && terrain_inside(&g->terrain, c->pos.x, c->pos.z)) c->pos.y = terrain_height(&g->terrain, c->pos.x, c->pos.z);
     }
     for (int i = 0; i < NET_MAX_PLAYERS; i++)
@@ -542,6 +546,7 @@ void netgame_bot_wander(Game *g, Input *in) {
         // trail shows the world swinging past instead of a fixed view strafing sideways.
         float d = wrap_pi(atan2f(want.x, want.z) - g->cam.yaw);
         in->look_x = -clampf(d, -0.05f, 0.05f) / camera_mouse_sens();   // the camera subtracts look_x * sens
+        in->look_y = 0;                                                 // a stray mouse must not tilt a headless run
         in->move_x = 0; in->move_y = -1;
         return;
     }
