@@ -717,7 +717,7 @@ static void draw_tool_window(Game *g, Platform *pf) {
         if (!windowed) gfx_ui_rect(x, 560, 0, 720, 800, v4(0.03f, 0.03f, 0.05f, 0.92f));
         UiInput uin = { .mx = windowed ? pf->input.tool_mx : 0, .my = windowed ? pf->input.tool_my : 0, .down = pf->input.tool_down, .pressed = pf->input.tool_pressed, .released = pf->input.tool_released, .wheel = pf->input.tool_wheel };
         if (!windowed) { float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my); uin.mx = mx - 560; uin.my = my; uin.down = pf->input.mouse_held; uin.pressed = pf->input.click; uin.released = false; uin.wheel = pf->input.wheel; }
-        Input keys = pf->input; memcpy(keys.key_down, pf->input.tool_key_down, sizeof keys.key_down);
+        Input keys = pf->input; memcpy(keys.key_down, pf->input.tool_key_frame, sizeof keys.key_down);
         ui_begin(&g->ui, x, uin);
         int flags = builder_panel(&g->builder, &g->ui, &keys, w, h, g->player_model.loaded && !g->player_model.is_sprite ? &g->player_model.model : NULL);
         ui_end(&g->ui);

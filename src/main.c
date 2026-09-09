@@ -93,6 +93,7 @@ int main(int argc, char **argv) {
         if (tool_shot) gfx_tool_screenshot_request(&game.gfx, pf.tool_w > 0 ? pf.tool_w : 720, pf.tool_h > 0 ? pf.tool_h : 820);
         game_render(&game, &pf, (float)alpha);
         platform_end_frame(&pf);
+        platform_clear_frame_edges(&pf);
         if (max_frames >= 0 && --max_frames == 0) running = false;
         if (shot_when && shot && game_shot_moment(&game, shot_when)) { game_screenshot(&game, shot); shot = NULL; running = false; }
     }

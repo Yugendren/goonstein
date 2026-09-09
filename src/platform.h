@@ -23,7 +23,8 @@ typedef struct Input {
     float wheel;                     // scroll this frame
     // Generic keys for tools: edge-triggered presses and held state by scancode
     bool  key_down[512], key_held[512];
-    bool  tool_key_down[512];         // key presses that landed in the tool window (its editor gets these, the game does not)
+    bool  tool_key_down[512];         // key presses that landed in the tool window, cleared per tick (game logic)
+    bool  tool_key_frame[512];        // the same presses, cleared per rendered frame (tool panels run in render)
     bool  ctrl, shift_held;
     // Mouse in the tool window (editor / debugger), in that window's points
     float tool_mx, tool_my; bool tool_down, tool_pressed, tool_released; float tool_wheel;
@@ -50,7 +51,8 @@ typedef struct Platform {
 
 bool platform_init(Platform *pf, const char *title, int w, int h);
 bool platform_poll(Platform *pf);       // returns false on quit. Edge inputs accumulate until platform_clear_edges.
-void platform_clear_edges(Platform *pf); // call after a simulation tick has consumed the input
+void platform_clear_edges(Platform *pf);         // per simulation tick
+void platform_clear_frame_edges(Platform *pf);   // per rendered frame: tool-window mouse and key edges the panels consume // call after a simulation tick has consumed the input
 void platform_console_window(Platform *pf, bool open);   // open or close the tool window at its current size
 // Open (or resize) the tool window with a logical size and title.
 // Open (tiled beside the game window: `share` is the fraction of the screen the tool takes) or close the tool window.

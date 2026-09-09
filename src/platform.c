@@ -44,10 +44,18 @@ void platform_clear_edges(Platform *pf) {
     in->attack = in->parry = in->dodge = in->interact = in->debug_toggle = false;
     in->pause_toggle = in->step = in->reload = in->skip = in->lockon = false;
     in->click = in->rclick = false; in->wheel = 0;
-    in->tool_pressed = in->tool_released = in->tool_rpressed = false; in->tool_wheel = 0;
     memset(in->key_down, 0, sizeof in->key_down);
     memset(in->tool_key_down, 0, sizeof in->tool_key_down);
     in->look_x = in->look_y = 0.0f;
+}
+
+// Tool panels run in the render step, which happens every frame, so their edges live for exactly
+// one frame. (Clearing them per tick lost every click that landed on a frame that ticked before
+// it rendered: the "click twice" bug.)
+void platform_clear_frame_edges(Platform *pf) {
+    Input *in = &pf->input;
+    in->tool_pressed = in->tool_released = in->tool_rpressed = false; in->tool_wheel = 0;
+    memset(in->tool_key_frame, 0, sizeof in->tool_key_frame);
 }
 
 bool platform_poll(Platform *pf) {
@@ -73,7 +81,7 @@ bool platform_poll(Platform *pf) {
         case SDL_EVENT_KEY_DOWN:
             if (pf->console_win && e.key.windowID == SDL_GetWindowID(pf->console_win)) {
                 // typed into the tool window: only that tool sees it
-                if (e.key.scancode < 512) in->tool_key_down[e.key.scancode] = true;
+                if (e.key.scancode < 512) { in->tool_key_down[e.key.scancode] = true; in->tool_key_frame[e.key.scancode] = true; }
                 if (!e.key.repeat) dbg_log("[in] tool key %s", SDL_GetScancodeName(e.key.scancode));
                 break;
             }
