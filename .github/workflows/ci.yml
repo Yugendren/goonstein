@@ -77,3 +77,12 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y glslc spirv-cross
       - run: ./tools/shaders.sh --check
+
+  # ---------------------------------------------------------------- content gate
+  # Enforces DESIGN.md hard rules: no children references in game content
+  content_gate:
+    name: Content gate (DESIGN.md rules)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./tools/content_gate.sh

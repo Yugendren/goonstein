@@ -100,7 +100,7 @@ ruined arena, a death cutscene.
 |---|------|-------|
 | 1 | Dawn intro: narration, camera sweep | `scenes/lantern_intro.txt` |
 | 2 | The plaza: the Elder notices the stranger | `scenes/lantern_town.txt` |
-| 3 | Talk to the Elder, the Smith, the Child (`E`) | `characters/{elder,smith,child}.txt`, `scenes/lantern_{elder,smith,child}.txt` |
+| 3 | Talk to the Elder, the Smith, the apprentice (`E`) | `characters/{elder,smith,child}.txt`, `scenes/lantern_{elder,smith,child}.txt` |
 | 4 | Crisis at the shrine: dusk at midday, the music turns | `scenes/lantern_crisis.txt` |
 | 5 | The arena gate: the Warden reveal | `scenes/lantern_boss.txt` |
 | 6 | The fight | `enemies/warden_battle.txt`, `characters/warden.txt` |

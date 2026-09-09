@@ -127,3 +127,8 @@ add_custom_target(dist
   COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix ${CMAKE_BINARY_DIR}/dist
   COMMENT "Installing into ${CMAKE_BINARY_DIR}/dist")
 add_dependencies(dist ${PROJECT_NAME})   # never lay out a stale binary
+
+# Content gate: verify DESIGN.md hard rules
+add_custom_target(content_gate
+  COMMAND bash ${CMAKE_SOURCE_DIR}/tools/content_gate.sh
+  COMMENT "Running content gate: verifying DESIGN.md hard rules")

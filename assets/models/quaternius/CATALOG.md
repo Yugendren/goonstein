@@ -9,7 +9,6 @@ here is CC0 1.0 (`LICENSE.txt`); see ASSETS.md for the source URLs.
 | `peasant_male.glb` | plain villager, 8 meshes, 53 joints, 84 clips. `characters/q_villager.txt` |
 | `elder_male.glb` | peasant, long hair and beard bleached white, linen desaturated cold. `characters/elder.txt` |
 | `smith_male.glb` | peasant burnt down to dark leather, buzz cut and black beard. `characters/smith.txt` |
-| `child_female.glb` | female peasant and hair in buns, both dyed bright yellow. `characters/child.txt` |
 | `warden_male.glb` | ranger in dark iron and blood red, 88 clips (84 + 4 aliases). `characters/warden.txt` |
 | `sword_bronze.glb` | one static blade for the right hand (the outfit packs ship no weapons) |
 
@@ -75,7 +74,6 @@ Unzip the four free packs (see ASSETS.md for the URLs); `BODY`/`OF`/`HAIR` below
         --tex 512 --tint MI_Hair_1 0.30 0.26 0.24 0.30 --tint MI_Hair_2 0.30 0.26 0.24 0.30 \
         --tint MI_Peasant 0.50 0.42 0.36 0.25
 
-    blender -b --python merge.py -- child_female.glb $BODY/Superhero_Female_FullBody.gltf \
         $OF/Female_Peasant.gltf $A1 $A2 --add $HAIR/Hair_Buns.gltf --tex 512 \
         --tint MI_Hair_1 1.60 0.80 0.40 1.0 --tint MI_Hair_2 1.60 0.80 0.40 1.0 \
         --tint MI_Peasant 1.35 1.05 0.35 1.0

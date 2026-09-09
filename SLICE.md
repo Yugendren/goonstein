@@ -10,7 +10,7 @@ ruined arena, a death cutscene. Everything is text under `assets/`; the game sta
 |---|------|-------|-------|
 | 1 | Dawn intro: narration, camera sweep over the village | spawn 0 0 -4 | `scenes/lantern_intro.txt` (trigger `intro`) |
 | 2 | Entering the plaza: the Elder notices the stranger | z 21..23 | `scenes/lantern_town.txt` (trigger `town`) |
-| 3 | Talk to the Elder, the Smith, the Child (E) | -4 30 / 6 28 / -6 37 | `characters/elder.txt smith.txt child.txt`, `scenes/lantern_elder/smith/child.txt` |
+| 3 | Talk to the Elder, the Smith, the apprentice (E) | -4 30 / 6 28 / -6 37 | `characters/elder.txt smith.txt child.txt`, `scenes/lantern_elder/smith/child.txt` |
 | 4 | Crisis at the shrine: the count begins, dusk falls at midday, music turns | 0 0 46 | `scenes/lantern_crisis.txt` (trigger `crisis`) |
 | 5 | The arena gate: the Warden reveal | z 57..59 | `scenes/lantern_boss.txt` (trigger `boss_door`) |
 | 6 | Card and parry battle | arena 0 0 72 | `enemies/warden_battle.txt`, `characters/warden.txt` |

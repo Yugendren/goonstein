@@ -278,7 +278,6 @@ emitter spore 0 1.0 20   10 1.2 16   0.8   1.4 1.6 1.0   0.06   7
 # --- villagers ---
 npc Elder elder -4 0 30 140 lantern_elder.txt 3
 npc Smith smith 6 0 28 220 lantern_smith.txt 3
-npc Child child -6 0 37 160 lantern_child.txt 3
 
 # --- beats fire as the player walks north ---
 trigger intro -3 -1 -6 3 3 -2 once

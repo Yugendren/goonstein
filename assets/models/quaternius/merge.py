@@ -155,7 +155,7 @@ for img in bpy.data.images:
         img.scale(TEX, TEX)
 
 # 5b. --tint: one atlas per outfit means every peasant is the same peasant. Repaint the base
-# colour of the materials under a prefix so the elder's linen, the smith's leather and the child's
+# colour of the materials under a prefix so the elder's linen, the smith's leather and the apprentice's
 # smock come out of the one texture as different cloth. The engine's own `recolor` shifts single
 # palette entries; this shifts the whole map, which is what these gradient atlases need.
 def mats_of(prefix):
