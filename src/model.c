@@ -1,5 +1,4 @@
 #include "model.h"
-#include "part.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -165,8 +164,7 @@ static bool model_load_obj(Gfx *g, Model *m, const char *path) {
 
 bool model_load(Gfx *g, Model *m, const char *path, int max_tex_size) {
     memset(m, 0, sizeof *m);
-    { size_t L = strlen(path); if (L > 4 && (!strcmp(path + L - 4, ".obj") || !strcmp(path + L - 4, ".OBJ"))) return model_load_obj(g, m, path);
-      if (L > 5 && !strcmp(path + L - 5, ".part")) return part_load_model(g, m, path); }
+    { size_t L = strlen(path); if (L > 4 && (!strcmp(path + L - 4, ".obj") || !strcmp(path + L - 4, ".OBJ"))) return model_load_obj(g, m, path); }
     cgltf_options opt = {0};
     cgltf_data *d = NULL;
     if (cgltf_parse_file(&opt, path, &d) != cgltf_result_success) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "model parse failed: %s", path); return false; }

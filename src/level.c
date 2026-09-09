@@ -195,13 +195,14 @@ static bool parse_level(Level *out, const char *path) {
             Prop *pr = &out->props[out->nprops++];
             memset(pr, 0, sizeof *pr);
             SDL_strlcpy(pr->file, tok[1], sizeof pr->file);
-            pr->pos = v3(f[0], f[1], f[2]); pr->yaw = f[3] * DEG2RAD; pr->scale = f[4]; pr->tint = v4(1, 1, 1, 1);
+            pr->pos = v3(f[0], f[1], f[2]); pr->yaw = f[3] * DEG2RAD; pr->scale = f[4]; pr->tint = v4(1, 1, 1, 1); pr->stretch = v3(1, 1, 1);
             int i = 7;
             while (i < n) {
                 float g3[3];
                 if (strcmp(tok[i], "tint") == 0 && i + 3 < n && parse_floats(tok, i + 1, 3, g3)) { pr->tint = v4(g3[0], g3[1], g3[2], 1); i += 4; }
                 else if (strcmp(tok[i], "glow") == 0 && i + 3 < n && parse_floats(tok, i + 1, 3, g3)) { pr->glow = v3(g3[0], g3[1], g3[2]); i += 4; }
                 else if (strcmp(tok[i], "collide") == 0 && i + 1 < n && parse_floats(tok, i + 1, 1, g3)) { pr->collide = g3[0]; i += 2; }
+                else if (strcmp(tok[i], "stretch") == 0 && i + 3 < n && parse_floats(tok, i + 1, 3, g3)) { pr->stretch = v3(g3[0], g3[1], g3[2]); i += 4; }
                 else { SDL_Log("level_load:%d: bad prop option '%s'", line_no, tok[i]); break; }
             }
             if (pr->collide > 0 && out->nblocks < LEVEL_MAX_BLOCKS) {
@@ -385,6 +386,8 @@ bool level_save(const Level *lv, const char *path) {
             fprintf(f, " tint %.3f %.3f %.3f", pr->tint.x, pr->tint.y, pr->tint.z);
         if (pr->glow.x != 0.0f || pr->glow.y != 0.0f || pr->glow.z != 0.0f)
             fprintf(f, " glow %.3f %.3f %.3f", pr->glow.x, pr->glow.y, pr->glow.z);
+        if (pr->stretch.x != 1.0f || pr->stretch.y != 1.0f || pr->stretch.z != 1.0f)
+            fprintf(f, " stretch %.3f %.3f %.3f", pr->stretch.x, pr->stretch.y, pr->stretch.z);
         if (pr->collide > 0.0f)
             fprintf(f, " collide %.3f", pr->collide);
         fprintf(f, "\n");

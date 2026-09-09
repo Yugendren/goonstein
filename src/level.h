@@ -37,7 +37,7 @@ typedef struct Trigger {
 
 typedef struct Prop {
     char  file[128];         // relative to assets/
-    Vec3  pos; float yaw, scale;
+    Vec3  pos; float yaw, scale; Vec3 stretch;   // stretch: per-axis size multiplier (default 1 1 1)
     Vec4  tint; Vec3 glow;   // glow = emissive colour
     float collide;           // radius of an invisible solid cylinder (0 = none)
 } Prop;

@@ -5,6 +5,8 @@
 #include <string.h>
 
 static void say(LevelEd *e, const char *s) { snprintf(e->msg, sizeof e->msg, "%s", s); e->msg_t = 3.0f; }
+static const struct { const char *name; Vec3 c; } BIOME[] = { {"grass", {0.20f, 0.34f, 0.16f}}, {"forest floor", {0.11f, 0.17f, 0.10f}}, {"rock", {0.36f, 0.34f, 0.35f}}, {"snow", {0.88f, 0.90f, 0.95f}}, {"dirt", {0.30f, 0.22f, 0.15f}}, {"path", {0.55f, 0.50f, 0.44f}}, {"water", {0.10f, 0.22f, 0.32f}}, {"moss", {0.28f, 0.42f, 0.20f}}, {"sand", {0.62f, 0.56f, 0.40f}} };
+
 
 // ---------------------------------------------------------------- kit
 
@@ -40,11 +42,14 @@ static void scan_models(LevelEd *e, const char *dir, const char *category) {
     SDL_EnumerateDirectory(d, scan_cb, &c);
 }
 
+static SDL_EnumerationResult hm_scan_cb(void *ud, const char *dirname, const char *fname);
 bool leveled_init(LevelEd *e, const char *kit_path) {
     memset(e, 0, sizeof *e);
     e->ghost_scale = 1; e->snap = false; e->cam_speed = 8; e->sel_prop = e->sel_light = e->sel_emitter = -1; e->tool = LT_PIECE;
     e->light_color = v3(1.0f, 0.8f, 0.5f); e->light_radius = 7; e->light_intensity = 3;
     e->tradius = 6; e->tstrength = 6; e->tpaint = v3(0.22f, 0.36f, 0.18f); e->snow_h = 14; e->rock_slope = 0.45f; e->scatter_density = 0.6f;
+    e->seed = 7; e->g_mountains = 0.6f; e->g_hills = 0.5f; e->g_rough = 0.4f; e->g_forest = 0.5f; e->g_rocks = 0.3f; e->g_water = -1000; e->g_snow = 22; e->hm_range = 40;
+    { char d[640]; snprintf(d, sizeof d, "%s/heightmaps/", HOLLOW_ASSET_DIR); SDL_EnumerateDirectory(d, hm_scan_cb, e); }
     size_t n; char *text = SDL_LoadFile(kit_path, &n);
     if (!text) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "kit missing: %s", kit_path); return false; }
     char *cur = text;
@@ -177,7 +182,8 @@ static void place_piece(LevelEd *e, Level *lv, Vec3 at) {
     Prop *p = &lv->props[lv->nprops++];
     memset(p, 0, sizeof *p);
     snprintf(p->file, sizeof p->file, "%s", k->file);
-    p->pos = at; p->yaw = e->ghost_yaw; p->scale = e->ghost_scale; p->tint = v4(1, 1, 1, 1); p->glow = k->glow; p->collide = e->ghost_collide ? (k->collide > 0 ? k->collide : 0.5f) : 0;
+    p->pos = at; p->yaw = e->ghost_yaw; p->scale = e->ghost_scale; p->stretch = v3(1, 1, 1); p->tint = v4(1, 1, 1, 1); p->glow = k->glow; p->collide = e->ghost_collide ? (k->collide > 0 ? k->collide : 0.5f) : 0;
+    if (e->tr && e->tr->present && p->collide > 0 && strcmp(k->category, "trees") != 0) terrain_flatten_pad(e->tr, at, fmaxf(p->collide * e->ghost_scale, 0.8f) + 0.4f, at.y);   // structures get level ground
     add_collider_for(lv, p);
     if (k->has_light && lv->nlights < LEVEL_MAX_LIGHTS) {
         LevelLight *l = &lv->lights[lv->nlights++];
@@ -209,8 +215,10 @@ static void delete_selected(LevelEd *e, Level *lv) {
 
 // ---------------------------------------------------------------- tick (game window)
 
+static void part_name_keys(LevelEd *e, const Input *in);
 void leveled_tick(LevelEd *e, Level *lv, Terrain *tr, Camera *cam, const Input *in, float mx, float my, float dt, Gfx *g, PropCache *pc) {
     (void)g; (void)pc; e->tr = tr;
+    part_name_keys(e, in);
     if (e->msg_t > 0) e->msg_t -= dt;
     // Fly camera
     if (in->rmouse_held) { e->cam_yaw -= in->look_x * 0.0025f; e->cam_pitch = clampf(e->cam_pitch - in->look_y * 0.0025f, -1.4f, 1.4f); }
@@ -275,6 +283,10 @@ void leveled_tick(LevelEd *e, Level *lv, Terrain *tr, Camera *cam, const Input *
                     e->dirty = true;
                 }
             } break;
+            case 7: {   // path: level and paint along the drag
+                if (!e->path_started) { e->path_last = at; e->path_started = true; }
+                if (hypotf(at.x - e->path_last.x, at.z - e->path_last.z) > 0.4f) { terrain_path(tr, e->path_last, at, fmaxf(e->tradius * 0.4f, 1.0f), BIOME[5].c); e->path_last = at; e->dirty = true; }
+            } break;
             case 6: {   // clear props inside the brush
                 for (int i = lv->nprops - 1; i >= 0; i--) if (hypotf(lv->props[i].pos.x - at.x, lv->props[i].pos.z - at.z) < e->tradius) {
                     remove_collider_for(lv, &lv->props[i]);
@@ -288,7 +300,7 @@ void leveled_tick(LevelEd *e, Level *lv, Terrain *tr, Camera *cam, const Input *
                 for (int i = 0; i < lv->nlights; i++) if (hypotf(lv->lights[i].pos.x - at.x, lv->lights[i].pos.z - at.z) < e->tradius + 2) lv->lights[i].pos.y = fmaxf(lv->lights[i].pos.y, terrain_height(tr, lv->lights[i].pos.x, lv->lights[i].pos.z) + 1.0f);
                 e->dirty = true;
             }
-        } else e->sculpting = false;
+        } else { e->sculpting = false; e->path_started = false; }
         if (in->ctrl && in->wheel != 0) e->tradius = clampf(e->tradius * (in->wheel > 0 ? 1.15f : 0.87f), 1, 40);
         return;
     }
@@ -302,6 +314,13 @@ void leveled_tick(LevelEd *e, Level *lv, Terrain *tr, Camera *cam, const Input *
         case LT_EMITTER: if (lv->nemitters < LEVEL_MAX_EMITTERS) { push_undo(e, lv); LevelEmitter *m = &lv->emitters[lv->nemitters++]; memset(m, 0, sizeof *m); snprintf(m->type, sizeof m->type, "firefly"); m->pos = v3(e->ghost_pos.x, 1.2f, e->ghost_pos.z); m->extent = v3(3, 1, 3); m->rate = 2; m->color = v3(2.5f, 3.0f, 1.2f); m->size = 0.1f; m->life = 8; e->sel_emitter = lv->nemitters - 1; } break;
         case LT_SELECT: {
             int p = pick_prop(lv, e->ghost_pos), l = pick_light(lv, e->ghost_pos), m = pick_emitter(lv, e->ghost_pos);
+            if (in->shift_held && p >= 0) {   // group selection
+                bool found = false; for (int i = 0; i < e->nmulti; i++) if (e->multi[i] == p) { for (int k = i; k < e->nmulti - 1; k++) e->multi[k] = e->multi[k + 1]; e->nmulti--; found = true; break; }
+                if (!found && e->nmulti < 64) e->multi[e->nmulti++] = p;
+                if (e->sel_prop >= 0 && e->sel_prop != p) { bool has = false; for (int i = 0; i < e->nmulti; i++) if (e->multi[i] == e->sel_prop) has = true; if (!has && e->nmulti < 64) e->multi[e->nmulti++] = e->sel_prop; }
+                e->sel_prop = p; e->sel_light = e->sel_emitter = -1; break;
+            }
+            e->nmulti = 0;
             e->sel_prop = p; e->sel_light = p < 0 ? l : -1; e->sel_emitter = (p < 0 && l < 0) ? m : -1;
             if (p >= 0) { push_undo(e, lv); e->dragging = true; e->drag_offset = v3_sub(lv->props[p].pos, e->ghost_pos); }
             else if (l >= 0) { push_undo(e, lv); e->dragging = true; e->drag_offset = v3_sub(lv->lights[l].pos, e->ghost_pos); }
@@ -333,6 +352,7 @@ void leveled_draw_world(LevelEd *e, const Level *lv, Gfx *g, PropCache *pc) {
         gfx_set_material(g, NULL);
         return;
     }
+    for (int i = 0; i < e->nmulti; i++) if (e->multi[i] >= 0 && e->multi[i] < lv->nprops) { const Prop *p = &lv->props[e->multi[i]]; gfx_draw_box_wire(g, v3(p->pos.x, p->pos.y + 0.6f, p->pos.z), v3(0.9f, 1.2f, 0.9f), v4(0.5f, 0.9f, 1, 1)); }
     // ground cursor and a small grid
     if (e->ghost_valid) {
         Vec3 p = e->ghost_pos;
@@ -363,6 +383,156 @@ void leveled_draw_world(LevelEd *e, const Level *lv, Gfx *g, PropCache *pc) {
 }
 
 // ---------------------------------------------------------------- panel (tool window)
+
+// ---------------------------------------------------------------- world generation
+
+static SDL_EnumerationResult hm_scan_cb(void *ud, const char *dirname, const char *fname) {
+    LevelEd *e = ud; size_t n = strlen(fname);
+    if (!(n > 4 && !strcmp(fname + n - 4, ".png")) || e->nhm >= 16) return SDL_ENUM_CONTINUE;
+    snprintf(e->hm_files[e->nhm], 160, "%s%s", dirname, fname);
+    char nm[64]; snprintf(nm, sizeof nm, "%s", fname); char *dot = strrchr(nm, '.'); if (dot) *dot = 0; snprintf(e->hm_names[e->nhm], 48, "%s", nm);
+    e->nhm++;
+    return SDL_ENUM_CONTINUE;
+}
+
+
+static void ensure_terrain(LevelEd *e, Level *lv, Terrain *tr) {
+    if (tr->present) return;
+    terrain_init(tr, 1.5f, v3(-96, 0, -96), 0, BIOME[0].c);
+    snprintf(tr->file, sizeof tr->file, "%s", "levels/terrain_new");
+    if (lv->path[0]) { const char *slash = strrchr(lv->path, '/'); const char *base = slash ? slash + 1 : lv->path; char nm[96]; snprintf(nm, sizeof nm, "%s", base); char *dot = strrchr(nm, '.'); if (dot) *dot = 0; snprintf(tr->file, sizeof tr->file, "levels/%s_terrain", nm); }
+    e->dirty = true;
+}
+
+static void remove_scattered(Level *lv, LevelEd *e) {   // trees and rocks from a previous generation go; everything else stays
+    for (int i = lv->nprops - 1; i >= 0; i--) {
+        const char *cat = NULL; for (int k = 0; k < e->nkit; k++) if (!strcmp(e->kit[k].file, lv->props[i].file)) { cat = e->kit[k].category; break; }
+        if (cat && (!strcmp(cat, "trees") || !strcmp(cat, "rocks"))) { remove_collider_for(lv, &lv->props[i]); for (int k = i; k < lv->nprops - 1; k++) lv->props[k] = lv->props[k + 1]; lv->nprops--; }
+    }
+}
+
+// Seed in, world out: heights, biome colours, a flat spawn and arena pad, a path between them, water,
+// and trees and rocks placed by the biome rules. Sculpt and paint over it afterwards.
+void leveled_generate_world(LevelEd *e, Level *lv, Terrain *tr) {
+    ensure_terrain(e, lv, tr);
+    push_undo(e, lv);
+    TerrainGen p = { .seed = e->seed, .mountains = e->g_mountains, .hills = e->g_hills, .roughness = e->g_rough, .snow_h = e->g_snow, .water_h = e->g_water };
+    p.flat[0] = lv->spawn; p.flat_r[0] = 7; p.flat[1] = lv->boss_spawn; p.flat_r[1] = 11; p.nflat = 2;
+    terrain_generate(tr, &p, BIOME[0].c, BIOME[2].c, BIOME[3].c, BIOME[4].c, BIOME[8].c);
+    // path from the spawn to the arena, wandering a little
+    { Vec3 a = lv->spawn, b = lv->boss_spawn; float len = hypotf(b.x - a.x, b.z - a.z); int steps = (int)(len / 4) + 1; Vec3 prev = a;
+      for (int i = 1; i <= steps; i++) { float k = (float)i / steps; Vec3 q = v3(lerpf(a.x, b.x, k), 0, lerpf(a.z, b.z, k));
+          float wob = (terrain_noise(e->seed + 5, q.x, q.z, 12) - 0.5f) * 10 * sinf(k * PI); Vec3 side = v3(-(b.z - a.z) / fmaxf(len, 1), 0, (b.x - a.x) / fmaxf(len, 1));
+          q = v3_add(q, v3_scale(side, wob)); terrain_path(tr, prev, q, 2.2f, BIOME[5].c); prev = q; } }
+    // props: trees where it is grassy and not too steep, rocks on slopes and high ground
+    remove_scattered(lv, e);
+    int trees[KIT_MAX], rocks[KIT_MAX]; int nt = 0, nr = 0;
+    for (int i = 0; i < e->nkit; i++) { if (!strcmp(e->kit[i].category, "trees")) trees[nt++] = i; else if (!strcmp(e->kit[i].category, "rocks")) rocks[nr++] = i; }
+    srand(e->seed);
+    float span = (TERRAIN_N - 1) * tr->cell;
+    for (float z = tr->origin.z + 3; z < tr->origin.z + span - 3 && lv->nprops < LEVEL_MAX_PROPS - 48; z += 3.0f)
+        for (float x = tr->origin.x + 3; x < tr->origin.x + span - 3 && lv->nprops < LEVEL_MAX_PROPS - 48; x += 3.0f) {
+            Vec3 q = v3(x + ((rand() % 100) / 100.0f - 0.5f) * 2.4f, 0, z + ((rand() % 100) / 100.0f - 0.5f) * 2.4f);
+            q.y = terrain_height(tr, q.x, q.z);
+            if (q.y < e->g_water + 0.8f) continue;
+            float slope = 1 - terrain_normal(tr, q.x, q.z).y;
+            float forest = terrain_noise(e->seed + 99, q.x, q.z, 22) * e->g_forest * 1.6f;   // clumps
+            bool near_pad = hypotf(q.x - lv->spawn.x, q.z - lv->spawn.z) < 9 || hypotf(q.x - lv->boss_spawn.x, q.z - lv->boss_spawn.z) < 13;
+            // stay off the path: painted path colour is a good enough marker
+            Vec3 c = tr->color[(int)((q.z - tr->origin.z) / tr->cell) * TERRAIN_N + (int)((q.x - tr->origin.x) / tr->cell)];
+            bool on_path = fabsf(c.x - BIOME[5].c.x) < 0.08f && fabsf(c.y - BIOME[5].c.y) < 0.08f;
+            if (near_pad || on_path) continue;
+            float r = (rand() % 1000) / 1000.0f;
+            int pick = -1;
+            if (nt && slope < 0.32f && q.y < e->g_snow - 2 && r < forest * 0.55f) pick = trees[rand() % nt];
+            else if (nr && (slope > 0.3f || q.y > e->g_snow - 4) && r < e->g_rocks * 0.5f) pick = rocks[rand() % nr];
+            else if (nr && r < e->g_rocks * 0.03f) pick = rocks[rand() % nr];
+            if (pick < 0) continue;
+            const KitPiece *k = &e->kit[pick];
+            Prop *pr = &lv->props[lv->nprops++]; memset(pr, 0, sizeof *pr);
+            snprintf(pr->file, sizeof pr->file, "%s", k->file);
+            pr->pos = q; pr->yaw = (float)(rand() % 360) * DEG2RAD; pr->scale = k->scale * (0.8f + 0.4f * (rand() % 100) / 100.0f); pr->stretch = v3(1, 1, 1); pr->tint = v4(1, 1, 1, 1); pr->glow = k->glow; pr->collide = k->collide;
+            add_collider_for(lv, pr);
+        }
+    // everything else placed stands on the new ground
+    for (int i = 0; i < lv->nprops; i++) { Prop *pr = &lv->props[i]; if (terrain_inside(tr, pr->pos.x, pr->pos.z)) { remove_collider_for(lv, pr); pr->pos.y = terrain_height(tr, pr->pos.x, pr->pos.z); add_collider_for(lv, pr); } }
+    for (int i = 0; i < lv->nlights; i++) if (terrain_inside(tr, lv->lights[i].pos.x, lv->lights[i].pos.z)) lv->lights[i].pos.y = fmaxf(lv->lights[i].pos.y, terrain_height(tr, lv->lights[i].pos.x, lv->lights[i].pos.z) + 1.0f);
+    e->dirty = true;
+    char msg[160]; snprintf(msg, sizeof msg, "world %u: %d pieces placed; sculpt and paint over it, Ctrl+S saves", e->seed, lv->nprops); say(e, msg);
+}
+
+// ---------------------------------------------------------------- grouping into parts
+
+// The selected pieces become one part file (positions relative to the first piece, on the ground)
+// and are replaced in the level by a single prop that references it.
+static void group_as_part(LevelEd *e, Level *lv) {
+    int idx[65]; int n = 0;
+    if (e->sel_prop >= 0 && e->sel_prop < lv->nprops) idx[n++] = e->sel_prop;
+    for (int i = 0; i < e->nmulti && n < 65; i++) { bool dup = false; for (int k = 0; k < n; k++) if (idx[k] == e->multi[i]) dup = true; if (!dup && e->multi[i] >= 0 && e->multi[i] < lv->nprops) idx[n++] = e->multi[i]; }
+    if (n == 0) { say(e, "select a piece first"); return; }
+    PartDoc d; memset(&d, 0, sizeof d);
+    Vec3 origin = lv->props[idx[0]].pos; float oyaw = lv->props[idx[0]].yaw;
+    float c = cosf(-oyaw), sn = sinf(-oyaw);
+    for (int i = 0; i < n && d.n < PART_MAX_PIECES; i++) {
+        const Prop *p = &lv->props[idx[i]]; Piece *pc = &d.pieces[d.n++];
+        snprintf(pc->file, sizeof pc->file, "%s", p->file);
+        Vec3 rel = v3_sub(p->pos, origin);
+        pc->pos = v3(rel.x * c - rel.z * sn, rel.y, rel.x * sn + rel.z * c);   // undo the anchor's yaw
+        Vec3 st = p->stretch.x == 0 && p->stretch.y == 0 && p->stretch.z == 0 ? v3(1, 1, 1) : p->stretch;
+        pc->size = v3(p->scale * st.x, p->scale * st.y, p->scale * st.z);
+        pc->yaw = (p->yaw - oyaw) / DEG2RAD; pc->tint = p->tint;
+    }
+    char dir[640]; snprintf(dir, sizeof dir, "%s/models/own", HOLLOW_ASSET_DIR); SDL_CreateDirectory(dir);
+    char path[700]; snprintf(path, sizeof path, "%s/%s.part", dir, e->part_name);
+    if (!part_save(&d, path)) { say(e, "part save failed (see hollow.log)"); return; }
+    push_undo(e, lv);
+    // remove the pieces (highest index first), add the group prop
+    for (int a = 0; a < n; a++) for (int b = a + 1; b < n; b++) if (idx[b] > idx[a]) { int t = idx[a]; idx[a] = idx[b]; idx[b] = t; }
+    for (int i = 0; i < n; i++) { remove_collider_for(lv, &lv->props[idx[i]]); for (int k = idx[i]; k < lv->nprops - 1; k++) lv->props[k] = lv->props[k + 1]; lv->nprops--; }
+    Prop *g2 = &lv->props[lv->nprops++]; memset(g2, 0, sizeof *g2);
+    snprintf(g2->file, sizeof g2->file, "models/own/%s.part", e->part_name); g2->pos = origin; g2->yaw = oyaw; g2->scale = 1; g2->stretch = v3(1, 1, 1); g2->tint = v4(1, 1, 1, 1);
+    e->sel_prop = lv->nprops - 1; e->nmulti = 0; e->dirty = true;
+    // the part joins the palette right away
+    char rel[160]; snprintf(rel, sizeof rel, "models/own/%s.part", e->part_name);
+    bool known = false; for (int i = 0; i < e->nkit; i++) if (!strcmp(e->kit[i].file, rel)) known = true;
+    if (!known && e->nkit < KIT_MAX) { KitPiece *k = &e->kit[e->nkit++]; memset(k, 0, sizeof *k); snprintf(k->category, sizeof k->category, "own"); snprintf(k->name, sizeof k->name, "%s", e->part_name); snprintf(k->file, sizeof k->file, "%s", rel); k->scale = 1;
+        bool kc = false; for (int i = 0; i < e->ncat; i++) if (!strcmp(e->categories[i], "own")) kc = true; if (!kc && e->ncat < LEVELED_MAX_CATS) snprintf(e->categories[e->ncat++], 16, "own"); }
+    e->props_stale = true;
+    char msg[160]; snprintf(msg, sizeof msg, "saved models/own/%s.part (%d pieces); it is in the palette under own", e->part_name, n); say(e, msg);
+}
+
+// A placed part comes apart into its pieces (the file stays).
+static void ungroup(LevelEd *e, Level *lv) {
+    if (e->sel_prop < 0 || e->sel_prop >= lv->nprops) return;
+    Prop group = lv->props[e->sel_prop];
+    char path[640]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, group.file);
+    PartDoc d; if (!part_load(&d, path)) { say(e, "cannot read that part"); return; }
+    push_undo(e, lv);
+    remove_collider_for(lv, &lv->props[e->sel_prop]);
+    for (int k = e->sel_prop; k < lv->nprops - 1; k++) lv->props[k] = lv->props[k + 1]; lv->nprops--;
+    float c = cosf(group.yaw), sn = sinf(group.yaw);
+    e->nmulti = 0;
+    for (int i = 0; i < d.n && lv->nprops < LEVEL_MAX_PROPS; i++) {
+        const Piece *pc = &d.pieces[i]; Prop *p = &lv->props[lv->nprops++]; memset(p, 0, sizeof *p);
+        snprintf(p->file, sizeof p->file, "%s", pc->file);
+        Vec3 rel = v3(pc->pos.x * group.scale, pc->pos.y * group.scale, pc->pos.z * group.scale);
+        p->pos = v3(group.pos.x + rel.x * c + rel.z * sn, group.pos.y + rel.y, group.pos.z - rel.x * sn + rel.z * c);
+        p->yaw = group.yaw + pc->yaw * DEG2RAD; p->scale = group.scale; p->stretch = pc->size; p->tint = pc->tint;
+        if (e->nmulti < 64) e->multi[e->nmulti++] = lv->nprops - 1;
+    }
+    e->sel_prop = lv->nprops - 1; e->dirty = true;
+    say(e, "ungrouped; the pieces are selected");
+}
+
+static void part_name_keys(LevelEd *e, const Input *in) {
+    if (!e->part_name_focus) return;
+    size_t n = strlen(e->part_name);
+    for (int sc = SDL_SCANCODE_A; sc <= SDL_SCANCODE_Z; sc++) if (in->tool_key_down[sc] && n < sizeof e->part_name - 1) { e->part_name[n++] = (char)('a' + (sc - SDL_SCANCODE_A)); e->part_name[n] = 0; }
+    for (int sc = SDL_SCANCODE_1; sc <= SDL_SCANCODE_0; sc++) if (in->tool_key_down[sc] && n < sizeof e->part_name - 1) { e->part_name[n++] = sc == SDL_SCANCODE_0 ? '0' : (char)('1' + (sc - SDL_SCANCODE_1)); e->part_name[n] = 0; }
+    if ((in->tool_key_down[SDL_SCANCODE_MINUS] || in->tool_key_down[SDL_SCANCODE_SPACE]) && n < sizeof e->part_name - 1) { e->part_name[n++] = '_'; e->part_name[n] = 0; }
+    if (in->tool_key_down[SDL_SCANCODE_BACKSPACE] && n > 0) e->part_name[--n] = 0;
+    if (in->tool_key_down[SDL_SCANCODE_RETURN] || in->tool_key_down[SDL_SCANCODE_ESCAPE]) e->part_name_focus = false;
+}
 
 // Panel layout flows with the window width: rows of equal buttons, two slider columns when
 // there is room, one otherwise. All sizes in points.
@@ -439,13 +609,31 @@ void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h)
             if (sx + ui_stepper_w("height") > w - P_M) { sx = x; y += 32; }
             if (ui_stepper(ui, sx, y, "height", &p->pos.y, 0.25f, -5, 20)) e->dirty = true; y += 34;
             bool col = p->collide > 0; if (ui_toggle(ui, x, y, cw, P_ROW, "collides", &col)) { remove_collider_for(lv, p); p->collide = col ? 0.6f : 0; add_collider_for(lv, p); e->dirty = true; }
-            if (two_col) { if (ui_color(ui, c2, y, cw, "glow", &p->glow, 1.5f)) e->dirty = true; }
             y += P_ROW + 6;
-            if (!two_col) { if (ui_color(ui, x, y, cw, "glow", &p->glow, 1.5f)) e->dirty = true; y += 3 * 26 + 6; } else y += 3 * 26 - P_ROW;
+            if (p->stretch.x == 0 && p->stretch.y == 0 && p->stretch.z == 0) p->stretch = v3(1, 1, 1);
+            if (ui_slider(ui, x, y, cw, "stretch x", &p->stretch.x, 0.1f, 4)) e->dirty = true; y += 26;
+            if (ui_slider(ui, x, y, cw, "stretch y", &p->stretch.y, 0.1f, 4)) e->dirty = true; y += 26;
+            if (ui_slider(ui, x, y, cw, "stretch z", &p->stretch.z, 0.1f, 4)) e->dirty = true; y += 30;
+            { Vec3 t = v3(p->tint.x, p->tint.y, p->tint.z); if (ui_color(ui, x, y, cw, "colour", &t, 1.5f)) { p->tint = v4(t.x, t.y, t.z, 1); e->dirty = true; } }
+            if (ui_color(ui, two_col ? c2 : x, two_col ? y : y + 3 * 26 + 6, cw, "glow", &p->glow, 1.5f)) e->dirty = true;
+            y += two_col ? 3 * 26 + 6 : 2 * (3 * 26 + 6);
             float hw = (cw - P_G) / 2;
             if (ui_button(ui, x, y, hw, P_ROW, "DELETE  X")) delete_selected(e, lv);
             if (ui_button(ui, x + hw + P_G, y, hw, P_ROW, "DUPLICATE  G")) { push_undo(e, lv); Prop copy = *p; copy.pos.x += 1.5f; if (lv->nprops < LEVEL_MAX_PROPS) { lv->props[lv->nprops++] = copy; add_collider_for(lv, &copy); e->sel_prop = lv->nprops - 1; } }
             y += P_ROW + 10;
+            // grouping: shift-click more pieces, then save them as one part
+            { size_t L = strlen(p->file); bool is_part = L > 5 && !strcmp(p->file + L - 5, ".part");
+              char s2[120]; snprintf(s2, sizeof s2, "GROUP   %d piece%s selected (shift-click adds more)", e->nmulti > 1 ? e->nmulti : 1, e->nmulti > 1 ? "s" : ""); ui_label_fit(ui, x, y, w - 2 * P_M, s2, v4(1, 0.85f, 0.4f, 1)); y += 24;
+              float nw = fminf(200, cw);
+              bool inside = saved_in.mx >= x && saved_in.mx < x + nw && saved_in.my >= y && saved_in.my < y + P_ROW && in_content;
+              if (saved_in.pressed) e->part_name_focus = inside;
+              if (!e->part_name[0]) snprintf(e->part_name, sizeof e->part_name, "%s", "my_part");
+              gfx_ui_rect(ui->g, x, y, nw, P_ROW, e->part_name_focus ? v4(0.24f, 0.23f, 0.28f, 1) : v4(0.16f, 0.16f, 0.19f, 1));
+              gfx_ui_rect(ui->g, x, y + P_ROW - 2, nw, 2, e->part_name_focus ? v4(1, 0.85f, 0.4f, 1) : v4(0.36f, 0.35f, 0.40f, 1));
+              char nm[64]; snprintf(nm, sizeof nm, "%s%s", e->part_name, e->part_name_focus ? "_" : ""); gfx_ui_text(ui->g, x + 8, y + P_ROW * 0.5f - gfx_ui_line_h(1.1f) * 0.5f, 1.1f, v4(0.9f, 0.9f, 0.88f, 1), nm);
+              if (ui_button(ui, x + nw + P_G, y, fminf(220, w - x - nw - 2 * P_G - P_M), P_ROW, "SAVE AS PART")) group_as_part(e, lv);
+              if (is_part && ui_button(ui, x + nw + P_G + fminf(220, w - x - nw - 2 * P_G - P_M) + P_G, y, 120, P_ROW, "UNGROUP")) ungroup(e, lv);
+              y += P_ROW + 10; }
         } else if (e->sel_light >= 0 && e->sel_light < lv->nlights) {
             LevelLight *l = &lv->lights[e->sel_light];
             ui_label(ui, x, y, "SELECTED LIGHT", v4(1, 0.85f, 0.4f, 1)); y += 24;
@@ -478,22 +666,36 @@ void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h)
             ui_label_fit(ui, x, y, w - 2 * P_M, "Click a placed piece, light or emitter in the game window to edit it here.", v4(0.6f, 0.58f, 0.55f, 1)); y += 24;
         }
     } else if (e->tab == 2) {
-        if (!tr->present) {
-            ui_label(ui, x, y, "This level has no terrain yet. Create one to sculpt", v4(0.85f, 0.85f, 0.8f, 1)); y += 22;
-            ui_label(ui, x, y, "mountains and paint biomes with the mouse.", v4(0.85f, 0.85f, 0.8f, 1)); y += 30;
-            if (ui_button(ui, x, y, fminf(320, w - 2 * P_M), 34, "CREATE TERRAIN  (192 m, flat)")) {
-                terrain_init(tr, 1.5f, v3(-96, 0, -96), 0, v3(0.20f, 0.34f, 0.16f));
-                snprintf(tr->file, sizeof tr->file, "%s", "levels/terrain_new");
-                if (lv->path[0]) { const char *slash = strrchr(lv->path, '/'); const char *base = slash ? slash + 1 : lv->path; char nm[96]; snprintf(nm, sizeof nm, "%s", base); char *dot = strrchr(nm, '.'); if (dot) *dot = 0; snprintf(tr->file, sizeof tr->file, "levels/%s_terrain", nm); }
-                e->dirty = true; say(e, "terrain created: sculpt with the brushes, then SAVE");
+        // ---- generator: one seed, one world; then paint over it
+        ui_label(ui, x, y, "GENERATE   a landmass from a seed, then sculpt and paint over it", v4(1, 0.85f, 0.4f, 1)); y += 24;
+        { float sd = (float)e->seed; if (ui_stepper(ui, x, y, "seed", &sd, 1, 1, 99999)) e->seed = (unsigned)sd;
+          float sw = ui_stepper_w("seed") + 12;
+          if (ui_button(ui, x + sw, y, 120, 26, "NEW SEED")) e->seed = (unsigned)(SDL_GetTicks() % 99989) + 1;
+          if (ui_button(ui, x + sw + 126, y, fminf(220, w - x - sw - 126 - P_M), 26, "GENERATE WORLD")) leveled_generate_world(e, lv, tr);
+          y += 34; }
+        ui_slider(ui, x, y, cw, "mountains", &e->g_mountains, 0, 1); ui_slider(ui, two_col ? c2 : x, two_col ? y : y + 26, cw, "hills", &e->g_hills, 0, 1); y += two_col ? 26 : 52;
+        ui_slider(ui, x, y, cw, "roughness", &e->g_rough, 0, 1); ui_slider(ui, two_col ? c2 : x, two_col ? y : y + 26, cw, "forest", &e->g_forest, 0, 1); y += two_col ? 26 : 52;
+        ui_slider(ui, x, y, cw, "rocks", &e->g_rocks, 0, 1); ui_slider(ui, two_col ? c2 : x, two_col ? y : y + 26, cw, "snow line", &e->g_snow, 5, 60); y += two_col ? 26 : 52;
+        { float wl = e->g_water < -900 ? -3 : e->g_water; if (ui_slider(ui, x, y, cw, "water level", &wl, -3, 12)) { e->g_water = wl <= -2.9f ? -1000 : wl; if (tr->present) { tr->water = e->g_water; e->dirty = true; } } y += 30; }
+        if (e->nhm) {
+            ui_label_fit(ui, x, y, w - 2 * P_M, "IMPORT HEIGHTMAP   any PNG in assets/heightmaps (real-world or drawn); stretched to the range", v4(1, 0.85f, 0.4f, 1)); y += 24;
+            ui_slider(ui, x, y, cw, "height range", &e->hm_range, 5, 120); y += 30;
+            int cols = cols_for(w, 120); if (cols > e->nhm) cols = e->nhm; float bw = row_w(w, cols);
+            for (int i = 0; i < e->nhm; i++) if (ui_button(ui, x + (i % cols) * (bw + P_G), y + (i / cols) * (P_ROW + P_G), bw, P_ROW, e->hm_names[i])) {
+                ensure_terrain(e, lv, tr); push_undo(e, lv);
+                if (terrain_import_heightmap(tr, e->hm_files[i], e->hm_range)) { terrain_auto_biome(tr, e->g_snow, e->rock_slope, BIOME[0].c, BIOME[2].c, BIOME[3].c, BIOME[4].c); tr->water = e->g_water; e->dirty = true; say(e, "heightmap imported; GENERATE WORLD keeps its own heights, so scatter with the brush"); }
+                else say(e, "could not read that heightmap");
             }
-            y += 44;
+            y += (P_ROW + P_G) * ((e->nhm + cols - 1) / cols) + 6;
+        }
+        if (!tr->present) {
+            ui_label_fit(ui, x, y, w - 2 * P_M, "No terrain yet: GENERATE WORLD or import a heightmap to start.", v4(0.85f, 0.85f, 0.8f, 1)); y += 30;
         } else {
             ui_label_fit(ui, x, y, w - 2 * P_M, "BRUSH   hold the left mouse button on the ground.  Shift + Raise lowers.  Ctrl + wheel = radius", v4(0.6f, 0.58f, 0.55f, 1)); y += 22;
-            const char *br[] = { "RAISE", "LOWER", "SMOOTH", "FLATTEN", "PAINT", "SCATTER", "CLEAR" };
-            { int cols = cols_for(w, 100); if (cols > 7) cols = 7; float bw = row_w(w, cols);
-              for (int i = 0; i < 7; i++) { bool on = e->tbrush == i; if (ui_toggle(ui, x + (i % cols) * (bw + P_G), y + (i / cols) * (P_ROW + P_G), bw, P_ROW, br[i], &on) && on) e->tbrush = i; }
-              y += (P_ROW + P_G) * ((7 + cols - 1) / cols) + 6; }
+            const char *br[] = { "RAISE", "LOWER", "SMOOTH", "FLATTEN", "PAINT", "SCATTER", "CLEAR", "PATH" };
+            { int cols = cols_for(w, 100); if (cols > 8) cols = 8; float bw = row_w(w, cols);
+              for (int i = 0; i < 8; i++) { bool on = e->tbrush == i; if (ui_toggle(ui, x + (i % cols) * (bw + P_G), y + (i / cols) * (P_ROW + P_G), bw, P_ROW, br[i], &on) && on) e->tbrush = i; }
+              y += (P_ROW + P_G) * ((8 + cols - 1) / cols) + 6; }
             ui_slider(ui, x, y, cw, "radius", &e->tradius, 1, 40);
             ui_slider(ui, two_col ? c2 : x, two_col ? y : y + 26, cw, "strength", &e->tstrength, 0.5f, 30); y += two_col ? 32 : 58;
             static const struct { const char *name; Vec3 c; } B[] = { {"grass", {0.20f, 0.34f, 0.16f}}, {"forest floor", {0.11f, 0.17f, 0.10f}}, {"rock", {0.36f, 0.34f, 0.35f}}, {"snow", {0.88f, 0.90f, 0.95f}}, {"dirt", {0.30f, 0.22f, 0.15f}}, {"path", {0.55f, 0.50f, 0.44f}}, {"water", {0.10f, 0.22f, 0.32f}}, {"moss", {0.28f, 0.42f, 0.20f}} };
@@ -514,7 +716,7 @@ void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h)
             ui_label_fit(ui, x, y, w - 2 * P_M, "AUTO BIOME   grass, rock on slopes, snow above a height", v4(1, 0.85f, 0.4f, 1)); y += 24;
             ui_slider(ui, x, y, cw, "snow height", &e->snow_h, 0, 60);
             ui_slider(ui, two_col ? c2 : x, two_col ? y : y + 26, cw, "rock slope", &e->rock_slope, 0.1f, 0.9f); y += two_col ? 32 : 58;
-            { float bw = row_w(w, two_col ? 3 : 1), step = two_col ? bw + P_G : 0; float by = y;
+            { float bw = row_w(w, two_col ? 2 : 1), step = two_col ? bw + P_G : 0; float by = y;
               if (ui_button(ui, x, by, bw, P_ROW, "APPLY AUTO BIOME")) { push_undo(e, lv); terrain_auto_biome(tr, e->snow_h, e->rock_slope, B[0].c, B[2].c, B[3].c, B[4].c); e->dirty = true; }
               if (!two_col) by += P_ROW + P_G;
               if (ui_button(ui, x + step, by, bw, P_ROW, "MOUNTAIN FOREST LOOK")) {
@@ -525,13 +727,6 @@ void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h)
                   k->sky_zenith = v3(0.18f, 0.35f, 0.70f); k->sky_horizon = v3(0.70f, 0.80f, 0.92f); k->sky_ground = v3(0.25f, 0.30f, 0.35f); k->sun_glow = 0.5f; k->stars = 0; k->sky_fog_blend = 0.6f;
                   k->exposure = 1.05f; k->saturation = 1.1f; k->contrast = 1.05f; k->bloom = 0.25f; k->bloom_threshold = 1.1f; k->lift = v3(0.01f, 0.01f, 0.02f); k->gain = v3(1, 1, 1);
                   e->dirty = true; say(e, "mountain forest look applied (LOOK tab to tune)");
-              }
-              if (!two_col) by += P_ROW + P_G;
-              if (ui_button(ui, x + 2 * step, by, bw, P_ROW, "RANDOM MOUNTAINS")) {
-                  push_undo(e, lv);
-                  terrain_generate_mountains(tr, 28);
-                  terrain_auto_biome(tr, e->snow_h, e->rock_slope, B[0].c, B[2].c, B[3].c, B[4].c); e->dirty = true;
-                  say(e, "mountains generated around the edge; sculpt from here");
               }
               y = by + P_ROW + 10; }
         }

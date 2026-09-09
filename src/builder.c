@@ -237,10 +237,9 @@ int builder_panel(Builder *b, Ui *ui, const Input *keys, float w, float h, const
         gfx_ui_rect(ui->g, x, y + ROW - 2, nw, 2, b->name_focus ? v4(1, 0.85f, 0.4f, 1) : v4(0.36f, 0.35f, 0.40f, 1));
         char s[64]; snprintf(s, sizeof s, "%s%s", b->name, b->name_focus ? "_" : "");
         gfx_ui_text(ui->g, x + 8, y + ROW * 0.5f - gfx_ui_line_h(1.1f) * 0.5f, 1.1f, v4(0.9f, 0.9f, 0.88f, 1), s);
-        float bx = x + nw + G, bw = (w - M - bx - 2 * G) / 3;
+        float bx = x + nw + G, bw = (w - M - bx - G) / 2;
         if (ui_button(ui, bx, y, bw, ROW, "SAVE ^S") || (keys->ctrl && keys->key_down[SDL_SCANCODE_S])) flags |= BLD_SAVE;
         if (ui_button(ui, bx + bw + G, y, bw, ROW, "SAVE + USE AS HERO")) flags |= BLD_SAVE | BLD_USE;
-        if (ui_button(ui, bx + 2 * (bw + G), y, bw, ROW, "PIXEL SPRITE EDITOR")) flags |= BLD_OPEN_SPRITE;
         y += ROW + 8;
     }
     { const char *tabs[] = { "BODY & PARTS", "COLOURS", "ANIMATION" }; float bw = (w - 2 * M - 2 * G) / 3;

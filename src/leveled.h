@@ -9,6 +9,7 @@
 #include "props.h"
 #include "widgets.h"
 #include "terrain.h"
+#include "part.h"
 
 #define KIT_MAX 256
 #define LEVELED_MAX_CATS 16
@@ -31,6 +32,8 @@ typedef struct LevelEd {
     float ghost_yaw, ghost_scale; bool ghost_collide, snap;
     Vec3 ghost_pos; bool ghost_valid;
     int sel_prop, sel_light, sel_emitter; bool dragging; Vec3 drag_offset;
+    int multi[64]; int nmulti;           // shift-click adds props to a group selection
+    char part_name[40]; bool part_name_focus; bool props_stale;   // props_stale: a part file changed, reload the prop cache
     Vec3 cam_pos; float cam_yaw, cam_pitch; float cam_speed;
     Level *undo[ED_UNDO_LEVELS]; int undo_n;   // heap snapshots
     struct TerrainSnap *tundo[ED_UNDO_LEVELS];  // matching terrain heights/colours (NULL when none)
@@ -43,6 +46,10 @@ typedef struct LevelEd {
     float snow_h, rock_slope; int scatter_cat; float scatter_density; float scatter_accum;
     bool sculpting;
     float pscroll[3], pcontent[3];       // panel scroll offset and content height per tab
+    // world generator
+    unsigned seed; float g_mountains, g_hills, g_rough, g_forest, g_rocks, g_water, g_snow, hm_range;
+    char hm_files[16][160], hm_names[16][48]; int nhm;
+    Vec3 path_last; bool path_started;
     bool wheel_in_list;
 } LevelEd;
 
@@ -57,3 +64,5 @@ void leveled_draw_world(LevelEd *e, const Level *lv, Gfx *g, PropCache *pc);
 // Tool-window side: the control panel (draws with widgets into the current UI target).
 void leveled_panel(LevelEd *e, Level *lv, Terrain *tr, Ui *ui, float w, float h);
 bool leveled_save(LevelEd *e, Level *lv, Terrain *tr);
+// Seed-driven landmass with pads, path, water and scattered trees/rocks (the GENERATE WORLD button).
+void leveled_generate_world(LevelEd *e, Level *lv, Terrain *tr);

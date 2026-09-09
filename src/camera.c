@@ -1,4 +1,6 @@
 #include "camera.h"
+#include <SDL3/SDL.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define MOUSE_SENS 0.0022f
@@ -58,7 +60,7 @@ void camera_iso(Camera *c, Vec3 pp, const Level *lv, float dt) {
     (void)lv;
     bool entering = c->mode != CAM_ISO;
     c->mode = CAM_ISO;
-    c->yaw = ISO_YAW; c->pitch = ISO_PITCH; c->dist = c->cur_dist = ISO_DIST;
+    c->yaw = ISO_YAW; c->pitch = ISO_PITCH; c->dist = c->cur_dist = SDL_getenv("HOLLOW_ISO_DIST") ? (float)atof(SDL_getenv("HOLLOW_ISO_DIST")) : ISO_DIST;   // env: overview captures
     Vec3 pivot = v3(pp.x, pp.y + 1.0f, pp.z);
     Vec3 eye = v3_add(pivot, v3_scale(orbit_dir(c->yaw, c->pitch), c->dist));
     if (entering) { c->eye = eye; c->target = pivot; }

@@ -1,7 +1,7 @@
-# a small shrine: stone base, two posts, a roof wedge, a lantern import on top
-shape box     0 0 0  1.2 0.2 1.2  0 0 0  0.45 0.45 0.5
-shape cyl    -0.4 0.2 0  0.12 1.2 0.12  0 0 0  0.35 0.22 0.12
-shape cyl     0.4 0.2 0  0.12 1.2 0.12  0 0 0  0.35 0.22 0.12
-shape wedge   0 1.4 0  1.4 0.5 1.4  0 0 0  0.5 0.15 0.12
-shape sphere  0 0.2 0  0.4 0.4 0.4  0 0 0  0.9 0.75 0.3
-shape obj models/import/cad_lamp_post.obj  0.7 0 0.7  0.4 0.4 0.4  45 0 0
+# a small shrine assembled from shapes and the lamp import
+piece models/shapes/box.obj       0 0 0     1.2 0.2 1.2   0 0 0   0.45 0.45 0.5
+piece models/shapes/cylinder.obj -0.4 0.2 0  0.12 1.2 0.12  0 0 0   0.35 0.22 0.12
+piece models/shapes/cylinder.obj  0.4 0.2 0  0.12 1.2 0.12  0 0 0   0.35 0.22 0.12
+piece models/shapes/wedge.obj     0 1.4 0    1.4 0.5 1.4   0 0 0   0.5 0.15 0.12
+piece models/shapes/sphere.obj    0 0.2 0    0.4 0.4 0.4   0 0 0   0.9 0.75 0.3
+piece models/import/cad_lamp_post.obj  0.7 0 0.7  0.4 0.4 0.4  45 0 0

@@ -92,12 +92,19 @@ bool charmodel_apply(Gfx *g, CharModel *cm, const CharSpec *sp) {
         cm->is_sprite = true;
     }
     cm->loaded = true;
-    cm->nparts = 0;
+    cm->nsub = 0;
     for (int i = 0; i < sp->nattach && i < SPEC_MAX_ATTACH; i++) {
-        char path[640]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, sp->attach[i].file);
-        cm->part_ok[i] = model_load(g, &cm->parts[i], path, 256);
-        if (cm->part_ok[i]) { AnimPlayer rest = { .clip = -1, .prev = -1 }; model_pose(&cm->parts[i], &rest, &cm->part_rest[i]); }
-        cm->nparts = i + 1;
+        const char *file = sp->attach[i].file; size_t L = strlen(file);
+        PartDoc doc; Piece single = { .size = v3(1, 1, 1), .tint = v4(1, 1, 1, 1) }; const Piece *pieces = &single; int np = 1;
+        if (L > 5 && !strcmp(file + L - 5, ".part")) { char pp[640]; snprintf(pp, sizeof pp, "%s/%s", HOLLOW_ASSET_DIR, file); if (part_load(&doc, pp)) { pieces = doc.pieces; np = doc.n; } else np = 0; }
+        else snprintf(single.file, sizeof single.file, "%s", file);
+        for (int k = 0; k < np && cm->nsub < 32; k++) {
+            char path[640]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, pieces[k].file);
+            if (!model_load(g, &cm->sub[cm->nsub].model, path, 256)) continue;
+            AnimPlayer rest = { .clip = -1, .prev = -1 }; model_pose(&cm->sub[cm->nsub].model, &rest, &cm->sub[cm->nsub].rest);
+            cm->sub[cm->nsub].local = piece_matrix(&pieces[k]); cm->sub[cm->nsub].tint = pieces[k].tint; cm->sub[cm->nsub].attach = i;
+            cm->nsub++;
+        }
     }
     for (int i = 0; i < sp->nhidden; i++) model_hide_node(&cm->model, sp->hidden[i], true);
     if (!cm->is_sprite && sp->nrecolor) model_recolor(g, &cm->model, sp->rc_from, sp->rc_to, sp->nrecolor);
@@ -159,19 +166,21 @@ int charmodel_spec_autobind(CharSpec *sp, const Model *m, int style) {
 
 void charmodel_destroy(Gfx *g, CharModel *cm) {
     if (cm->loaded && cm->is_sprite) sprite_def_destroy(g, &cm->sdef); else if (cm->loaded) model_destroy(g, &cm->model);
-    for (int i = 0; i < cm->nparts; i++) if (cm->part_ok[i]) model_destroy(g, &cm->parts[i]);
-    cm->nparts = 0; cm->loaded = false;
+    for (int i = 0; i < cm->nsub; i++) model_destroy(g, &cm->sub[i].model);
+    cm->nsub = 0; cm->loaded = false;
 }
 
 void charmodel_draw_posed(Gfx *g, const CharModel *cm, const ModelPose *pose, Mat4 world, Vec4 tint) {
     model_draw(g, &cm->model, pose, world, tint);
-    for (int i = 0; i < cm->nparts && i < cm->spec.nattach; i++) {
-        if (!cm->part_ok[i]) continue;
+    for (int i = 0; i < cm->nsub; i++) {
+        int a = cm->sub[i].attach; if (a < 0 || a >= cm->spec.nattach) continue;
         const CharSpec *sp = &cm->spec;
-        int node = model_find_node(&cm->model, sp->attach[i].bone);
+        int node = model_find_node(&cm->model, sp->attach[a].bone);
         Mat4 bone = node >= 0 ? pose->global[node] : m4_identity();
-        Mat4 local = m4_mul(m4_translate(sp->attach[i].pos), m4_mul(m4_rotate_y(sp->attach[i].yaw * DEG2RAD), m4_mul(m4_rotate_x(sp->attach[i].pitch * DEG2RAD), m4_mul(m4_rotate_z(sp->attach[i].roll * DEG2RAD), m4_scale(v3(sp->attach[i].scale, sp->attach[i].scale, sp->attach[i].scale))))));
-        model_draw(g, &cm->parts[i], &cm->part_rest[i], m4_mul(world, m4_mul(bone, local)), tint);
+        Mat4 local = m4_mul(m4_translate(sp->attach[a].pos), m4_mul(m4_rotate_y(sp->attach[a].yaw * DEG2RAD), m4_mul(m4_rotate_x(sp->attach[a].pitch * DEG2RAD), m4_mul(m4_rotate_z(sp->attach[a].roll * DEG2RAD), m4_scale(v3(sp->attach[a].scale, sp->attach[a].scale, sp->attach[a].scale))))));
+        Vec4 t = v4(tint.x * cm->sub[i].tint.x, tint.y * cm->sub[i].tint.y, tint.z * cm->sub[i].tint.z, tint.w);
+        Mat4 M = m4_mul(world, m4_mul(bone, m4_mul(local, cm->sub[i].local)));
+        model_draw(g, &cm->sub[i].model, &cm->sub[i].rest, M, t);
     }
 }
 
@@ -301,33 +310,3 @@ static void bind_by_names(CharModel *cm) {
     }
 }
 
-void charmodel_refresh_from_doc(CharModel *cm, Gfx *g, const PixDoc *doc) {
-    if (cm->loaded && cm->is_sprite) sprite_def_destroy(g, &cm->sdef); else if (cm->loaded) model_destroy(g, &cm->model);
-    SpriteDef *d = &cm->sdef;
-    memset(d, 0, sizeof *d);
-    d->size = doc->size; d->frame_w = doc->nanims ? doc->anims[0].fw : 32; d->frame_h = doc->nanims ? doc->anims[0].fh : 32;
-    for (int i = 0; i < doc->nanims && d->nsheets < SPRITE_MAX_SHEETS && d->nanims < SPRITE_MAX_ANIMS; i++) {
-        const PixAnim *a = &doc->anims[i];
-        int w, h; uint8_t *px = pix_compose_sheet(a, &w, &h);
-        if (!px) continue;
-        SpriteSheet *sh = &d->sheets[d->nsheets];
-        memset(sh, 0, sizeof *sh);
-        snprintf(sh->name, sizeof sh->name, "%s", a->name);
-        sh->tex = gfx_texture_create(g, px, w, h); free(px);
-        sh->cols = a->ndirs; sh->rows = a->nframes; sh->fw = a->fw; sh->fh = a->fh;
-        SpriteAnim *an = &d->anims[d->nanims];
-        memset(an, 0, sizeof *an);
-        snprintf(an->name, sizeof an->name, "%s", a->name);
-        an->sheet = d->nsheets; an->sheet_right = -1; an->fps = a->fps; an->loop = a->loop; an->directional = true; an->dir_cols = true; an->row = -1; an->first = 0; an->last = a->nframes - 1;
-        for (int c = 0; c < a->ncontact && an->ncontact < SPRITE_MAX_CONTACT; c++) an->contact[an->ncontact++] = a->contact[c];
-        d->nsheets++; d->nanims++;
-    }
-    int keep_anim = cm->sprite.anim; float keep_t = cm->sprite.time; Facing keep_f = cm->sprite.facing;
-    sprite_actor_init(&cm->sprite, d);
-    cm->is_sprite = true; cm->loaded = d->nanims > 0; cm->scale = cm->scale > 0 ? cm->scale : 1;
-    bind_by_names(cm);
-    if (keep_anim >= 0 && keep_anim < d->nanims) { cm->sprite.anim = keep_anim; cm->sprite.time = keep_t; }
-    else if (cm->bind[ANIM_IDLE].clip >= 0) sprite_play(&cm->sprite, cm->bind[ANIM_IDLE].clip, 1, true);
-    cm->sprite.facing = keep_f;
-    cm->last_anim = ANIM_COUNT;
-}

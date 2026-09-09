@@ -13,6 +13,7 @@ typedef struct Terrain {
     Vec3  color[TERRAIN_N * TERRAIN_N];
     Mesh  mesh; bool mesh_ok; bool mesh_dirty;
     bool  present;               // false = the level has no terrain (flat ground blocks only)
+    float water;                 // water surface height (metres); below -900 = no water
     char  file[128];             // base path relative to assets/, e.g. levels/glade_terrain
 } Terrain;
 
@@ -36,6 +37,19 @@ void  terrain_brush(Terrain *t, TerrainBrush brush, Vec3 at, float radius, float
 // Fill the heights with a ring of mountains around a flat middle (a starting point for sculpting).
 void  terrain_generate_mountains(Terrain *t, float peak);
 void  terrain_auto_biome(Terrain *t, float snow_h, float rock_slope, Vec3 grass, Vec3 rock, Vec3 snow, Vec3 dirt);
+
+// Generator: seed-driven noise landmass. mountains/hills 0..1 scale the relief, roughness adds
+// small detail, snow_h is the snow line, water_h the lake level, flat_r keeps a flat pad at each
+// `flat` point (spawn, arena). Colours are the biome palette.
+typedef struct TerrainGen { unsigned seed; float mountains, hills, roughness, snow_h, water_h; Vec3 flat[4]; float flat_r[4]; int nflat; } TerrainGen;
+void  terrain_generate(Terrain *t, const TerrainGen *p, Vec3 grass, Vec3 rock, Vec3 snow, Vec3 dirt, Vec3 sand);
+// Moisture-like noise 0..1 at a world position for the given seed (forest density, biome variety).
+float terrain_noise(unsigned seed, float x, float z, float scale);
+// Flatten a soft-edged pad to `height` (instant). Path: flatten and paint along a segment.
+void  terrain_flatten_pad(Terrain *t, Vec3 at, float radius, float height);
+void  terrain_path(Terrain *t, Vec3 a, Vec3 b, float width, Vec3 color);
+// Any 8- or 16-bit greyscale/colour PNG becomes the heights (resampled), spanning `range` metres.
+bool  terrain_import_heightmap(Terrain *t, const char *png_path, float range);
 
 // File layer (terrain_io.c): heights as 16-bit PNG (<file>_h.png) and colours as 8-bit PNG (<file>_c.png).
 bool  terrain_save(const Terrain *t, const char *asset_dir);

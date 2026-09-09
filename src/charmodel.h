@@ -12,8 +12,8 @@
 #pragma once
 #include "model.h"
 #include "sprite.h"
-#include "pixio.h"
 #include "combat.h"
+#include "part.h"
 
 typedef struct AnimBinding { int clip; bool loop, hold; float contact, rate; } AnimBinding;
 
@@ -39,7 +39,7 @@ typedef struct CharModel {
     AnimBinding bind[ANIM_COUNT];
     float scale, yaw_offset;
     CharSpec spec;                       // what this character was built from
-    Model parts[SPEC_MAX_ATTACH]; ModelPose part_rest[SPEC_MAX_ATTACH]; bool part_ok[SPEC_MAX_ATTACH]; int nparts;
+    struct { Model model; ModelPose rest; Mat4 local; Vec4 tint; int attach; } sub[32]; int nsub;   // loaded attachment models (a .part expands into its pieces)
     // change detection
     Anim last_anim; float last_anim_t; int last_move;
 } CharModel;
@@ -64,5 +64,3 @@ void charmodel_draw_posed(Gfx *g, const CharModel *cm, const ModelPose *pose, Ma
 void charmodel_sprite_play(CharModel *cm, const char *anim, float lead, bool restart);
 float charmodel_sprite_contact(const CharModel *cm, const char *anim, int i, float lead);
 void charmodel_sprite_settle(CharModel *cm);   // finished one-shots return to idle
-// Live link from the sprite editor: rebuild this character's sheets and animations from a document.
-void charmodel_refresh_from_doc(CharModel *cm, Gfx *g, const PixDoc *doc);

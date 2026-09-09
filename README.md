@@ -75,108 +75,74 @@ and a live event log. Every event also goes to `hollow.log` in the working direc
 `hollow_snapshot.txt` with the full state plus recent events and copies it to the clipboard,
 so a bug report is: press F8 when it happens, paste.
 
-## Editors (second window, live in the game)
+## Tools (second window, live in the game)
 
-In the game, `[` opens the environment editor, `]` the character builder, `=` the part editor and `\` the debugger
-(Ctrl+P opens the pixel sprite editor);
-`Esc` closes the open tool (with nothing selected in it), and Esc quits only when no tool is
-open. Ctrl+E / Ctrl+P (or F6 / F7) also work. On a Mac, Cmd
-works in place of Ctrl, and the function keys need Fn unless you change the keyboard setting.
-Also `Ctrl+D` wireframes (F1), `Ctrl+R` reload data (F5), `Ctrl+G` snapshot (F8).
-Command line: `--tool 2` / `--tool 3`.
+Three tools, one key each: `[` the world editor (terrain, placing, look), `]` the character
+builder, `\` the debugger. `Esc` closes the open tool (with nothing selected in it), and Esc quits
+only when no tool is open. On a Mac, Cmd works in place of Ctrl. Also `Ctrl+D` wireframes,
+`Ctrl+R` reload data, `Ctrl+G` snapshot. Command line: `--tool 2` (world editor) / `--tool 4` (builder).
 
-Tool windows open tiled beside the game window (the game shrinks to the left, the tool takes the
-right; the sprite editor takes the bigger share) and the game window goes back where it was when
-the tool closes. Set `HOLLOW_NO_TILE=1` to leave window placement alone. Tool panels use the VT323
-font (OFL), flow to the window width, and scroll with the wheel when taller than the window.
-Keys typed into a tool window go only to that tool; keys typed into the game window go only to the
-game. `--tool-shot PATH` saves a PNG of the tool window, and `HOLLOW_TOOL_SIZE="w h"` fixes its size
-for headless layout checks.
+Tool windows open tiled beside the game window and the game window goes back where it was when
+the tool closes (`HOLLOW_NO_TILE=1` leaves placement alone). Closing a tool window ends the tool;
+nothing ever draws into the game window. Panels flow to the window width and scroll with the wheel.
+Keys typed into a tool window go only to that tool; keys typed into the game window go only to
+the game. `--tool-shot PATH` saves a PNG of the tool window; `HOLLOW_TOOL_SIZE="w h"` fixes its
+size for headless layout checks.
 
-**Environment editor.** The game window becomes a fly camera (WASD and Q/E, hold the right
-mouse button to look, wheel changes speed). The tool window has the kit palette (trees, rocks,
-ground, walls, props, lights from `assets/kit.txt`), the placement settings, and the LOOK tab
-with every lighting, fog, sky and grading value on a slider. In the game window: left click
-places the ghost, `1` select/move (drag pieces, lights and emitters), `2` piece, `3` light,
-`4` emitter, `R` rotate, `[` `]` scale, `X` delete, `G` duplicate, `F` fly to the selection,
-`Ctrl+Z` undo, `Ctrl+S` save. Saving rewrites the level file (comments are dropped) and the
-game hot-reloads it, so play, edit, play.
+### World editor (`[`)
 
-The TERRAIN tab shapes the ground itself. The first click creates a 192 m heightmap under the
-level (or RANDOM MOUNTAINS rings it with peaks and a flat middle). Hold the left mouse button on
-the ground to sculpt with RAISE (Shift lowers), LOWER, SMOOTH and FLATTEN, PAINT biome colours
-(grass, forest floor, rock, snow, dirt, path, water, moss or a custom colour), SCATTER pieces of
-a kit category inside the brush (random spin and size, never on top of each other) or CLEAR them.
-Ctrl+wheel resizes the brush. APPLY AUTO BIOME paints grass, rock on steep slopes and snow above a
-height; MOUNTAIN FOREST LOOK sets a daylight alpine look to tune on the LOOK tab. Characters and
-placed pieces stand on the surface, Ctrl+Z undoes sculpting too, and saving writes
-`assets/levels/NAME_terrain_h.png` (heights) and `_c.png` (colours) next to the level, which
-loads them through its `terrain` line.
+The game window becomes a fly camera (WASD and Q/E, hold the right mouse button to look, wheel
+changes speed). Three tabs:
 
-**Pixel-art characters from 3D models.** The hero and the boss are KayKit rigged models
-(`assets/characters/hero.txt`, `warden.txt`), drawn through a pixel-art pass: they render into a
-small layer (one texel per art pixel), the camera is snapped to that layer's grid so the pixels do
-not swim while the world stays smooth, the colours are snapped to the Endesga 32 palette (or a
-few levels per channel) and a one-pixel outline is drawn, all depth-tested against the world. No
-frame is ever drawn by hand: animations are the models' own clips. The `pixel` look line and the
-PIXEL CHARACTERS sliders on the LOOK tab tune it; scale 0 turns it off. The Ninja Adventure
-sprite versions stay as `hero_sprite.txt` / `warden_sprite.txt` (`--hero hero_sprite`).
-Tuning from the command line: `HOLLOW_PIX="3 8 1 1 0.6"` overrides the look, `HOLLOW_NOPIX=1` disables the pass.
+**TERRAIN: generate, then paint over it.** GENERATE WORLD turns a seed and six sliders
+(mountains, hills, roughness, forest, rocks, snow line, water level) into a landmass: noise
+heights, biome colours from height, slope and moisture, a flat pad at the spawn and the arena, a
+path between them, lakes below the water level, and trees and rocks scattered by biome rules
+(clumped forests on gentle grass, rocks on slopes and high ground, nothing on the path or pads).
+NEW SEED rolls another world; sliders and a new GENERATE change it. IMPORT HEIGHTMAP loads any
+PNG from `assets/heightmaps` (real-world elevation tiles, or one you drew) as the heights,
+stretched to the range slider. Then the brushes, held on the ground in the game window: RAISE
+(Shift lowers), LOWER, SMOOTH, FLATTEN, PAINT biome colours, SCATTER pieces of a kit category,
+CLEAR them, and PATH, which levels and paints a road along your drag. Ctrl+wheel resizes the
+brush. APPLY AUTO BIOME repaints from height and slope; MOUNTAIN FOREST LOOK sets a daylight
+alpine look. Ctrl+Z undoes sculpting. Saving writes `assets/levels/NAME_terrain_h.png`, `_c.png`
+and a sidecar with the water level next to the level, referenced by its `terrain` line.
 
-**Character builder** (`]`). Makes a character from a rigged model without drawing anything.
-BODY & PARTS lists every rigged `.glb` under `assets/models/kaykit`, `characters` and `import`
-(KayKit knight, barbarian, mage, rogues and four skeletons ship, all CC0) and every part of the chosen
-one (weapons, shields, hats, capes, limbs) as toggles. COLOURS lists the model's paint colours, most
-used first; pick one and move the sliders to repaint it, shading and edges follow. ANIMATION picks a
-fighting style (one-handed, two-handed, spellcaster, unarmed), AUTO BIND fills every game action
-from the clip names, and any clip can be previewed on the hero. The hero in the game window shows
-every change live. SAVE writes `assets/characters/NAME.txt` (`model`, `hide`, `recolor`, `anim`
-lines); SAVE + USE AS HERO also sets it as the hero in `assets/settings.txt`. `--hero NAME` plays it.
+**PLACE: assets and where they go.** The palette lists every model file under `assets/models`
+by folder: trees, rocks, ground, walls, props, lights (from `assets/kit.txt`), `shapes` (box,
+cylinder, sphere, wedge, plate), `import` (your OBJ exports), `own` (your saved parts). Left click
+places, `1` select/move (drag pieces, lights and emitters), `2` piece, `3` light, `4` emitter, `R`
+rotate, `[` `]` scale, `X` delete, `G` duplicate, `F` fly to. A selected piece has stretch x/y/z,
+colour and glow, so a grey box becomes a red beam. Pieces that collide flatten a pad under
+themselves on terrain. **Meld pieces into a part:** shift-click several pieces, type a name, SAVE
+AS PART. They become one `assets/models/own/NAME.part` (a list of `piece FILE pos size rotation
+colour` lines), replaced in the level by a single piece and added to the palette under `own`;
+UNGROUP takes it apart again. A part works as a prop and as a character attachment.
 
-**Portraits from the models.** Dialogue portraits are rendered live from the speaker's 3D model
-through the pixel pass: a head camera, an emotion-driven clip (happy cheers, angry taunts, sad
-slumps, surprised flinches) and the same palette and outline as the world. `assets/portraits.txt`
-maps a speaker to `model:hero`, `model:boss` or an image file.
+**LOOK.** Every lighting, fog, sky, grading and pixel-look value on a slider.
 
-**Your own models from CAD.** Export OBJ (with materials) from your CAD tool into
-`assets/models/import`. The engine reads `.obj` + `.mtl` directly: one flat colour per material,
-millimetre files scaled to metres, the model stood on the ground. Any `.obj`, `.glb` or `.gltf`
-under `assets/models` that `assets/kit.txt` does not list appears in the environment editor's
-palette under a category named after its folder. `cad_lamp_post.obj` in that folder is a small
-example of the format CAD tools write.
+### Character builder (`]`)
 
-**Part editor** (`=`): the simplest CAD, inside the game. A workbench appears beside the hero.
-Add boxes, cylinders, spheres, wedges and your OBJ imports; click a shape in the game window and
-drag it around the bench; set size, rotation and colour in the tool window (snap to 5 cm and 5
-degrees is on by default; X deletes, D duplicates, MIRROR X makes the other half, Ctrl+Z undoes).
-Everything shows in the final pixel look as you build. SAVE writes `assets/models/own/NAME.part`
-(one `shape` line per piece, see `src/part.h`), which immediately appears in the environment
-editor under `own` and in the builder's attach list. Open an import, add shapes around it and
-recolour it to turn a scanned object into a game piece. `shrine.part` is an example.
+Makes a character from a rigged model without drawing anything. BODY & PARTS lists every rigged
+`.glb` under `assets/models/kaykit`, `characters` and `import` (KayKit knight, barbarian, mage,
+rogues and four skeletons ship, all CC0) and every part of the chosen one as toggles. ATTACH puts
+any file from `import`, `parts` or `own` on a bone: a helmet on `head`, a weapon on `handslot.r`,
+a saved part on `chest`; nudge it with the sliders and it follows every animation. COLOURS lists
+the model's paint colours, most used first; pick one and move the sliders to repaint it, shading
+and edges follow. ANIMATION picks a fighting style, AUTO BIND fills every game action from the
+clip names, and any clip previews on the hero. SAVE writes `assets/characters/NAME.txt`
+(`model`, `hide`, `recolor`, `attach`, `anim` lines); SAVE + USE AS HERO also sets it as the hero
+in `assets/settings.txt`. `--hero NAME` plays it.
 
-**Your own parts on a character.** In the builder's BODY & PARTS tab, ATTACH puts any file from
-`assets/models/import` (or `parts`) on a bone of the rigged body: a helmet on `head`, a weapon on
-`handslot.r`, a shield on `handslot.l`, armour on `chest`. Nudge position, rotation and size with
-the sliders, and the part follows every animation. Hide the whole KayKit body and attach your own
-segments, one per bone, for a fully self-modelled character on the free animations. Saved as
-`attach FILE BONE x y z yaw pitch roll scale` lines; portraits include the parts.
+### The art pipeline in one paragraph
 
-**Sprite editor** (Ctrl+P). Draws in the tool window while the game keeps running with your character as
-the hero: every stroke updates the sprite in the world within a tenth of a second, so walk
-around or fight with it between edits. It opens on a copy of the current hero (its sheets are
-imported the first time, and Ctrl+S saves the copy as `HERO_own`, which it reopens afterwards);
-`--edit NAME` starts straight into a document by name.
-
-## Sprite editor
-
-    ./build/bin/hollow --edit NAME [--size 32]
-
-Opens the in-engine pixel editor on `assets/sprites/own/NAME`, creating it with idle, walk and
-attack if it does not exist. Mouse paints (right-drag erases); B pencil, E eraser, G fill, I pick,
-L line; `[` `]` change frame, 1-4 change direction, arrows nudge, O onion skin, M mirror, K marks
-the frame as the attack's contact (the parry beat), C copies a frame to every direction, F mirrors
-left into right, A adds the next preset animation, Space plays, Ctrl+S saves. Saving writes the
-PNG sheets, the sprite definition and a character binding, so `--hero NAME` plays it immediately.
+Characters and props are 3D, drawn through the pixel-art pass (small layer, grid-snapped camera,
+Endesga 32 palette, one-pixel outline, depth-composited), so nothing is drawn by hand and
+everything matches. Models come from CC0 packs or from your CAD tool: export OBJ with materials
+into `assets/models/import` and it is in the palette (millimetre files scale themselves). Dialogue
+portraits render live from the speaker's model with an emotion-driven clip (`assets/portraits.txt`
+maps a speaker to `model:hero`, `model:boss` or an image). Tuning: the `pixel` look line, the LOOK
+tab, `HOLLOW_PIX="3 8 1 1 0.6"`, `HOLLOW_NOPIX=1`.
 
 ## Headless test harness
 

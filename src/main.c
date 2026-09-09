@@ -22,10 +22,9 @@ int main(int argc, char **argv) {
     // --start S       begin in state S: explore (default), fight, end
     // --bot           let a simple bot play the fight (with --start fight)
     // --volume V      master volume 0..1;  --quiet = 0.15;  --debug starts with the overlay on
-    // --edit NAME     open the sprite editor on assets/sprites/own/NAME (created if missing); --size N frame size for new characters
     // --hero NAME     play with assets/characters/NAME.txt as the player
     int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
-    const char *edit = NULL; int edit_size = 32; bool debug_on = false, console_on = false; int tool_mode = 0;
+    bool debug_on = false, console_on = false; int tool_mode = 0;
     static Game game;   // large; static keeps it off the stack (and zeroed)
     // settings.txt next to the assets folder: volume V, debug 0|1, hero NAME. Command-line flags override it.
     { char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR); size_t sn; char *st = SDL_LoadFile(sp, &sn);
@@ -44,10 +43,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--quiet")) volume = 0.15f;
         else if (!strcmp(argv[i], "--debug")) debug_on = true;
         else if (!strcmp(argv[i], "--console")) console_on = true;
-        else if (!strcmp(argv[i], "--tool") && i + 1 < argc) tool_mode = atoi(argv[++i]);   // 2 = environment editor, 3 = sprite editor
+        else if (!strcmp(argv[i], "--tool") && i + 1 < argc) tool_mode = atoi(argv[++i]);   // 2 = world editor, 4 = character builder
         else if (!strcmp(argv[i], "--shot-when") && i + 1 < argc) shot_when = argv[++i];
-        else if (!strcmp(argv[i], "--edit") && i + 1 < argc) edit = argv[++i];
-        else if (!strcmp(argv[i], "--size") && i + 1 < argc) edit_size = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--hero") && i + 1 < argc) snprintf(game.hero_config, sizeof game.hero_config, "%s", argv[++i]);   // ring | judge | play: screenshot at that battle moment, then exit
     }
 
@@ -65,7 +62,6 @@ int main(int argc, char **argv) {
     pf.debug = debug_on;
     if (console_on) game_set_tool(&game, 1);
     if (start) game_start_at(&game, start);
-    if (edit) game_open_editor(&game, edit, edit_size);
     if (tool_mode) game_set_tool(&game, tool_mode);
     game.bot = bot;
     audio_set_master(volume * 0.8f);

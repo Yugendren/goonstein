@@ -77,10 +77,21 @@ static void setup_level_content(Game *g) {
             if (!terrain_load(&g->terrain, HOLLOW_ASSET_DIR, g->level.terrain_file)) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "terrain %s failed to load", g->level.terrain_file);
         }
     } else if (g->terrain.present && !(g->tool_mode == 2 && g->leveled.open)) { terrain_destroy(&g->gfx, &g->terrain); g->terrain.present = false; }
+    if (SDL_getenv("HOLLOW_GEN_WORLD") && g->leveled_ready && !g->gen_done) {   // headless: generate a world with the editor's generator and save it as levels/gen
+        g->gen_done = true;
+        if (SDL_getenv("HOLLOW_SEED")) g->leveled.seed = (unsigned)atoi(SDL_getenv("HOLLOW_SEED"));
+        g->leveled.g_water = -1.5f;
+        leveled_generate_world(&g->leveled, &g->level, &g->terrain);
+        snprintf(g->level.path, sizeof g->level.path, "%s/levels/gen.txt", HOLLOW_ASSET_DIR); snprintf(g->terrain.file, sizeof g->terrain.file, "%s", "levels/gen_terrain");
+        leveled_save(&g->leveled, &g->level, &g->terrain);
+        props_load_level(&g->gfx, &g->props, &g->level);
+    }
     if (!g->terrain.present && SDL_getenv("HOLLOW_TERRAIN_DEMO")) {   // headless check of the sculpting path
         terrain_init(&g->terrain, 1.5f, v3(-96, 0, -96), 0, v3(0.20f, 0.34f, 0.16f));
-        terrain_generate_mountains(&g->terrain, 28);
-        terrain_auto_biome(&g->terrain, 14, 0.45f, v3(0.20f, 0.34f, 0.16f), v3(0.36f, 0.34f, 0.35f), v3(0.88f, 0.90f, 0.95f), v3(0.30f, 0.22f, 0.15f));
+        TerrainGen tg = { .seed = 7, .mountains = 0.6f, .hills = 0.5f, .roughness = 0.4f, .snow_h = 22, .water_h = -1.5f };
+        if (SDL_getenv("HOLLOW_SEED")) tg.seed = (unsigned)atoi(SDL_getenv("HOLLOW_SEED"));
+        tg.flat[0] = g->level.spawn; tg.flat_r[0] = 7; tg.flat[1] = g->level.boss_spawn; tg.flat_r[1] = 11; tg.nflat = 2;
+        terrain_generate(&g->terrain, &tg, v3(0.20f, 0.34f, 0.16f), v3(0.36f, 0.34f, 0.35f), v3(0.88f, 0.90f, 0.95f), v3(0.30f, 0.22f, 0.15f), v3(0.62f, 0.56f, 0.40f));
         snprintf(g->terrain.file, sizeof g->terrain.file, "%s", "levels/demo_terrain");
         if (!strcmp(SDL_getenv("HOLLOW_TERRAIN_DEMO"), "save")) terrain_save(&g->terrain, HOLLOW_ASSET_DIR);
     }
@@ -211,7 +222,6 @@ bool game_init_gfx(Game *g, Platform *pf) {
     load_portraits(g);
     g->leveled_ready = leveled_init(&g->leveled, ASSET("kit.txt"));
     builder_init(&g->builder); g->builder_ready = g->builder.nfiles > 0;
-    parted_init(&g->parted);
     g->battle_loaded = battle_load(&g->battle, ASSET("cards/cards.txt"), ASSET("decks/knight.txt"), ASSET("enemies/warden_battle.txt"));
     if (!g->battle_loaded) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "battle data failed to load; boss door falls back to real-time fight");
     battle_load_fx(&g->battle, &g->gfx, ASSET("sprites/fx.txt"));
@@ -224,7 +234,6 @@ void game_shutdown(Game *g) {
     leveled_shutdown(&g->leveled);
     terrain_destroy(&g->gfx, &g->terrain);
     dbg_shutdown();
-    if (g->editor_open) editor_shutdown(&g->editor);
     props_clear(&g->gfx, &g->props);
     charmodel_destroy(&g->gfx, &g->player_model);
     charmodel_destroy(&g->gfx, &g->boss_model);
@@ -480,7 +489,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
 
     dbg_set_time(g->time);
     if (in->key_down[SDL_SCANCODE_F8]) debug_snapshot(g);
-    // Keys typed into the game window open the tools: [ environment editor, ] sprite editor,
+    // Keys typed into the game window open the tools: [ world editor, ] character builder,
     // \ debugger. Keys typed into a tool window belong to that tool (tool_key_down), except \ and
     // Esc which close it. Inside the environment editor the brackets scale the piece instead.
     if (g->tool_mode != 0 && !g->pf->console && !SDL_getenv("HOLLOW_CONSOLE_INLINE")) game_set_tool(g, 0);   // window closed with its close button
@@ -489,33 +498,17 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     if (g->tool_mode != 2 && in->key_down[SDL_SCANCODE_LEFTBRACKET]) game_set_tool(g, 2);
     if (g->tool_mode != 2 && in->key_down[SDL_SCANCODE_RIGHTBRACKET]) game_set_tool(g, 4);
     if (in->key_down[SDL_SCANCODE_F6] || (in->ctrl && (in->key_down[SDL_SCANCODE_E] || in->tool_key_down[SDL_SCANCODE_E]))) game_set_tool(g, 2);
-    if (in->key_down[SDL_SCANCODE_F7] || (in->ctrl && (in->key_down[SDL_SCANCODE_P] || in->tool_key_down[SDL_SCANCODE_P]))) game_set_tool(g, 3);
-    if (g->tool_mode != 2 && in->key_down[SDL_SCANCODE_EQUALS]) game_set_tool(g, 5);
     if ((in->key_down[SDL_SCANCODE_ESCAPE] || tool_esc) && g->tool_mode != 0) {
         bool selected = g->tool_mode == 2 && (g->leveled.sel_prop >= 0 || g->leveled.sel_light >= 0 || g->leveled.sel_emitter >= 0);
         if (!selected) game_set_tool(g, g->tool_mode);   // same mode again closes it
     }
     if (in->ctrl && in->key_down[SDL_SCANCODE_D]) g->pf->debug = !g->pf->debug;                              // wireframe overlay (F1)
     if (in->ctrl && in->key_down[SDL_SCANCODE_G]) debug_snapshot(g);                                          // snapshot (F8)
-    if (g->tool_mode == 3 && g->editor_open) {
-        // sprite editor runs in the tool window with that window's mouse; keys are shared
-        Input ein = *in; ein.click = in->tool_pressed; ein.mouse_held = in->tool_down; ein.rclick = in->tool_rpressed; ein.rmouse_held = in->tool_rdown; ein.wheel = in->tool_wheel;
-        memcpy(ein.key_down, in->tool_key_down, sizeof ein.key_down);   // only keys typed into the editor window
-        editor_set_size(&g->editor, g->pf->console_win ? (float)g->pf->tool_w : 1280, g->pf->console_win ? (float)g->pf->tool_h : 800);
-        editor_tick(&g->editor, &ein, in->tool_mx, in->tool_my, dt);
-        g->sprite_refresh_t += dt;
-        if (g->editor.dirty && g->sprite_refresh_t > 0.12f) { charmodel_refresh_from_doc(&g->player_model, &g->gfx, &g->editor.doc); g->sprite_refresh_t = 0; }
-    }
     if (g->tool_mode == 4) { charmodel_drive_player(&g->player_model, &g->player, dt); }
-    if (g->tool_mode == 5) {
-        float mx, my; platform_mouse_ui(g->pf, INTERNAL_W, INTERNAL_H, &mx, &my);
-        Vec3 hit; bool ok = leveled_ground_hit(&g->cam, &g->terrain, mx, my, &hit);
-        if (ok) hit = v3_sub(hit, g->bench);
-        if (parted_world(&g->parted, in, hit, ok) & PE_REBUILD) g->part_dirty = true;
-    }
     if (g->tool_mode == 2 && g->leveled.open && g->state != GS_BATTLE && g->state != GS_SCENE) {
         float mx, my; platform_mouse_ui(g->pf, INTERNAL_W, INTERNAL_H, &mx, &my);
         leveled_tick(&g->leveled, &g->level, &g->terrain, &g->cam, in, mx, my, dt, &g->gfx, &g->props);
+        if (g->leveled.props_stale) { props_clear(&g->gfx, &g->props); g->leveled.props_stale = false; }
         props_load_level(&g->gfx, &g->props, &g->level);
         snap_to_terrain(g);
         charmodel_drive_player(&g->player_model, &g->player, dt);
@@ -547,7 +540,6 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     case GS_DEAD:    tick_dead(g, in, dt); break;
     case GS_END:     tick_end(g, in, dt); break;
     case GS_BATTLE:  tick_battle(g, in, g->pf, dt); break;
-    case GS_EDITOR: { float mx, my; platform_mouse_ui(g->pf, INTERNAL_W, INTERNAL_H, &mx, &my); editor_tick(&g->editor, in, mx, my, dt); } break;
     }
     if (g->state != GS_SCENE) {
         g->letterbox = damp(g->letterbox, 0, 6, dt);
@@ -715,29 +707,6 @@ static void draw_tool_window(Game *g, Platform *pf) {
         gfx_ui_target(x, 0);
         return;
     }
-    if (g->tool_mode == 5) {
-        float w = (float)pf->tool_w, h = (float)pf->tool_h;
-        gfx_ui_target(x, 1);
-        UiInput uin = { .mx = pf->input.tool_mx, .my = pf->input.tool_my, .down = pf->input.tool_down, .pressed = pf->input.tool_pressed, .released = pf->input.tool_released, .wheel = pf->input.tool_wheel };
-        Input keys = pf->input; memcpy(keys.key_down, pf->input.tool_key_down, sizeof keys.key_down);
-        ui_begin(&g->ui, x, uin);
-        int flags = parted_panel(&g->parted, &g->ui, &keys, w, h);
-        ui_end(&g->ui);
-        gfx_ui_target(x, 0);
-        if (flags & PE_REBUILD) g->part_dirty = true;
-        if (flags & PE_SAVE) {
-            char dir[640]; snprintf(dir, sizeof dir, "%s/models/own", HOLLOW_ASSET_DIR); SDL_CreateDirectory(dir);
-            char path[700]; snprintf(path, sizeof path, "%s/%s.part", dir, g->parted.name[0] ? g->parted.name : "my_part");
-            if (part_save(&g->parted.doc, path)) { g->parted.dirty = false; snprintf(g->parted.msg, sizeof g->parted.msg, "saved models/own/%s.part: place it from the environment editor or attach it in the builder", g->parted.name); g->parted.msg_t = 4;
-                // the new part joins the palettes without a restart
-                if (g->leveled_ready) { LevelEd *le = &g->leveled; char rel[160]; snprintf(rel, sizeof rel, "models/own/%s.part", g->parted.name); bool known = false; for (int i = 0; i < le->nkit; i++) if (!strcmp(le->kit[i].file, rel)) known = true;
-                    if (!known && le->nkit < KIT_MAX) { KitPiece *k = &le->kit[le->nkit++]; memset(k, 0, sizeof *k); snprintf(k->category, sizeof k->category, "own"); snprintf(k->name, sizeof k->name, "%s", g->parted.name); snprintf(k->file, sizeof k->file, "%s", rel); k->scale = 1; bool kc = false; for (int i = 0; i < le->ncat; i++) if (!strcmp(le->categories[i], "own")) kc = true; if (!kc && le->ncat < LEVELED_MAX_CATS) snprintf(le->categories[le->ncat++], 16, "own"); }
-                    props_clear(&g->gfx, &g->props); props_load_level(&g->gfx, &g->props, &g->level); }   // reload so an edited part updates in the level
-                parted_init_files(&g->parted);
-            } else { snprintf(g->parted.msg, sizeof g->parted.msg, "save failed (see hollow.log)"); g->parted.msg_t = 4; }
-        }
-        return;
-    }
     if (g->tool_mode == 4 && g->builder_ready) {
         float w = windowed ? (float)pf->tool_w : 720, h = windowed ? (float)pf->tool_h : 800;
         gfx_ui_target(x, windowed ? 1 : 0);
@@ -751,12 +720,6 @@ static void draw_tool_window(Game *g, Platform *pf) {
         gfx_ui_target(x, 0);
         apply_builder(g, flags);
         return;
-    }
-    if (g->tool_mode == 3 && g->editor_open) {
-        gfx_ui_target(x, windowed ? 1 : 0);
-        editor_set_size(&g->editor, windowed ? (float)pf->tool_w : 1280, windowed ? (float)pf->tool_h : 800);
-        editor_draw(&g->editor, x);
-        gfx_ui_target(x, 0);
     }
 }
 
@@ -917,15 +880,6 @@ static void draw_hud(Game *g, Platform *pf) {
 void game_render(Game *g, Platform *pf, float alpha) {
     (void)alpha;
     g->frames++;
-    if (g->state == GS_EDITOR) {
-        FrameParams fp = { .view_proj = m4_identity(), .cam_pos = v3(0, 0, 0), .cam_right = v3(1, 0, 0), .cam_up = v3(0, 1, 0),
-                           .fog_color = v3(0.09f, 0.09f, 0.11f), .sky_zenith = v3(0.09f, 0.09f, 0.11f), .sky_horizon = v3(0.09f, 0.09f, 0.11f), .sky_ground = v3(0.09f, 0.09f, 0.11f) };
-        gfx_begin(&g->gfx, pf, &fp);
-        editor_draw(&g->editor, &g->gfx);
-        PostParams pp = { .grain = 0, .vignette = 0, .fade = 1, .exposure = 1, .saturation = 1, .contrast = 1, .bloom = 0, .gain = v3(1, 1, 1), .bloom_threshold = 10 };
-        gfx_end(&g->gfx, pf, &pp, g->time);
-        return;
-    }
     if (g->time - g->fps_t >= 0.5) { g->fps = (float)(g->frames / (g->time - g->fps_t)); g->frames = 0; g->fps_t = g->time; }
 
     const Level *lv = &g->level; const Look *lk = &lv->look;
@@ -958,17 +912,16 @@ void game_render(Game *g, Platform *pf, float alpha) {
         fp.lights[fp.nlights++] = (PointLight){ .pos = v3(pc->pos.x, pc->pos.y + 1.2f, pc->pos.z), .radius = 7.0f, .color = g->flash_color, .intensity = 2.5f * g->flash };
 
     Gfx *x = &g->gfx;
-    if (g->tool_mode == 5 && (g->part_dirty || !g->part_model_ok)) {
-        if (g->part_model_ok) model_destroy(x, &g->part_model);
-        Uint32 n = 0; Vertex *v = part_build(&g->parted.doc, HOLLOW_ASSET_DIR, &n);
-        memset(&g->part_model, 0, sizeof g->part_model);
-        g->part_model_ok = v && n > 0 && model_from_triangles(x, &g->part_model, v, n);
-        free(v); g->part_dirty = false;
-    }
     render_portrait(g, pf, &fp);
     gfx_begin(x, pf, &fp);
     draw_level(x, lv, &g->wt);
-    if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain); }
+    if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain);
+        if (g->terrain.water > -900) {   // flat water: a slab the size of the terrain, a little glow so it reads at night
+            float span = (TERRAIN_N - 1) * g->terrain.cell; Vec3 c = v3(g->terrain.origin.x + span * 0.5f, g->terrain.water - 0.5f, g->terrain.origin.z + span * 0.5f);
+            Material wm = material_default(); wm.emissive = v3(0.02f, 0.06f, 0.10f); wm.rim = 0.6f; wm.rim_color = v3(0.6f, 0.8f, 1); gfx_set_material(x, &wm);
+            gfx_draw_box(x, &x->white, c, v3(span, 1, span), 0, v4(0.16f, 0.33f, 0.48f, 1), 0);
+            gfx_set_material(x, NULL);
+        } }
     props_draw(x, &g->props, lv, t);
     {
         Vec4 pt = v4(lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), 1);
@@ -996,7 +949,6 @@ void game_render(Game *g, Platform *pf, float alpha) {
             gfx_pixel_begin(x, camera_view_proj_offset(&g->cam, (float)INTERNAL_W / INTERNAL_H, off), ox, oy);
             if (player_pix) { gfx_set_material(x, &pm); charmodel_draw(x, &g->player_model, pc, pt); }
             if (boss_pix) { gfx_set_material(x, &bm); charmodel_draw(x, &g->boss_model, bc, bt); }
-            if (g->tool_mode == 5 && g->part_model_ok) { gfx_set_material(x, NULL); AnimPlayer rest = { .clip = -1, .prev = -1 }; ModelPose pose; model_pose(&g->part_model, &rest, &pose); model_draw(x, &g->part_model, &pose, m4_translate(g->bench), v4(1, 1, 1, 1)); }
             gfx_set_material(x, NULL);
             gfx_pixel_end(x);
         }
@@ -1015,14 +967,6 @@ void game_render(Game *g, Platform *pf, float alpha) {
     }
     if (g->state == GS_BATTLE) battle_draw_world(&g->battle, x);
     if (g->tool_mode == 2 && g->leveled.open) leveled_draw_world(&g->leveled, &g->level, x, &g->props);
-    if (g->tool_mode == 5) {   // workbench: a grid on the ground and a frame around the selected shape
-        Material m = material_default(); m.emissive = v3(0.6f, 0.6f, 0.5f); gfx_set_material(x, &m);
-        for (int i = -4; i <= 4; i++) { gfx_draw_box(x, &x->white, v3(g->bench.x + i * 0.5f, g->bench.y + 0.005f, g->bench.z), v3(0.01f, 0.005f, 4), 0, v4(1, 1, 1, 0.2f), 0); gfx_draw_box(x, &x->white, v3(g->bench.x, g->bench.y + 0.005f, g->bench.z + i * 0.5f), v3(4, 0.005f, 0.01f), 0, v4(1, 1, 1, 0.2f), 0); }
-        gfx_set_material(x, NULL);
-        const PartEd *pe = &g->parted;
-        if (pe->sel >= 0 && pe->sel < pe->doc.n) { const Shape *sh = &pe->doc.shapes[pe->sel]; Vec3 sz = v3(fmaxf(fabsf(sh->size.x), 0.1f), fmaxf(sh->size.y, 0.1f), fmaxf(fabsf(sh->size.z), 0.1f)); if (sh->kind == SH_OBJ) sz = v3(fmaxf(g->part_model.bmax.x - g->part_model.bmin.x, 0.2f) * 0.5f, 0.5f, fmaxf(g->part_model.bmax.z - g->part_model.bmin.z, 0.2f) * 0.5f);
-            gfx_draw_box_wire(x, v3(g->bench.x + sh->pos.x, g->bench.y + sh->pos.y + sz.y * 0.5f, g->bench.z + sh->pos.z), v3(sz.x + 0.02f, sz.y + 0.02f, sz.z + 0.02f), v4(1, 0.85f, 0.4f, 1)); }
-    }
     if (!SDL_getenv("HOLLOW_NOPART")) particles_draw(&g->particles, x);
 
     if (pf->debug) {
@@ -1069,54 +1013,7 @@ bool game_shot_moment(Game *g, const char *when) {
     return false;
 }
 
-void game_open_editor(Game *g, const char *name, int frame_size) {
-    if (g->editor_open) editor_shutdown(&g->editor);
-    editor_init(&g->editor, name, frame_size);
-    g->editor_open = true;
-    snprintf(g->hero_config, sizeof g->hero_config, "%s", name);
-    charmodel_refresh_from_doc(&g->player_model, &g->gfx, &g->editor.doc);
-    platform_tool_window(g->pf, true, 1280, 800, "hollow sprite editor");
-    if (g->pf->console_win) { g->tool_mode = 3; return; }
-    g->state = GS_EDITOR; g->state_t = 0;   // no second window: edit inline
-    audio_music_stop(0.5f);
-}
 
-// The sprite editor edits a copy of the current hero: "<hero>_own". The first time, the hero's
-// sheets are imported so the editor opens on the real character rather than an empty document.
-static void open_sprite_editor_doc(Game *g) {
-    const char *hero = g->hero_config[0] ? g->hero_config : "hero";
-    char own[64]; snprintf(own, sizeof own, "%s_own", hero);
-    editor_init(&g->editor, own, 32);
-    char saved[640]; snprintf(saved, sizeof saved, "%s/sprites/own/%s.txt", HOLLOW_ASSET_DIR, own);
-    FILE *f = fopen(saved, "rb"); if (f) { fclose(f); return; }   // an edited copy already exists
-    CharModel *cm = &g->player_model, tmp = {0};
-    if (cm->loaded && !cm->is_sprite) {   // 3D hero: import the sprite version of the hero instead
-        char sp[640]; snprintf(sp, sizeof sp, "%s/characters/%s_sprite.txt", HOLLOW_ASSET_DIR, hero);
-        if (!charmodel_load(&g->gfx, &tmp, sp)) { say(g, "no sprite version of this hero to import; editing a blank sheet"); return; }
-        cm = &tmp;
-    }
-    if (!cm->loaded || !cm->is_sprite || cm->sdef.nsheets == 0) return;
-    const SpriteDef *sd = &cm->sdef;
-    if (sd->frame_w > PIX_MAX_SIZE || sd->frame_h > PIX_MAX_SIZE) { say(g, "hero frames too large for the editor (max 64px); editing a blank sheet"); return; }
-    pix_doc_free(&g->editor.doc); pix_doc_init(&g->editor.doc, own); g->editor.doc.size = sd->size;
-    int imported = 0;
-    for (int i = 0; i < sd->nsheets && g->editor.doc.nanims < PIX_MAX_ANIMS; i++) {
-        const SpriteSheet *sh = &sd->sheets[i];
-        // playback settings come from the first animation that uses this sheet
-        float fps = 8; bool loop = true, dircol = true; const int *contact = NULL; int ncontact = 0;
-        for (int a = 0; a < sd->nanims; a++) if (sd->anims[a].sheet == i) { fps = sd->anims[a].fps; loop = sd->anims[a].loop; dircol = sd->anims[a].dir_cols; contact = sd->anims[a].contact; ncontact = sd->anims[a].ncontact; break; }
-        int idx = pix_anim_import_sheet(&g->editor.doc, sh->path, sh->name, sh->fw, sh->fh, dircol, fps, loop);
-        if (idx < 0) continue;
-        PixAnim *pa = &g->editor.doc.anims[idx];
-        for (int c = 0; c < ncontact && c < PIX_MAX_CONTACT; c++) pa->contact[c] = contact[c];
-        pa->ncontact = ncontact < PIX_MAX_CONTACT ? ncontact : PIX_MAX_CONTACT;
-        imported++;
-    }
-    g->editor.anim = 0; g->editor.dir = 0; g->editor.frame = 0;
-    if (tmp.loaded) charmodel_destroy(&g->gfx, &tmp);
-    char msg[96]; snprintf(msg, sizeof msg, "imported %d sheets from %s; Ctrl+S saves as %s", imported, hero, own);
-    say(g, msg); snprintf(g->editor.msg, sizeof g->editor.msg, "%s", msg); g->editor.msg_t = 4;
-}
 
 // The builder edits a spec; the hero is rebuilt from it so every change shows in the world.
 static void apply_builder(Game *g, int flags) {
@@ -1154,15 +1051,10 @@ static void apply_builder(Game *g, int flags) {
         if (!had) on += (size_t)snprintf(out + on, sizeof out - on, "hero %s\n", b->name);
         FILE *f = fopen(sp, "wb"); if (f) { fwrite(out, 1, on, f); fclose(f); snprintf(b->msg, sizeof b->msg, "%s is now the hero (settings.txt)", b->name); b->msg_t = 3; }
     }
-    if (flags & BLD_OPEN_SPRITE) game_set_tool(g, 3);
-}
+    }
 
 void game_set_tool(Game *g, int mode) {
     if (mode == g->tool_mode) mode = 0;
-    if (g->tool_mode == 3 && mode != 3 && g->hero_was_model) {   // put the 3D hero back
-        char hp[640]; snprintf(hp, sizeof hp, "%s/characters/%s.txt", HOLLOW_ASSET_DIR, g->hero_config[0] ? g->hero_config : "hero");
-        charmodel_destroy(&g->gfx, &g->player_model); charmodel_load(&g->gfx, &g->player_model, hp); g->hero_was_model = false;
-    }
     g->tool_mode = mode;
     g->pf->editing = mode == 2;
     g->leveled.open = false;
@@ -1175,13 +1067,6 @@ void game_set_tool(Game *g, int mode) {
         leveled_open(&g->leveled, &g->level, &g->cam);
         if (g->state == GS_BATTLE) say(g, "editor works in the overworld; finish the battle first");
     }
-    if (mode == 5) {
-        platform_tool_window(g->pf, true, 720, 820, "hollow part editor");
-        Vec3 fwd = v3_norm(v3_sub(g->cam.target, g->cam.eye)); Vec3 right = v3_norm(v3_cross(fwd, v3(0, 1, 0)));
-        g->bench = v3_add(g->player.c.pos, v3_scale(right, 2.6f)); g->bench.y = g->terrain.present ? terrain_height(&g->terrain, g->bench.x, g->bench.z) : 0;
-        parted_open(&g->parted); g->part_dirty = true;
-        if (g->state == GS_SCENE) { SceneHost host = HOST_TEMPLATE; host.ud = g; scene_skip(&g->scene, &host); }
-    }
     if (mode == 4) {
         platform_tool_window(g->pf, true, 720, 820, "hollow character builder");
         if (!g->builder_ready) { say(g, "character builder: no rigged .glb files found under assets/models"); return; }
@@ -1189,11 +1074,5 @@ void game_set_tool(Game *g, int mode) {
         builder_open(&g->builder, &g->player_model.spec, g->hero_config[0] && strcmp(g->hero_config, "hero") ? g->hero_config : "my_hero");
         builder_model_loaded(&g->builder, g->player_model.loaded && !g->player_model.is_sprite ? &g->player_model.model : NULL);
         if (g->state == GS_SCENE) { SceneHost host = HOST_TEMPLATE; host.ud = g; scene_skip(&g->scene, &host); }
-    }
-    if (mode == 3) {
-        platform_tool_window(g->pf, true, 1280, 800, "hollow sprite editor");
-        if (!g->editor_open) { open_sprite_editor_doc(g); g->editor_open = true; }
-        if (g->player_model.loaded && !g->player_model.is_sprite) { g->hero_was_model = true; say(g, "hero shows the sprite document while the editor is open; the 3D hero returns when it closes"); }
-        charmodel_refresh_from_doc(&g->player_model, &g->gfx, &g->editor.doc);
     }
 }

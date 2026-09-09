@@ -5,11 +5,21 @@
 #define N TERRAIN_N
 static inline int idx(int x, int z) { return z * N + x; }
 
+static unsigned hash_u(unsigned x) { x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16; return x; }
+static float hnoise(unsigned seed, int x, int z) { return (float)(hash_u(hash_u((unsigned)x * 73856093u ^ seed) ^ (unsigned)z * 19349663u) & 0xffffff) / 16777215.0f; }
+static float vnoise(unsigned seed, float x, float z) {
+    int xi = (int)floorf(x), zi = (int)floorf(z); float fx = x - xi, fz = z - zi; fx = fx * fx * (3 - 2 * fx); fz = fz * fz * (3 - 2 * fz);
+    float a = hnoise(seed, xi, zi), b = hnoise(seed, xi + 1, zi), c = hnoise(seed, xi, zi + 1), d = hnoise(seed, xi + 1, zi + 1);
+    return lerpf(lerpf(a, b, fx), lerpf(c, d, fx), fz);
+}
+static float fbm(unsigned seed, float x, float z, int oct) { float s = 0, amp = 0.5f, f = 1, norm = 0; for (int i = 0; i < oct; i++) { s += vnoise(seed + (unsigned)i * 101, x * f, z * f) * amp; norm += amp; amp *= 0.5f; f *= 2.03f; } return s / norm; }
+float terrain_noise(unsigned seed, float x, float z, float scale) { return fbm(seed ^ 0x5bd1e995u, x / scale, z / scale, 3); }
+
 void terrain_init(Terrain *t, float cell, Vec3 origin, float base_height, Vec3 base_color) {
     memset(t, 0, sizeof *t);
     t->cell = cell; t->origin = origin;
     for (int i = 0; i < N * N; i++) { t->height[i] = base_height; t->color[i] = base_color; }
-    t->mesh_dirty = true; t->present = true;
+    t->mesh_dirty = true; t->present = true; t->water = -1000;
 }
 
 void terrain_destroy(Gfx *g, Terrain *t) { if (t->mesh_ok) gfx_mesh_destroy(g, &t->mesh); t->mesh_ok = false; }
@@ -145,6 +155,78 @@ void terrain_generate_mountains(Terrain *t, float peak) {
         float centre = hypotf(u - 0.5f, v - 0.5f);
         h *= clampf((centre - 0.06f) / 0.14f, 0, 1);   // flat middle for the path and arena
         t->height[z * TERRAIN_N + x] = fmaxf(h, 0);
+    }
+    t->mesh_dirty = true;
+}
+
+void terrain_generate(Terrain *t, const TerrainGen *p, Vec3 grass, Vec3 rock, Vec3 snow, Vec3 dirt, Vec3 sand) {
+    unsigned seed = p->seed ? p->seed : 1;
+    float span = (N - 1) * t->cell;
+    for (int z = 0; z < N; z++) for (int x = 0; x < N; x++) {
+        float u = (float)x / (N - 1), v = (float)z / (N - 1);
+        float wx = t->origin.x + x * t->cell, wz = t->origin.z + z * t->cell;
+        float hills = (fbm(seed, u * 4.0f, v * 4.0f, 4) - 0.5f) * 2.0f;                 // -1..1 rolling
+        float ridge = 1.0f - fabsf(fbm(seed + 7, u * 2.2f, v * 2.2f, 4) * 2.0f - 1.0f);  // ridged 0..1
+        float mask = powf(clampf(fbm(seed + 13, u * 1.3f, v * 1.3f, 2) * 1.6f - 0.3f, 0, 1), 1.5f);   // where the mountains live
+        float edge = 1 - clampf(fminf(fminf(u, 1 - u), fminf(v, 1 - v)) / 0.12f, 0, 1);           // rim rises so the world reads as enclosed
+        float h = hills * 6.0f * p->hills;
+        h += ridge * ridge * 46.0f * p->mountains * fmaxf(mask, edge * 0.8f);
+        h += (fbm(seed + 21, u * 16, v * 16, 3) - 0.5f) * 2.5f * p->roughness;
+        // pads: blend to the pad height inside, soft edge outside
+        for (int k = 0; k < p->nflat; k++) {
+            float d = hypotf(wx - p->flat[k].x, wz - p->flat[k].z), r = p->flat_r[k];
+            float w = 1 - clampf((d - r) / (r * 0.8f + 2.0f), 0, 1); w = w * w * (3 - 2 * w);
+            h = lerpf(h, p->flat[k].y, w);
+        }
+        t->height[idx(x, z)] = h;
+    }
+    (void)span;
+    t->water = p->water_h;
+    t->mesh_dirty = true;
+    // colours: biomes from height, slope and a moisture noise
+    for (int z = 0; z < N; z++) for (int x = 0; x < N; x++) {
+        float wx = t->origin.x + x * t->cell, wz = t->origin.z + z * t->cell;
+        float h = t->height[idx(x, z)];
+        float slope = 1.0f - terrain_normal(t, wx, wz).y;
+        float moist = terrain_noise(seed, wx, wz, 30.0f);
+        Vec3 c = v3_lerp(grass, v3_scale(grass, 0.75f), moist);           // wetter = darker grass
+        c = v3_lerp(c, dirt, clampf(0.5f - moist, 0, 0.5f) * 0.6f);
+        c = v3_lerp(c, sand, clampf((p->water_h + 1.2f - h) / 1.2f, 0, 1));   // shore
+        c = v3_lerp(c, rock, clampf((slope - 0.28f) / 0.25f, 0, 1));
+        c = v3_lerp(c, snow, clampf((h - p->snow_h) / 5.0f, 0, 1) * (1 - clampf((slope - 0.45f) / 0.2f, 0, 0.7f)));
+        t->color[idx(x, z)] = c;
+    }
+}
+
+void terrain_flatten_pad(Terrain *t, Vec3 at, float radius, float height) {
+    int x0 = (int)floorf((at.x - radius * 2 - t->origin.x) / t->cell), x1 = (int)ceilf((at.x + radius * 2 - t->origin.x) / t->cell);
+    int z0 = (int)floorf((at.z - radius * 2 - t->origin.z) / t->cell), z1 = (int)ceilf((at.z + radius * 2 - t->origin.z) / t->cell);
+    if (x0 < 0) x0 = 0; if (z0 < 0) z0 = 0; if (x1 > N - 1) x1 = N - 1; if (z1 > N - 1) z1 = N - 1;
+    for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++) {
+        float wx = t->origin.x + x * t->cell, wz = t->origin.z + z * t->cell;
+        float d = hypotf(wx - at.x, wz - at.z);
+        float w = 1 - clampf((d - radius) / (radius + 0.5f), 0, 1); w = w * w * (3 - 2 * w);
+        t->height[idx(x, z)] = lerpf(t->height[idx(x, z)], height - t->origin.y, w);
+    }
+    t->mesh_dirty = true;
+}
+
+void terrain_path(Terrain *t, Vec3 a, Vec3 b, float width, Vec3 color) {
+    float len = hypotf(b.x - a.x, b.z - a.z); int steps = (int)(len / (t->cell * 0.5f)) + 1;
+    for (int i = 0; i <= steps; i++) {
+        float k = (float)i / steps; Vec3 q = v3(lerpf(a.x, b.x, k), 0, lerpf(a.z, b.z, k));
+        // level toward the running average height, then paint
+        float hc = terrain_height(t, q.x, q.z);
+        int x0 = (int)floorf((q.x - width - t->origin.x) / t->cell), x1 = (int)ceilf((q.x + width - t->origin.x) / t->cell);
+        int z0 = (int)floorf((q.z - width - t->origin.z) / t->cell), z1 = (int)ceilf((q.z + width - t->origin.z) / t->cell);
+        if (x0 < 0) x0 = 0; if (z0 < 0) z0 = 0; if (x1 > N - 1) x1 = N - 1; if (z1 > N - 1) z1 = N - 1;
+        for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++) {
+            float wx = t->origin.x + x * t->cell, wz = t->origin.z + z * t->cell;
+            float d = hypotf(wx - q.x, wz - q.z); if (d > width) continue;
+            float w = 1 - clampf((d - width * 0.5f) / (width * 0.5f), 0, 1);
+            t->height[idx(x, z)] = lerpf(t->height[idx(x, z)], hc - t->origin.y, 0.5f * w);
+            t->color[idx(x, z)] = v3_lerp(t->color[idx(x, z)], color, 0.8f * w);
+        }
     }
     t->mesh_dirty = true;
 }
