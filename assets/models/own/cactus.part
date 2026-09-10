@@ -1,4 +1,5 @@
 # cactus -- columnar saguaro-style cactus, ~2.4m tall, three-armed silhouette
+collide 0.35 2.4
 piece models/shapes/cylinder.obj   0.0000 0.0000 0.0000   0.50 2.20 0.50    0 0 0     0.30 0.44 0.28
 piece models/shapes/sphere.obj     0.0000 2.2000 0.0000   0.50 0.50 0.50    0 0 0     0.30 0.44 0.28
 # right arm: elbow bends out from the trunk, then a vertical column back up, capped

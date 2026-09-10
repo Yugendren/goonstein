@@ -1,5 +1,7 @@
 # palm_tall -- coconut palm, ~9m, gentle lean, 8-frond crown with coconuts at the base
 # trunk: 5 tapered cylinder segments, each rolled to continue the curve from the last
+# The trunk is solid; the orbit camera ignores colliders this thin so it does not bounce off palms.
+collide 0.28 6.0
 piece models/shapes/cylinder.obj   0.000 0.000 0.000   0.42 1.75 0.42   0 0 -1    0.52 0.46 0.36
 piece models/shapes/cylinder.obj   0.031 1.750 0.000   0.38 1.70 0.38   0 0 -3    0.52 0.46 0.36
 piece models/shapes/cylinder.obj   0.120 3.447 0.000   0.34 1.65 0.34   0 0 -6    0.52 0.46 0.36

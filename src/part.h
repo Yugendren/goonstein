@@ -3,6 +3,11 @@
 // placed pieces. Saved as text in assets/models/own/NAME.part; used as a prop or a character part.
 //
 //   piece FILE  x y z  sx sy sz  yaw pitch roll  [r g b]
+//
+// A part may also declare its own collider, which every prop placed from it gets unless the level
+// line overrides it -- a hundred palms then need no collider lines at all:
+//
+//   collide R [H] [deck]     half-width, height (default 5), `deck` = a walkable top, no wall
 #pragma once
 #include "gfx.h"
 
@@ -12,7 +17,8 @@ typedef struct Piece {
     Vec3 pos, size; float yaw, pitch, roll;   // degrees
     Vec4 tint;                                // 1 1 1 = untinted
 } Piece;
-typedef struct PartDoc { Piece pieces[PART_MAX_PIECES]; int n; } PartDoc;
+typedef struct PartDoc { Piece pieces[PART_MAX_PIECES]; int n;
+                        float collide, collide_h; bool collide_deck; } PartDoc;   // the part's own collider, scaled by the prop that places it (0 = none)
 
 bool part_load(PartDoc *d, const char *path);
 bool part_save(const PartDoc *d, const char *path);

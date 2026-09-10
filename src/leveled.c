@@ -136,21 +136,25 @@ bool leveled_ground_hit(const Camera *cam, const Terrain *tr, float mx, float my
     return true;
 }
 
-static void add_collider_for(Level *lv, const Prop *p) {
+// Same box the loader builds for a prop's `collide`, so a prop moved in the editor collides the
+// way it will after the file is saved and read back.
+static void add_collider_for(Level *lv, Prop *p) {
     if (p->collide <= 0 || lv->nblocks >= LEVEL_MAX_BLOCKS) return;
+    float h = p->collide_h > 0 ? p->collide_h : 5.0f;
     Block *b = &lv->blocks[lv->nblocks++];
     memset(b, 0, sizeof *b);
-    b->center = v3(p->pos.x, p->pos.y + 1.5f, p->pos.z); b->size = v3(p->collide * 2, 3.0f, p->collide * 2); b->tex = -1; b->solid = true; b->tint = v4(1, 1, 1, 0);
+    b->center = v3(p->pos.x, p->pos.y + h * 0.5f, p->pos.z); b->size = v3(p->collide * 2, h, p->collide * 2);
+    b->tex = -1; b->solid = !p->collide_deck; b->platform = p->collide_deck; b->tint = v4(1, 1, 1, 0);
+    p->collide_block = lv->nblocks - 1;
 }
-static void remove_collider_for(Level *lv, const Prop *p) {
+static void remove_collider_for(Level *lv, Prop *p) {
     if (p->collide <= 0) return;
-    for (int i = 0; i < lv->nblocks; i++) {
-        Block *b = &lv->blocks[i];
-        if (b->tex == -1 && fabsf(b->center.x - p->pos.x) < 1e-3f && fabsf(b->center.z - p->pos.z) < 1e-3f && fabsf(b->size.x - p->collide * 2) < 1e-3f) {
-            for (int k = i; k < lv->nblocks - 1; k++) lv->blocks[k] = lv->blocks[k + 1];
-            lv->nblocks--; return;
-        }
-    }
+    int i = p->collide_block;
+    if (i < 0 || i >= lv->nblocks) return;
+    for (int k = i; k < lv->nblocks - 1; k++) lv->blocks[k] = lv->blocks[k + 1];
+    lv->nblocks--;
+    p->collide_block = -1;
+    for (int k = 0; k < lv->nprops; k++) if (lv->props[k].collide_block > i) lv->props[k].collide_block--;   // the shift moved everyone above it
 }
 
 static int pick_prop(const Level *lv, Vec3 at) {
@@ -242,7 +246,7 @@ void leveled_tick(LevelEd *e, Level *lv, Terrain *tr, Camera *cam, const Input *
     if (in->key_down[SDL_SCANCODE_RIGHTBRACKET]) { if (e->sel_prop >= 0 && e->tool == LT_SELECT) { push_undo(e, lv); lv->props[e->sel_prop].scale *= 1.1f; } else e->ghost_scale *= 1.1f; }
     if (in->key_down[SDL_SCANCODE_X] || in->key_down[SDL_SCANCODE_DELETE] || in->key_down[SDL_SCANCODE_BACKSPACE]) delete_selected(e, lv);
     if (in->key_down[SDL_SCANCODE_G] && !in->ctrl && e->sel_prop >= 0 && lv->nprops < LEVEL_MAX_PROPS) {
-        push_undo(e, lv); Prop copy = lv->props[e->sel_prop]; copy.pos.x += 1.5f; lv->props[lv->nprops++] = copy; add_collider_for(lv, &copy); e->sel_prop = lv->nprops - 1; say(e, "duplicated");
+        push_undo(e, lv); Prop copy = lv->props[e->sel_prop]; copy.pos.x += 1.5f; lv->props[lv->nprops++] = copy; e->sel_prop = lv->nprops - 1; add_collider_for(lv, &lv->props[e->sel_prop]); say(e, "duplicated");
     }
     if (in->key_down[SDL_SCANCODE_ESCAPE]) { e->sel_prop = e->sel_light = e->sel_emitter = -1; e->tool = LT_SELECT; }
     if (in->key_down[SDL_SCANCODE_1]) e->tool = LT_SELECT; if (in->key_down[SDL_SCANCODE_2]) e->tool = LT_PIECE;

@@ -1,5 +1,7 @@
 # palm_bent -- windswept shore palm, ~5.5m, hard lean toward +X, 6 fronds swept back toward -X
 # trunk: 4 tapered cylinder segments, each rolled harder to bend the crown ~2m off centre
+# The trunk is solid, measured at the base where the lean starts.
+collide 0.30 4.0
 piece models/shapes/cylinder.obj   0.000 0.000 0.000   0.42 1.60 0.42    0 0 -8    0.52 0.46 0.36
 piece models/shapes/cylinder.obj   0.223 1.584 0.000   0.36 1.50 0.36    0 0 -18   0.52 0.46 0.36
 piece models/shapes/cylinder.obj   0.686 3.011 0.000   0.31 1.40 0.31    0 0 -30   0.52 0.46 0.36

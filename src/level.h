@@ -3,7 +3,7 @@
 #include "hmath.h"
 #include <stdbool.h>
 
-#define LEVEL_MAX_BLOCKS   512
+#define LEVEL_MAX_BLOCKS   2048   // parts bring their own colliders, so a wooded level spends these on trunks
 #define LEVEL_MAX_CAMS     64
 #define LEVEL_MAX_TRIGGERS 64
 #define LEVEL_MAX_PROPS    2048
@@ -48,6 +48,7 @@ typedef struct Prop {
     float collide;           // radius of an invisible solid box at the prop's base (0 = none)
     float collide_h;         // its height in metres (0 = the 5 m default, tall enough to hide behind)
     bool  collide_deck;      // `deck`: the top face is walkable and the box never blocks movement
+    bool  collide_default;   // the collider came from the .part's own `collide` line, not this prop line
     int   collide_block;     // index of that block in `blocks`, or -1 (rebuilt on every load)
 } Prop;
 

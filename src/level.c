@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "part.h"
 
 static const char *k_tex_names[TEX_COUNT] = { "stone", "tile", "wood", "metal", "flesh", "plaster", "flat" };
 
@@ -29,6 +30,28 @@ static bool parse_floats(char **tok, int start, int count, float *out) {
         if (end == tok[start + i]) return false;
     }
     return true;
+}
+
+// A .part can carry its own collider (see part.h), which every prop placed from it inherits. The
+// file is read once per load and remembered here: a level with a hundred palms in it would
+// otherwise open the same file a hundred times.
+#define PART_COLLIDE_CACHE 32
+typedef struct PartCollide { char file[128]; float r, h; bool deck; } PartCollide;
+static bool part_collider(PartCollide *cache, int *n, const char *file, float *r, float *h, bool *deck) {
+    size_t len = strlen(file);
+    if (len < 5 || strcmp(file + len - 5, ".part") != 0) return false;
+    for (int i = 0; i < *n; i++)
+        if (!strcmp(cache[i].file, file)) { *r = cache[i].r; *h = cache[i].h; *deck = cache[i].deck; return *r > 0; }
+    PartDoc d;
+    char path[1024]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, file);
+    if (!part_load(&d, path)) return false;
+    if (*n < PART_COLLIDE_CACHE) {
+        PartCollide *c = &cache[(*n)++];
+        SDL_strlcpy(c->file, file, sizeof c->file);
+        c->r = d.collide; c->h = d.collide_h; c->deck = d.collide_deck;
+    }
+    *r = d.collide; *h = d.collide_h; *deck = d.collide_deck;
+    return *r > 0;
 }
 
 // Parse the whole file into `out`. Returns false and logs on any fatal (I/O) error;
@@ -68,6 +91,7 @@ static bool parse_level(Level *out, const char *path) {
     buf[size] = '\0';
     SDL_free(data);
 
+    PartCollide part_cache[PART_COLLIDE_CACHE]; int npart_cache = 0;
     int line_no = 0;
     char *save_line = NULL;
     for (char *line = SDL_strtok_r(buf, "\n", &save_line); line; line = SDL_strtok_r(NULL, "\n", &save_line)) {
@@ -256,6 +280,13 @@ static bool parse_level(Level *out, const char *path) {
                 else if (strcmp(tok[i], "stretch") == 0 && i + 3 < n && parse_floats(tok, i + 1, 3, g3)) { pr->stretch = v3(g3[0], g3[1], g3[2]); i += 4; }
                 else if (strcmp(tok[i], "name") == 0 && i + 1 < n) { SDL_strlcpy(pr->name, tok[i + 1], sizeof pr->name); i += 2; }   // a cutscene actor: `actor prop:NAME move ...`
                 else { SDL_Log("level_load:%d: bad prop option '%s', ignoring the rest of the line", line_no, tok[i]); break; }
+            }
+            if (pr->collide <= 0) {   // no collider on the line: take the part's own, scaled like the prop
+                float r, h; bool deck;
+                if (part_collider(part_cache, &npart_cache, pr->file, &r, &h, &deck)) {
+                    pr->collide = r * pr->scale; pr->collide_h = h * pr->scale; pr->collide_deck = deck;
+                    pr->collide_default = true;
+                }
             }
             if (pr->collide > 0 && out->nblocks < LEVEL_MAX_BLOCKS) {
                 // Invisible box for the trunk / body / deck of the prop
@@ -462,7 +493,7 @@ bool level_save(const Level *lv, const char *path) {
         if (pr->stretch.x != 1.0f || pr->stretch.y != 1.0f || pr->stretch.z != 1.0f)
             fprintf(f, " stretch %.3f %.3f %.3f", pr->stretch.x, pr->stretch.y, pr->stretch.z);
         if (pr->name[0]) fprintf(f, " name %s", pr->name);
-        if (pr->collide > 0.0f) {
+        if (pr->collide > 0.0f && !pr->collide_default) {
             fprintf(f, " collide %.3f", pr->collide);
             if (pr->collide_h > 0.0f || pr->collide_deck) fprintf(f, " %.3f", pr->collide_h > 0 ? pr->collide_h : 5.0f);
             if (pr->collide_deck) fprintf(f, " deck");
@@ -629,12 +660,17 @@ void level_reset_triggers(Level *lv) {
     for (int i = 0; i < lv->ntriggers; i++) lv->triggers[i].fired = false;
 }
 
+// A collider narrower than this is something the camera is allowed to see through: a palm trunk,
+// a bollard, a cactus. Without it the orbit camera bounces off every tree on the island.
+#define CAMERA_IGNORE_RADIUS 0.6f
+
 float level_ray_solid(const Level *lv, Vec3 a, Vec3 b, float margin) {
     float best = 1.0f;
     Vec3 d = v3_sub(b, a);
     for (int i = 0; i < lv->nblocks; i++) {
         const Block *bl = &lv->blocks[i];
         if (!bl->solid) continue;
+        if (bl->tex < 0 && bl->size.x < CAMERA_IGNORE_RADIUS * 2 && bl->size.z < CAMERA_IGNORE_RADIUS * 2) continue;
         Vec3 h = v3_scale(bl->size, 0.5f);
         Vec3 mn = v3(bl->center.x - h.x - margin, bl->center.y - h.y - margin, bl->center.z - h.z - margin);
         Vec3 mx = v3(bl->center.x + h.x + margin, bl->center.y + h.y + margin, bl->center.z + h.z + margin);

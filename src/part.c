@@ -16,6 +16,12 @@ bool part_load(PartDoc *d, const char *path) {
         char *tok[24]; int nt = 0; char *save = NULL;
         for (char *t = SDL_strtok_r(line, " \t\r", &save); t && nt < 24; t = SDL_strtok_r(NULL, " \t\r", &save)) tok[nt++] = t;
         if (nt == 0) continue;
+        if (strcmp(tok[0], "collide") == 0 && nt >= 2) {
+            d->collide = (float)atof(tok[1]);
+            d->collide_h = nt >= 3 && strcmp(tok[2], "deck") != 0 ? (float)atof(tok[2]) : 0;
+            for (int i = 2; i < nt; i++) if (strcmp(tok[i], "deck") == 0) d->collide_deck = true;
+            continue;
+        }
         if (strcmp(tok[0], "piece") != 0 || nt < 3) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d unknown line", path, ln); continue; }
         if (d->n >= PART_MAX_PIECES) break;
         Piece *p = &d->pieces[d->n]; memset(p, 0, sizeof *p);
@@ -33,6 +39,12 @@ bool part_save(const PartDoc *d, const char *path) {
     FILE *f = fopen(path, "wb");
     if (!f) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "cannot write %s", path); return false; }
     fprintf(f, "# part: piece FILE  x y z  sx sy sz  yaw pitch roll  [r g b]   (see src/part.h)\n");
+    if (d->collide > 0) {
+        fprintf(f, "collide %.3f", d->collide);
+        if (d->collide_h > 0 || d->collide_deck) fprintf(f, " %.3f", d->collide_h > 0 ? d->collide_h : 5.0f);
+        if (d->collide_deck) fprintf(f, " deck");
+        fprintf(f, "\n");
+    }
     for (int i = 0; i < d->n; i++) {
         const Piece *p = &d->pieces[i];
         fprintf(f, "piece %s  %.3f %.3f %.3f  %.3f %.3f %.3f  %.1f %.1f %.1f", p->file, p->pos.x, p->pos.y, p->pos.z, p->size.x, p->size.y, p->size.z, p->yaw, p->pitch, p->roll);

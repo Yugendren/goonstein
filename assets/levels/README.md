@@ -19,7 +19,10 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
              # box 2R across at the prop's base, H metres tall (default 5, tall enough that the
              # camera cannot peek over a wall). `deck` makes it a floor instead of a wall: the top
              # face at y+H is walkable and the box never blocks movement -- piers, boat decks,
-             # anything you are meant to stand on.
+             # anything you are meant to stand on. Leaving `collide` off takes whatever the .part
+             # itself declares (a `collide` line inside it, scaled by this prop's scale), which is
+             # how a hundred palms get trunks without a hundred collider lines here. A collider
+             # narrower than 1.2 m across is ignored by the camera, so it does not bounce off trunks.
     collider x y z sx sy sz                    # invisible solid box
     light    x y z  r g b  radius intensity [flicker F]   # point light; F ~0.3 for torches
     emitter  TYPE x y z  ex ey ez  rate  r g b  size life
