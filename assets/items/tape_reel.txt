@@ -1,0 +1,11 @@
+# tape_reel.txt -- light, cheap, one of many identical reels in the archive.
+model      models/shapes/plate.obj     # a flat disc-ish canister
+display    Reel: STAFF BARBECUE 2 OF 4
+mass       1.2                         # kg; a plastic reel, mostly air
+half       0.15 0.015 0.15             # matches plate.obj at scale 0.3 (0.3 x 0.03 x 0.3 m)
+fragile    8.5                         # m/s; tough plastic, survives most drops
+value      15                          # dollars
+two_handed no
+scale      0.3
+tint       0.10 0.10 0.12              # matte black plastic
+sound      smash

@@ -1,0 +1,16 @@
+# crate.txt -- heavy, cheap, built to survive being dropped down a stairwell.
+# Switched from old_military_crate to wooden_crate_01: the old_military_crate glTF bundles two
+# full crate variants (mirrored nodes at x=-0.5 and x=+0.5) and the loader has no way to pick just
+# one, so it drew as a doubled, side-by-side pair. wooden_crate_01 is a single crate (body, lid,
+# latch) and the previous half also didn't match its source bounds (0.91 was nearly the model's
+# full width, not half of it). Raw model bounds are 0.83 x 0.35 x 0.41 m at scale 1.0; half below
+# is half of that.
+model      models/polyhaven/wooden_crate_01/wooden_crate_01_1k.gltf
+display    Crate Marked FRAGILE Twice
+mass       28                          # kg; heavy even empty
+half       0.41 0.17 0.20              # half the model's own bounds at scale 1.0
+fragile    0                           # unbreakable
+value      40                          # dollars; cheap
+two_handed yes
+scale      1.0
+tint       1.0 1.0 1.0                 # keep the model's own texture

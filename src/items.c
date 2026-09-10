@@ -240,7 +240,8 @@ void items_break(Game *g, int idx) {
                     v3(d->tint.x * 2.2f, d->tint.y * 2.0f, d->tint.z * 1.8f), 0.06f, 0.55f);
     audio_play(d->sound >= 0 ? (SoundId)d->sound : SND_SMASH, 0.9f, 0.95f + 0.1f * (float)(it->id % 3));
     its->lost_value = d->value; its->lost_t = 2.5f; its->breaks++;
-    dbg_log("item %u (%s) broke, -$%d", it->id, d->display, d->value);
+    int pieces = 0; for (int k = 0; k < DEBRIS_MAX; k++) if (its->debris[k].used) pieces++;
+    dbg_log("item %u (%s) broke, -$%d, %d debris pieces in flight", it->id, d->display, d->value, pieces);
 }
 
 // ---------------------------------------------------------------- network entry points

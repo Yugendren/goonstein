@@ -1,0 +1,11 @@
+# gnome.txt -- the joke item. Small, heavy for its size, worth almost nothing.
+model      models/shapes/cylinder.obj
+display    Gnome, Unreasonably Dense
+mass       14                          # kg; far too heavy for something this size
+half       0.175 0.175 0.175           # matches cylinder.obj at scale 0.35
+fragile    4.5                         # m/s; concrete, but it still chips
+value      25                          # dollars
+two_handed no
+scale      0.35
+tint       0.62 0.20 0.18              # red hat, faded
+sound      smash

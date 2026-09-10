@@ -1,0 +1,14 @@
+# bust.txt -- a plaster bust on a plinth, found wherever the villa needed gravitas.
+# marble_bust_01 is a real sculpted head-and-shoulders bust; the tinted cylinder it replaced was
+# just a stand-in. Raw model bounds are 0.27 x 0.51 x 0.30 m; scale 0.8 brings it to a desk-sized
+# ~0.41 m tall, and half is half of the scaled bounding box on each axis.
+model      models/polyhaven/marble_bust_01/marble_bust_01_1k.gltf
+display    Bust of Nobody in Particular
+mass       16                          # kg; dense plaster over a wire frame
+half       0.11 0.21 0.12              # half the scaled model bounds (0.22 x 0.41 x 0.24 m)
+fragile    5.0                         # m/s; plaster chips readily
+value      180                         # dollars
+two_handed no
+scale      0.8
+tint       1.0 1.0 1.0                 # the model carries its own marble/plaster colour
+sound      smash

@@ -1,0 +1,12 @@
+# painting.txt -- the flagship: huge, gilt-framed, and its eyes track the nearest player.
+# Two-player carry. The same portrait reappears one floor down, larger.
+model      models/shapes/plate.obj     # flat slab reads as a framed canvas at this scale
+display    Portrait, Eyes Included
+mass       40                          # kg; frame timber plus glass
+half       0.80 0.08 0.80              # matches plate.obj at scale 1.6 (1.6 x 0.16 x 1.6 m)
+fragile    3.5                         # m/s; the most fragile thing in the compound
+value      950                         # dollars; the highest value of the eight
+two_handed yes
+scale      1.6
+tint       0.58 0.45 0.20              # gilt frame
+sound      smash

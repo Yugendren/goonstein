@@ -1,0 +1,11 @@
+# globe.txt -- a desk globe from somebody's study.
+model      models/shapes/sphere.obj
+display    Desk Globe, Countries Redacted
+mass       9                           # kg; cast metal stand and a heavy sphere
+radius     0.20                        # matches sphere.obj at scale 0.4 (0.4 m dia)
+fragile    6.5                         # m/s
+value      150                         # dollars
+two_handed no
+scale      0.4
+tint       0.22 0.42 0.52              # painted oceans
+sound      smash

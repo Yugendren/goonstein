@@ -1,0 +1,11 @@
+# vase.txt -- decorative porcelain, no paperwork proving where it came from.
+model      models/shapes/cylinder.obj
+display    Vase, Provenance Unclear
+mass       6                           # kg
+half       0.225 0.225 0.225           # matches cylinder.obj at scale 0.45
+fragile    4.0                         # m/s; porcelain, very fragile
+value      320                         # dollars
+two_handed no
+scale      0.45
+tint       0.68 0.74 0.80              # pale glazed porcelain
+sound      smash
