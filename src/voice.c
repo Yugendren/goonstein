@@ -567,12 +567,14 @@ static void speaker_icon(Gfx *x, float px, float py, float lvl, Vec4 col) {
 }
 
 void voice_draw_hud(Game *g) {
-    if (!g_v.ok || g_v.mode == VOICE_OFF) return;
+    // Note what is *not* gated on the mode: the name tags. `voice off` means this player cannot
+    // talk, not that they cannot hear, so they still need to be told who is speaking.
+    if (!g_v.ok) return;
     Gfx *x = &g->gfx;
     const float W = (float)INTERNAL_W, H = (float)INTERNAL_H;
 
     // Transmit dot, bottom left, brightness following the mic level.
-    if (g_v.tx) {
+    if (g_v.tx && g_v.mode != VOICE_OFF) {
         float a = 0.45f + 0.55f * clamp01f(g_v.mic_level);
         gfx_ui_rect(x, 14, H - 40, 8, 8, v4(1.0f, 0.35f, 0.3f, a));
         gfx_ui_text(x, 28, H - 41, 1.0f, v4(1.0f, 0.6f, 0.5f, a), g_v.from_wav ? "wav" : "talking");
