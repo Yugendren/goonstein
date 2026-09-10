@@ -73,6 +73,67 @@ jobs:
       - name: Install layout
         run: cmake --install build --config Release --prefix dist
 
+      # ---------------------------------------------------------------- Windows renders, not just builds
+      # A Windows tester saw a black world with the UI still drawn over it, and then a crash: the
+      # build was green the whole time, because building was all CI ever asked of it. This step runs
+      # the packaged binary the way the tester runs it -- the portable layout, the D3D12 backend --
+      # and then looks at the pixels. GitHub's Windows runners have no GPU, so D3D12 lands on WARP,
+      # Microsoft's software adapter; that is slow but it is a real D3D12 device with a real shader
+      # compiler, which is what catches a pipeline that will not compile or a format the backend
+      # does not have.
+      #
+      # The portable build chdir's next to its own executable, so shot.png and run.log are written
+      # into dist/bin regardless of where the step's shell happens to be standing.
+      - name: Render smoke (D3D12 on WARP)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 10
+        env:
+          SDL_GPU_DRIVER: direct3d12
+          HOLLOW_SILENT: '1'
+        run: |
+          # Two runs. `menu` is the tester's launch exactly -- no flags, the front door over the
+          # island -- because that is the screen they said was black. `shot` jumps straight into a
+          # named level, so the frame it captures is the same scene every time and a change in it
+          # means something.
+          $runs = @(
+            @{ name = 'menu'; args = @('--volume', '0', '--frames', '90') },
+            @{ name = 'shot'; args = @('--volume', '0', '--level', 'island', '--frames', '90') }
+          )
+          $failed = @()
+          foreach ($r in $runs) {
+            $png = "$($r.name).png"; $log = "$($r.name).log"
+            # A variable, then @argv: that is PowerShell's splat. @(...) around an expression is the
+            # array operator instead, and would hand the exe one argument containing four words.
+            $argv = $r.args + @('--screenshot', $png, '--log', $log)
+            Write-Host "=== run '$($r.name)': goonstein.exe $($argv -join ' ') ==="
+            & ./dist/bin/goonstein.exe @argv
+            $code = $LASTEXITCODE
+            if (Test-Path "dist/bin/$log") {
+              Write-Host "---------------- $log ----------------"
+              Get-Content "dist/bin/$log"
+              Write-Host '-----------------------------------------'
+            } else {
+              Write-Host "no $log was written"
+            }
+            if ($code -ne 0) { $failed += "$($r.name): exited $code (a crash, or a startup that gave up)"; continue }
+            if (-not (Test-Path "dist/bin/$png")) { $failed += "$($r.name): no screenshot, the run never got as far as a frame"; continue }
+            # Exits non-zero on a black or near-uniform frame, which is exactly the bug the tester hit.
+            python tools/shot_check.py "dist/bin/$png" --json
+            if ($LASTEXITCODE -ne 0) { $failed += "$($r.name): the frame is blank" }
+          }
+          if ($failed.Count -gt 0) { throw ($failed -join '; ') }
+
+      - name: Upload the render smoke evidence
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-render-smoke-release
+          path: |
+            dist/bin/*.png
+            dist/bin/*.log
+          if-no-files-found: warn
+
       # SDL3 is linked statically and dlopens X11/Wayland/audio at runtime, so the binary should
       # need nothing beyond glibc. Anything else here would fail on a tester's machine.
       - name: Check shared library deps (ldd)
