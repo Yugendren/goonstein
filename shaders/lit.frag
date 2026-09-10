@@ -44,6 +44,13 @@ void main() {
     // no vertex work. The coast comes from the bound texture, looked up by world position: red is
     // how deep the water is (0 at the waterline, 1 past the shelf) and green is the foam mask along
     // that waterline. The sea's own colour is the material tint.
+    //
+    // The ripples are read three ways, and each is deliberately weak: the sky reflection barely
+    // follows them (a fresnel taken from the full normal swings between sky and deep water on every
+    // crest, and a near-level view then comes out in hard stripes), the wave height lifts the colour
+    // a little, and the foam sits where the coast texture says the water is shallow. There is no
+    // specular highlight at all: with a high sun the half vector sits near the water's own normal,
+    // so any exponent smears the highlight along whole crests instead of glittering.
     float sea_shallow = 0.0, sea_foam = 0.0, sea_swell = 0.0;
     bool sea = water.x > 0.5;
     if (sea) {
@@ -62,7 +69,10 @@ void main() {
         float calm = mix(1.0, 0.30, sea_shallow) * clamp(1.0 - (dist - 20.0) / 90.0, 0.12, 1.0);
         vec2 slope = (d1 * cos(a1) * 0.045 + d2 * cos(a2) * 0.028) * calm;
         n = normalize(vec3(-slope.x, 1.0, -slope.y));
-        sea_foam = 0.0;
+        sea_foam = coast.g * smoothstep(0.15, 0.55, 0.5 + 0.5 * sin(a2 * 0.8 + wt * 0.9));
+        // The swell needs to show under a low sun too, where a tilted normal changes almost
+        // nothing: the wave height itself lifts and drops the colour a little.
+        sea_swell = (0.5 * sin(a1) + 0.5 * sin(a2)) * calm;
         t = vec4(pow(tint.rgb, vec3(2.2)) * mix(1.0, 2.3, sea_shallow * sea_shallow), 1.0);   // shallow water shows the sand under it
     }
 
@@ -115,11 +125,9 @@ void main() {
         // Water is mostly the sky, more of it the flatter you look across it. The fresnel is taken
         // from a normal only part of the way to the ripples: from the full one, a near-level
         // view swings between sky and deep water on every crest and the sea comes out in stripes.
-        float f = pow(1.0 - clamp(dot(normalize(mix(vec3(0.0, 1.0, 0.0), n, 0.6)), v), 0.0, 1.0), 3.0);
+        float f = pow(1.0 - clamp(dot(normalize(mix(vec3(0.0, 1.0, 0.0), n, 0.08)), v), 0.0, 1.0), 3.0);
         c = mix(c, fog_color.rgb + sky_ambient.rgb * 0.5, (0.12 + 0.50 * f) * (1.0 - sea_shallow * 0.7));
-        vec3 h = normalize(v - sun_dir.xyz);
-        c += sun_color.rgb * sun_dir.w * pow(clamp(dot(n, h), 0.0, 1.0), 90.0) * 1.2;
-        c *= 1.0 + sea_swell * 0.11;
+        c *= 1.0 + sea_swell * 0.09;
         c += vec3(0.75, 0.85, 0.90) * sea_foam * 0.30;
     }
 
