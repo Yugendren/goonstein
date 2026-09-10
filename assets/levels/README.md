@@ -36,7 +36,19 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
              # TYPE: spark ember firefly mist spore leaf smoke. ex ey ez are half-extents of the
              # spawn box around x y z. rate = particles per second. Additive types (firefly,
              # ember, spore, spark) glow: colours above 1.0 bloom.
+    item     NAME x y z [yaw]                  # places assets/items/NAME.txt at that point
+             # NAME is the base name of a file under assets/items/ (see that folder and README.md,
+             # "Items and carrying"). y is the item's own centre, not its base -- an item sitting on
+             # a table needs y at table height plus its own half-height. yaw defaults to 0. A level
+             # holds up to LEVEL_MAX_ITEMS (128) items.
     trigger  name  minx miny minz maxx maxy maxz  [once]
+             # a trigger named exactly "hold" is never a scene cue -- level_trigger_at skips it by
+             # name -- and is instead the boat's cargo hold: every item resting inside it, not held
+             # and not broken, counts toward the run. See README.md, "Items and carrying". The
+             # island's own hold (in assets/levels/island.txt) sits with its floor at the boat's
+             # hull rather than level with the deck: an item resting on the deck is only a few
+             # centimetres above that floor, and a box that starts exactly at deck height would
+             # count it in and out again every time the physics settles it another millimetre.
     scene    intro|boss|victory  FILE          # cutscene file under assets/scenes/ for that beat
     terrain  FILE                              # heightmap base name relative to assets/, e.g. levels/glade_terrain
              # (files FILE_h.png, FILE_c.png, FILE.txt)

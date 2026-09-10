@@ -112,6 +112,7 @@ The game is meant to be edited without touching C:
 | What                  | Where                        | Format doc                 |
 |-----------------------|------------------------------|----------------------------|
 | Level geometry, cameras, triggers | `assets/levels/*.txt` | `assets/levels/README.md`  |
+| Carryable items        | `assets/items/*.txt`         | "Items and carrying" above |
 | Cutscenes             | `assets/scenes/*.txt`        | `assets/scenes/README.md`  |
 | Dialogue portraits    | `assets/portraits.txt`       | speaker name and image     |
 | Boss move sets        | `assets/enemies/*.txt`       | comments in `warden.txt`   |
@@ -133,6 +134,81 @@ or press Space when the ring meets the circle. Judgement tiers are PERFECT (45 m
 and GOOD (150 ms); anything else is a miss and the hit lands. Perfects counter and bank two energy,
 greats bank one, every fourth combo hit banks a bonus, and a miss resets the combo. Shift dodges
 unblockable attacks. A timing bar shows whether you were early or late.
+
+## Items and carrying
+
+Loot: a rigid body with a model, a display name, a mass, a price and a breaking point, described by
+a text file under `assets/items/NAME.txt` and placed by a level's `item NAME x y z [yaw]` line. The
+host owns every item and simulates all of them (a single-player game is its own host); a client
+predicts only the one item in its own hands and pins every other item where the network
+interpolation puts it, the same way it treats a remote player.
+
+**Controls.** Look at something within 2.5 m and the HUD names it and offers "E   hold to grab"; E
+(keyboard) or South / A (gamepad) grabs it. With something in hand, left mouse held charges a throw
+for up to 0.8 s and throws on release; right mouse, or E again, drops it. Carrying works the same in
+`view first` and `view third`.
+
+**Carrying is a spring, not a socket.** A held item stays a real physics body, pulled toward a point
+1.2 m in front of the carrier's eye by a spring whose stiffness falls as the item gets heavier, so a
+crate lags and swings where a tape reel snaps into place. It keeps colliding with the world while
+held, which is how it gets knocked around on a doorframe. If that spring stays stretched past 1.5 m
+for more than 0.22 s -- a doorframe snag, not a swing -- the item is pulled out of your hands and
+dropped. Two-handed items (`painting`, `crate`) cap the carrier at 60% movement speed and turn
+sprint off.
+
+**Fragile.** Every tick the host checks the hardest impact each item's body took against its
+`fragile` figure (an m/s closing speed measured at the centre of mass); go past it and the item
+breaks: a burst of debris and sparks, a smash sound (or the item's own `sound`), and the value is
+gone -- the HUD flashes "-$VALUE" for a couple of seconds. A client never breaks an item itself; it
+waits to be told by a snapshot, so both sides always agree on what the run is worth. `fragile 0`
+(the default) means unbreakable.
+
+**The boat.** A level's `hold` trigger volume is the boat's cargo hold: everything resting inside it,
+not held and not already broken, counts toward the run. Standing within 18 m of the middle of that
+volume shows "HOLD:  N items,  $V" on the HUD.
+
+**The item file.** Comments start with `#`; blank lines and unknown keys are ignored (a warning is
+logged for the latter). A file with no `model` fails to load and the item never appears.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `model` | *(required)* | model or `.part` file, relative to `assets/` |
+| `display` | the file's name | what the HUD calls it |
+| `mass` | `5` (kg, clamped to >= 0.1) | drives the carry spring's stiffness and the throw speed |
+| `half` | `0.25 0.25 0.25` | box half-size in metres; ignored once `radius` is set |
+| `radius` | `0` | > 0: a sphere of this radius instead of a box |
+| `fragile` | `0` | impact speed in m/s that breaks it; `0` = unbreakable |
+| `value` | `0` | dollars it's worth sitting in the boat |
+| `two_handed` | `no` (also takes `0`/`1`, `false`/`true`) | caps the carrier at 60% speed, disables sprint |
+| `scale` | `1` (clamped to >= 0.01) | model scale |
+| `tint` | `1 1 1` (white) | model tint, and the colour of its debris |
+| `sound` | none | name of the `SoundId` played when it breaks; unset still plays the default smash |
+
+`assets/items/vase.txt`, one of the eight starter items, as a worked example:
+
+    # vase.txt -- decorative porcelain, no paperwork proving where it came from.
+    model      models/shapes/cylinder.obj
+    display    Vase, Provenance Unclear
+    mass       6                           # kg
+    half       0.225 0.225 0.225           # matches cylinder.obj at scale 0.45
+    fragile    4.0                         # m/s; porcelain, very fragile
+    value      320                         # dollars
+    two_handed no
+    scale      0.45
+    tint       0.68 0.74 0.80              # pale glazed porcelain
+    sound      smash
+
+A level places one with `item NAME x y z [yaw]` -- `y` is the item's own centre, not its base, so an
+item resting on a table needs `y` at table height plus its own half-height (see
+`assets/levels/README.md`). `yaw` defaults to 0. A level holds up to `LEVEL_MAX_ITEMS` (128) items.
+
+**Debugging.** `HOLLOW_ITEM_TRACE=1` logs one line per item, once a second: position, velocity, the
+ground height under it, who (if anyone) is holding it, and its state (asleep, broken, in the hold).
+`HOLLOW_BOT_TRACE=1` logs what the loot-fetching explore bot is doing. `HOLLOW_PHYS_TRACE=N` dumps
+every contact, once a tick, of the physics body owned by item index `N`. `--test throw` is a
+scripted headless check: a hundred ticks in it takes the first fragile item on the level, places it
+five metres off the nearest tall wall and throws it in at 16 m/s, then logs whether it broke --
+real evidence the fragile path still works, not just that the code compiled.
 
 ## Testing and debugging
 
@@ -390,12 +466,37 @@ without a separate retry timer.
 (world space, /127), look yaw `i16` (radians × 32767/π), buttons `u16`.
 
 **Snapshot** (host to client, 30 Hz): server tick `u32`, the client's newest applied input tick
-`u32`, entity count `u8`, then one record per entity. Each record starts with a type and an id
-rather than being a fixed struct, so carried objects and thrown props can be added to the same
-packet later without a new message. A player record is 22 bytes: position 3 × `f32`, yaw `i16`,
-anim `u8`, anim time `u16` (ms), hp `u16`, player state `u8`.
+`u32`, player count `u8`, the boat's hold totals (`u16` count, `u32` value), item count `u8`, then
+one record per player and one per item. Each record starts with a type and an id rather than being
+a fixed struct, which is how item entities ride along in the same packet as players. A player
+record is 22 bytes: position 3 × `f32`, yaw `i16`, anim `u8`, anim time `u16` (ms), hp `u16`,
+player state `u8`.
 
 Four players is a 113-byte snapshot. See the measured bandwidth below.
+
+### Items over the network
+
+An item record is 14 bytes: type `u8`, network id `u16`, position 3 × `i16` in centimetres (so
+±327 m, a good deal more island than there is), orientation compressed to one signed byte per
+quaternion component, and a flag byte (bit 0 broken, bits 1-3 the holder's net slot plus one so 0
+means nobody, bit 4 resting in the hold). Anything held, changed, or actually moving -- more than
+2 cm or three and a half degrees since the last snapshot it went out in -- is sent every snapshot.
+Being awake is deliberately not enough on its own: a pile of crates settling against each other
+stays awake for a while without visibly moving, and at 30 Hz that pile alone was three times the
+whole bandwidth budget. Everything else is swept in a round robin sized so every still item lands in
+a snapshot at least twice a second, which is also how a client that joined mid-run gets the whole
+level's furniture inside half a second instead of waiting for each piece to move.
+
+Measured on four localhost processes with 64 items on the island: **6.8 kB/s down per client** in
+the steady state (8.1 kB/s averaged over a run that includes the opening scramble as 64 objects
+fall and settle at once), against 15 kB/s before the two passes and the smaller record. With the
+island's eight real items it is 4.3 kB/s.
+
+Grabbing, throwing and dropping are not part of the snapshot: they travel as reliable client-to-host
+messages, resent until acked like the join/leave messages above, and the host validates each one by
+distance from the item before acting on it -- the same reach check a host-side grab gets. Debris,
+the pieces that fly off a broken item, is never sent at all; each side that has learned an item
+broke (the host by simulating it, a client by the broken flag arriving) plays its own burst locally.
 
 ### Testing on a LAN
 
