@@ -134,27 +134,30 @@ bool terrain_load(Terrain *t, const char *asset_dir, const char *file) {
     Vec3 origin;
     load_sidecar(tpath, &cell, &origin);
 
-    Terrain tmp;
-    memset(&tmp, 0, sizeof tmp);
-    tmp.cell = cell;
-    tmp.origin = origin;
-    tmp.water = sidecar_water;
+    // 260 kB of Terrain, and this runs nested inside level_load's own scratch copy: on the heap,
+    // for the same reason. The scratch copy itself stays, so a half-decoded file cannot land.
+    Terrain *tmp = calloc(1, sizeof *tmp);
+    if (!tmp) { stbi_image_free(hbuf); if (cbuf) stbi_image_free(cbuf); return false; }
+    tmp->cell = cell;
+    tmp->origin = origin;
+    tmp->water = sidecar_water;
     for (int i = 0; i < TERRAIN_N * TERRAIN_N; i++) {
         uint16_t v = (uint16_t)((hbuf[i * 4 + 0] << 8) | hbuf[i * 4 + 1]);
-        tmp.height[i] = decode_height(v);
-        tmp.color[i] = have_color
+        tmp->height[i] = decode_height(v);
+        tmp->color[i] = have_color
             ? v3(cbuf[i * 4 + 0] / 255.0f, cbuf[i * 4 + 1] / 255.0f, cbuf[i * 4 + 2] / 255.0f)
             : v3(0.3f, 0.5f, 0.2f);
     }
     stbi_image_free(hbuf);
     if (cbuf) stbi_image_free(cbuf);
 
-    tmp.present = true;
-    SDL_strlcpy(tmp.file, file, sizeof tmp.file);
-    tmp.mesh_dirty = true;
-    tmp.mesh_ok = false;
+    tmp->present = true;
+    SDL_strlcpy(tmp->file, file, sizeof tmp->file);
+    tmp->mesh_dirty = true;
+    tmp->mesh_ok = false;
 
-    *t = tmp;
+    *t = *tmp;
+    free(tmp);
     return true;
 }
 

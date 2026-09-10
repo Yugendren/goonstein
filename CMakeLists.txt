@@ -106,6 +106,16 @@ if(WIN32)
   # ws2_32: netcode uses Winsock. winmm: used for timing. iphlpapi: GetAdaptersAddresses
   # (the LAN address list).
   target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 winmm iphlpapi)
+  # Windows reserves 1 MB of stack for the main thread; macOS and Linux give it 8. That single
+  # number is the whole reason a build that runs here died on a tester's machine: level_load and
+  # the hero hot-reload each build their result in a local before committing it, and those locals
+  # are 620 kB and 1.2 MB of struct. Those two are on the heap now, but the next big local should
+  # not be a Windows-only crash discovered by a tester, so ask for the same 8 MB everyone else has.
+  if(MSVC)
+    target_link_options(${PROJECT_NAME} PRIVATE /STACK:8388608)
+  else()
+    target_link_options(${PROJECT_NAME} PRIVATE -Wl,--stack,8388608)
+  endif()
   # FALSE keeps a console attached so `--frames N` CI runs can print to
   # stdout. Flip to TRUE for a shipping/consumer build to drop the console
   # window.

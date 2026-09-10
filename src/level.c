@@ -437,17 +437,22 @@ static bool parse_level(Level *out, const char *path) {
 }
 
 bool level_load(Level *lv, const char *path) {
-    Level tmp;
-    if (!parse_level(&tmp, path)) return false;
+    // Parse into a scratch copy so a broken file leaves the loaded level alone -- but a Level is
+    // 620 kB, and on Windows the main thread's whole stack is 1 MB, so the scratch copy is a
+    // heap allocation rather than a local.
+    Level *tmp = malloc(sizeof *tmp);
+    if (!tmp) return false;
+    if (!parse_level(tmp, path)) { free(tmp); return false; }
 
     SDL_PathInfo info;
     long long mtime = 0;
     if (SDL_GetPathInfo(path, &info)) mtime = (long long)info.modify_time;
 
-    SDL_strlcpy(tmp.path, path, sizeof tmp.path);
-    tmp.mtime = mtime;
+    SDL_strlcpy(tmp->path, path, sizeof tmp->path);
+    tmp->mtime = mtime;
 
-    *lv = tmp;
+    *lv = *tmp;
+    free(tmp);
     return true;
 }
 

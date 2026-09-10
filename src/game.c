@@ -197,9 +197,14 @@ static void hero_hot_reload(Game *g) {
     if (strcmp(watched, hero) != 0) { snprintf(watched, sizeof watched, "%s", hero); cfg_m = cm; model_m = mm; return; }
     if (cm == cfg_m && mm == model_m) return;
     cfg_m = cm; model_m = mm;
-    CharModel fresh; memset(&fresh, 0, sizeof fresh);
-    if (charmodel_load(&g->gfx, &fresh, cfg)) { charmodel_destroy(&g->gfx, &PLAYER_MODEL(g)); PLAYER_MODEL(g) = fresh; say(g, "hero hot-reloaded"); dbg_log("hero hot-reloaded from %s", cfg); }
+    // A CharModel is 1.2 MB. On the stack that is more than the 1 MB Windows gives the main
+    // thread, so this line -- a dev convenience, run once a second from the tick -- was a
+    // guaranteed stack overflow the first second of the first level on every Windows build.
+    CharModel *fresh = calloc(1, sizeof *fresh);
+    if (!fresh) { say(g, "hero reload failed (out of memory)"); return; }
+    if (charmodel_load(&g->gfx, fresh, cfg)) { charmodel_destroy(&g->gfx, &PLAYER_MODEL(g)); PLAYER_MODEL(g) = *fresh; say(g, "hero hot-reloaded"); dbg_log("hero hot-reloaded from %s", cfg); }
     else say(g, "hero reload failed (see hollow.log)");
+    free(fresh);
 }
 
 // Characters stand on whatever is under them: the terrain where the level has one, or the top of a
