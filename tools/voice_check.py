@@ -12,9 +12,13 @@ Three things the voice milestone has to prove, and this is what proves them:
           in dBFS, so it can be lined up against the `voice:` log lines, which carry the distance
           and applied gain for the same second.
 
-  track   proximity has to follow the world. `track` reads the per-second `voice sN` lines out
-          of a run's log (distance and applied gain) and compares them with the level in that
-          speaker's dump for the same second. This is the distance-attenuation proof.
+  distance  proximity has to follow the world. Give it two or more run directories recorded at
+          different fixed distances and it prints what the gain in the log says the difference
+          should be against what the dumps actually measure. This is the attenuation proof.
+
+  track   the same idea second by second, from one run's log and dump. Useful for watching a
+          moving speaker, but not a proof on its own: with a real recording the per-second level
+          is dominated by what was being said, not by how far away it was said from.
 
   gaps    packet loss concealment has to keep the audio continuous. `gaps` reports the longest run
           of silence after the stream starts, in milliseconds. Anything over ~60 ms with the

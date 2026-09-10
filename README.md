@@ -904,6 +904,11 @@ per-speaker dumps (`tools/voice_check.py distance`), levels taken as the 90th pe
 
 So the curve in the log is the curve in the mixer, to a quarter of a decibel over a 28 dB range.
 
+Every one of those runs was made with `--volume 0`, which is the point: the voice bus is added
+after the master gain, so muting the game does not mute your friends. `--voice-volume 0.5` on an
+otherwise identical run measures 5.47 dB down on the same voice at the same distance, against a
+theoretical 6.02 -- the rest is 20 cm of distance difference between the two runs.
+
 **Occlusion.** `tools/voice_test.sh wall` on the corridor level puts solid geometry on the line
 between the camera and the talker. The log reports `muffled` and a gain of exactly 0.70, and the
 spectral centroid of the dump falls from **1003 Hz to 620 Hz** -- the 700 Hz one-pole doing its job.
