@@ -97,7 +97,13 @@ static bool load_into(Gfx *g, PropModel *pm, const char *file);
 static PropModel *load_one(Gfx *g, PropCache *pc, const char *file) {
     PropModel *pm = find(pc, file);
     if (pm) return pm->ok ? pm : NULL;
-    if (pc->n >= PROPS_MAX_MODELS) return NULL;
+    if (pc->n >= PROPS_MAX_MODELS) {
+        // Silently drawing nothing is the worst possible answer here: a model that never appears
+        // looks like a broken renderer rather than a full cache. Say it once and move on.
+        static bool said = false;
+        if (!said) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "props: model cache full at %d files, '%s' and anything after it will not be drawn", PROPS_MAX_MODELS, file); said = true; }
+        return NULL;
+    }
     pm = &pc->models[pc->n++];
     memset(pm, 0, sizeof *pm);
     snprintf(pm->file, sizeof pm->file, "%s", file);

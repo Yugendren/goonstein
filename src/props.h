@@ -6,7 +6,10 @@
 
 struct WorldTextures;   // render_world.h; only ever a pointer here
 
-#define PROPS_MAX_MODELS 96
+// The island already names 108 distinct prop files, and every item model and weapon comes out of
+// the same cache. Running out used to be silent -- the model simply never drew -- so this is now
+// generous and load_one says so when it fills up.
+#define PROPS_MAX_MODELS 192
 
 // bcen/brad: rest-pose bounding sphere, taken from the bounds once per file and reused every frame.
 typedef struct PropModel { char file[128]; Model model; ModelPose rest; bool ok; PartDoc *part; long long mtime;   // part: an assembly instead of a model
