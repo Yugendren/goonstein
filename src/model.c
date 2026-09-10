@@ -559,7 +559,7 @@ void model_pose(const Model *m, const AnimPlayer *p, ModelPose *out) {
         mix_pose(&prev, &cur, smoothstep(p->fade), m->nnodes);
         pose = &prev;
     }
-    // Parents come before children in glTF exports from Blender, but do not rely on it: resolve lazily.
+    // Parent nodes precede their sub-nodes in glTF exports from Blender, but do not rely on it: resolve lazily.
     bool done[MODEL_MAX_NODES] = {0};
     for (int i = 0; i < m->nnodes; i++) {
         // walk up until a resolved ancestor, then resolve down the chain
