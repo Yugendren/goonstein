@@ -652,9 +652,10 @@ void weapons_tick(Game *g, const Input *in, float dt) {
         d->t += dt;
         if (d->reviver >= 0) {
             // The mate has to keep standing there. One tick of them wandering off resets it.
-            bool near = g->net.slots[d->reviver].active &&
-                        v3_len(v3_sub(g->players[d->reviver].c.pos, g->players[i].c.pos)) <= WEAP_REVIVE_REACH + 0.5f;
-            if (near) d->revive += dt; else { d->reviver = -1; d->revive = 0; }
+            // `near` and `far` are macros in windows.h, so MSVC will not take them as names here.
+            bool in_reach = g->net.slots[d->reviver].active &&
+                            v3_len(v3_sub(g->players[d->reviver].c.pos, g->players[i].c.pos)) <= WEAP_REVIVE_REACH + 0.5f;
+            if (in_reach) d->revive += dt; else { d->reviver = -1; d->revive = 0; }
         }
         if (!host) continue;
         if (d->revive >= WEAP_REVIVE_HOLD) { ws->revives++; get_up(g, i, "hauled up by a mate"); }
