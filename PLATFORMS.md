@@ -14,11 +14,14 @@ only read-and-believed, and what crossplay demands of the two ends.
 | Ubuntu / SteamOS on x86-64 | verified (CI) | untested | GitHub `ubuntu-latest`; `ldd` shows only libc/libm, so the zip is self-contained |
 | Steam Deck | untested | untested | see below |
 | Windows x86-64, MinGW | verified | untested | cross-compiled from macOS with mingw-w64; links `goonstein.exe` |
-| Windows, MSVC | verified (CI) | untested | GitHub `windows-latest`, VS 2022 x64; no Windows machine here to run it on |
+| Windows, MSVC | verified (CI) | verified (CI, WARP) | GitHub `windows-latest`, VS 2022 x64; D3D12 on the software adapter draws the island, 90 frames, screenshot checked |
+| Windows, MSVC, real GPU | verified (CI) | untested | a tester launched the 2026-09-10 zip and it crashed; that crash is fixed, but no real Windows GPU has drawn a frame since |
 
 "Verified" means a command was run on this machine and its output checked. "Verified (CI)" means a
-GitHub runner did it -- a real compile and link on real hardware, but nobody has watched the game
-draw a frame there. Everything else is honest guesswork until someone runs it.
+GitHub runner did it. Until 2026-09-11 that only ever meant a compile and a link; the Windows job
+now also runs the game and looks at the pixels (see below), so "verified (CI, WARP)" means a frame
+was drawn and inspected -- by a software rasteriser, not a graphics driver. Everything else is
+honest guesswork until someone runs it.
 
 ## Releases
 
@@ -160,6 +163,49 @@ them, instead of the old bare "shader missing".
 
 `.metallib` needs the full Xcode Metal toolchain (`xcrun -sdk macosx metal`). This machine has only
 the Command Line Tools, so metallib generation is skipped here and only `.msl` is shipped for Metal.
+
+## Windows renders in CI, not just compiles
+
+On 2026-09-10 a tester ran the published `goonstein-windows-x86_64.zip` and reported a black world
+with the HUD still legible over it, and then a crash. CI had been green throughout, because
+building was the only thing it had ever asked Windows to do.
+
+The `Windows (MSVC)` job in `.github/workflows/ci.yml` now compiles the DXIL, installs the portable
+layout and runs the packaged binary the way a tester runs it:
+
+    SDL_GPU_DRIVER=direct3d12 HOLLOW_SILENT=1 \
+      goonstein.exe --volume 0 --level island --frames 90 --screenshot shot.png --log run.log
+
+`SDL_GPU_DRIVER` is pinned so the run cannot quietly fall back to Vulkan and prove nothing about
+D3D12. GitHub's Windows runners have no GPU, so D3D12 lands on **WARP**, Microsoft's software
+adapter -- slow (about 4 fps at 1280x800), but a real D3D12 device with a real shader compiler and
+a real root signature, which is what catches a pipeline that will not compile or a format the
+backend does not have.
+
+Then it looks at the pixels. `tools/shot_check.py` decodes the PNG with nothing but the Python
+standard library and fails the job on a frame that is black or too flat to be a scene:
+
+    dist/bin/shot.png 1280x800 mean_luma=0.455 stddev=0.286 unique_colors=2751 nonblack=0.88
+
+A plain "it exited zero" check would have waved a black screen straight through, which is the whole
+point. `shot.png` and `run.log` are uploaded as the `windows-render-smoke` artifact whether the step
+passes or fails, and the log is printed into the job output so a failure is readable without
+downloading anything.
+
+**What this caught immediately.** Not a graphics bug. The run exited `0xC00000FD`,
+`STATUS_STACK_OVERFLOW`, one frame after `state -> EXPLORE`, with every pipeline created and every
+texture format supported. Windows reserves 1 MB of stack for the main thread where macOS and Linux
+reserve 8, and three functions built their result in a local struct before committing it:
+`CharModel` at 1,225,656 bytes in `hero_hot_reload` (called once a second from `game_tick`), `Level`
+at 636,560 in `level_load`, `Terrain` at 266,512 in `terrain_load`. The first of those alone is more
+stack than Windows hands out. All three scratch copies are on the heap now, and the Windows link
+asks for the same 8 MB stack the other platforms give away, so the next big local is not another
+Windows-only crash found by a tester.
+
+**What it still does not prove.** WARP is a software rasteriser. It shares D3D12's validation, its
+shader compiler and its root-signature rules, so it catches nearly everything structural -- but it
+is not a driver. Vendor driver bugs, real swapchain and present behaviour, display scaling, HDR, and
+anything that depends on actual GPU timing still need a Windows machine with a graphics card.
 
 ## Assets and packaging
 
@@ -336,11 +382,13 @@ to `audio.c`.
 
 ## What still has to be tested on real hardware
 
-1. **Windows, MSVC** — configure, build and run. The MinGW cross-compile exercises the same
-   `if(WIN32)` CMake branch, but MSVC's compiler flags (`/W4 /fp:precise /utf-8`), the Visual Studio
-   generator and the static-SDL3 runtime pairing have never been executed.
-2. **Running on Windows at all** — the cross-compiled `goonstein.exe` links but has not been
-   launched, so D3D12 device creation, DXIL loading, the window and the audio backend are unproven.
+1. **Windows on a real GPU** — done in CI under WARP as of 2026-09-11: the window opens, the D3D12
+   device comes up, all sixteen DXIL shaders load, all fourteen pipelines create, and the island is
+   drawn and checked for 90 frames. What is left is a graphics driver: a Windows machine with a card
+   in it, running the published zip, confirming that it launches and draws. A tester tried on
+   2026-09-10 and got the stack overflow that is now fixed; nobody has run it since.
+2. **Windows audio** — the CI run uses `HOLLOW_SILENT=1` and the runner has no recording device, so
+   WASAPI playback and capture are still unexercised on Windows.
 3. **Windows sockets** — `net_sys.h` compiles for Windows but has never bound a socket there.
 4. **Linux x86-64 with a GPU** — the container build has no GPU, so the Vulkan swapchain, gamepad
    hotplug and audio backends are unexercised on real Linux.
