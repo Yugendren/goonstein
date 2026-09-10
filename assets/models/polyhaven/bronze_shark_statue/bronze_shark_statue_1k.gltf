@@ -1,0 +1,171 @@
+{
+  "asset": {
+    "generator": "Khronos glTF Blender I/O v5.1.20",
+    "version": "2.0"
+  },
+  "extensionsUsed": [
+    "KHR_materials_specular"
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Scene",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 0,
+      "name": "bronze_shark_statue"
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "extensions": {
+        "KHR_materials_specular": {
+          "specularColorFactor": [
+            0.20000000298023224,
+            0.20000000298023224,
+            0.20000000298023224
+          ]
+        }
+      },
+      "name": "bronze_shark_statue",
+      "normalTexture": {
+        "index": 0
+      },
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 1
+        },
+        "metallicRoughnessTexture": {
+          "index": 2
+        }
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Mesh.002",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    },
+    {
+      "sampler": 0,
+      "source": 1
+    },
+    {
+      "sampler": 0,
+      "source": 2
+    }
+  ],
+  "images": [
+    {
+      "mimeType": "image/jpeg",
+      "name": "bronze_shark_statue_nor_gl",
+      "uri": "textures/bronze_shark_statue_nor_gl_1k.jpg"
+    },
+    {
+      "mimeType": "image/jpeg",
+      "name": "bronze_shark_statue_diff",
+      "uri": "textures/bronze_shark_statue_diff_1k.jpg"
+    },
+    {
+      "mimeType": "image/jpeg",
+      "name": "bronze_shark_statue_metal-bronze_shark_statue_rough",
+      "uri": "textures/bronze_shark_statue_arm_1k.jpg"
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 4526,
+      "max": [
+        0.17831793427467346,
+        0.43160194158554077,
+        0.3459523916244507
+      ],
+      "min": [
+        -0.17364057898521423,
+        -2.0489096641540527e-8,
+        -0.41383475065231323
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 4526,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 4526,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 22002,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 54312,
+      "byteOffset": 0,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 54312,
+      "byteOffset": 54312,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 36208,
+      "byteOffset": 108624,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 44004,
+      "byteOffset": 144832,
+      "target": 34963
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 188836,
+      "uri": "bronze_shark_statue.bin"
+    }
+  ]
+}
