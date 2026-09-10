@@ -11,7 +11,8 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
     arena    minx miny minz maxx maxy maxz     # fight bounds (legacy, camera no longer clamps to it)
     block    x y z  sx sy sz  tex  r g b  tile  [solid|pass]
              # box: centre, size, texture (stone tile wood metal flesh plaster flat), tint, repeats per metre
-             # tex "flat" is untextured: the tint is the colour. Blocks are solid unless "pass".
+             # tex "flat" is untextured: the tint is the colour. The trailing word is optional and
+             # defaults to solid; write "pass" for a block characters walk through.
     prop     FILE x y z yaw scale [tint r g b] [glow r g b] [stretch sx sy sz] [collide R [H] [deck]]
              # FILE is relative to assets/, e.g. models/kaykit/hex/tree_single_A.gltf
              # glow adds emissive colour (bloom picks it up). collide R adds an invisible solid
@@ -65,9 +66,11 @@ sinks below what the scene asked for, which is how an actor climbs out of a boat
     camera   pitch dist fov [yaw]              # overworld camera: 36 14 32 -35 isometric (default), 25 9 50 closer over the shoulder
     style    snap outline levels pixel         # world style layer: snap the whole frame to the palette 0..1, ink depth edges 0..1,
                                                # colour levels (0 = palette instead), world pixel size (1 = off, 2..4 = pixel-art world)
-    pixel    scale levels outline palette inner # 3D characters as pixel art: scale = screen pixels per art pixel (0 off),
+    pixel    scale [levels] [outline] [palette] [inner] # 3D characters as pixel art: scale = screen pixels per art pixel (0 off),
                                                # levels = colours per channel when palette is 0, palette 1 = snap to Endesga 32,
-                                               # outline 0..1 = dark silhouette line, inner 0..1 = crease lines
+                                               # outline 0..1 = dark silhouette line, inner 0..1 = crease lines.
+                                               # Takes 1 to 5 numbers; trailing ones keep their default (3 8 1 0 0.6),
+                                               # so "pixel 0" turns the pass off.
     daytime  hour                              # 0..24 clock: the sun, ambient, sky, stars, lift and fog colour
                                                # are computed for that hour (6.5 dawn, 13 noon, 18.5 golden, 1 night)
                                                # and override the lines above; the sun line's direction is kept as the

@@ -117,8 +117,8 @@ static bool parse_level(Level *out, const char *path) {
             out->arena_max = v3(f[3], f[4], f[5]);
 
         } else if (strcmp(cmd, "block") == 0) {
-            // block x y z sx sy sz tex r g b tile [solid|pass]
-            if (n != 13 && n != 14) { SDL_Log("level_load:%d: bad block line", line_no); continue; }
+            // block x y z sx sy sz tex r g b tile [solid|pass]   (12 tokens without the word default to solid)
+            if (n != 12 && n != 13 && n != 14) { SDL_Log("level_load:%d: bad block line", line_no); continue; }
             float pos[3], size3[3], tint[3], tile;
             if (!parse_floats(tok, 1, 3, pos) || !parse_floats(tok, 4, 3, size3)) {
                 SDL_Log("level_load:%d: bad block line", line_no); continue;
@@ -129,10 +129,10 @@ static bool parse_level(Level *out, const char *path) {
                 SDL_Log("level_load:%d: bad block line", line_no); continue;
             }
             bool solid = true;
-            if (n == 14) {
-                if (strcmp(tok[13], "pass") == 0) solid = false;
-                else if (strcmp(tok[13], "solid") == 0) solid = true;
-                else { SDL_Log("level_load:%d: bad block solidity token '%s'", line_no, tok[13]); continue; }
+            if (n > 12) {
+                if (strcmp(tok[n - 1], "pass") == 0) solid = false;
+                else if (strcmp(tok[n - 1], "solid") == 0) solid = true;
+                else { SDL_Log("level_load:%d: bad block solidity token '%s'", line_no, tok[n - 1]); continue; }
             }
             if (out->nblocks >= LEVEL_MAX_BLOCKS) { SDL_Log("level_load:%d: too many blocks", line_no); continue; }
             Block *b = &out->blocks[out->nblocks++];
@@ -210,9 +210,10 @@ static bool parse_level(Level *out, const char *path) {
             float f[1]; if (n < 2 || !parse_floats(tok, 1, 1, f)) { SDL_Log("level_load:%d: bad shadow line", line_no); continue; }
             out->look.shadow = f[0];
         } else if (strcmp(cmd, "pixel") == 0) {
-            // pixel SCALE LEVELS OUTLINE PALETTE [INNER]
+            // pixel SCALE [LEVELS] [OUTLINE] [PALETTE] [INNER]   (trailing fields keep their default; "pixel 0" turns the pass off)
             float f[5] = { 3, 8, 1, 0, 0.6f };
-            if (n < 5 || !parse_floats(tok, 1, n - 1 > 5 ? 5 : n - 1, f)) { SDL_Log("level_load:%d: bad pixel line", line_no); continue; }
+            int given = n - 1 > 5 ? 5 : n - 1;
+            if (given < 1 || !parse_floats(tok, 1, given, f)) { SDL_Log("level_load:%d: bad pixel line", line_no); continue; }
             out->look.pixel_scale = f[0]; out->look.pixel_levels = f[1]; out->look.pixel_outline = f[2]; out->look.pixel_palette = f[3]; out->look.pixel_inner = f[4];
         } else if (strcmp(cmd, "daytime") == 0) {
             // daytime HOUR   (0..24; the sun, sky and fog colour follow the clock)
@@ -232,6 +233,12 @@ static bool parse_level(Level *out, const char *path) {
             memset(pr, 0, sizeof *pr);
             SDL_strlcpy(pr->file, tok[1], sizeof pr->file);
             pr->pos = v3(f[0], f[1], f[2]); pr->yaw = f[3] * DEG2RAD; pr->scale = f[4]; pr->tint = v4(1, 1, 1, 1); pr->stretch = v3(1, 1, 1);
+            if (pr->scale <= 0) {
+                // prop has no pitch field, so a line written as if it did puts its pitch into scale;
+                // a .part is how something actually gets tilted.
+                SDL_Log("level_load:%d: prop '%s' has scale %.3f -- prop is 'FILE x y z yaw scale' with no pitch field, tilt with a .part instead; using scale 1", line_no, pr->file, pr->scale);
+                pr->scale = 1;
+            }
             pr->collide_block = -1;
             int i = 7;
             while (i < n) {
@@ -248,7 +255,7 @@ static bool parse_level(Level *out, const char *path) {
                 }
                 else if (strcmp(tok[i], "stretch") == 0 && i + 3 < n && parse_floats(tok, i + 1, 3, g3)) { pr->stretch = v3(g3[0], g3[1], g3[2]); i += 4; }
                 else if (strcmp(tok[i], "name") == 0 && i + 1 < n) { SDL_strlcpy(pr->name, tok[i + 1], sizeof pr->name); i += 2; }   // a cutscene actor: `actor prop:NAME move ...`
-                else { SDL_Log("level_load:%d: bad prop option '%s'", line_no, tok[i]); break; }
+                else { SDL_Log("level_load:%d: bad prop option '%s', ignoring the rest of the line", line_no, tok[i]); break; }
             }
             if (pr->collide > 0 && out->nblocks < LEVEL_MAX_BLOCKS) {
                 // Invisible box for the trunk / body / deck of the prop
