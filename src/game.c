@@ -1468,6 +1468,7 @@ void game_render(Game *g, Platform *pf, float alpha) {
     g->render_alpha = alpha;
     if (!g->prev_valid || SDL_getenv("HOLLOW_NOINTERP")) { g->render_alpha = 1.0f; game_render_at(g, pf, alpha); return; }
     Vec3 sp[NET_MAX_PLAYERS]; Vec3 sb = g->boss.c.pos, se = g->cam.eye, st = g->cam.target;
+    float sdist = g->cam.cur_dist;   // the wall/terrain solve below is a decision the TICK owns
     for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) { sp[i] = g->players[i].c.pos; g->players[i].c.pos = lerp_or_cut(g->prev_players[i], sp[i], alpha); }
     g->boss.c.pos = lerp_or_cut(g->prev_boss, sb, alpha);
     // The eye is REBUILT here, not interpolated. Mouse look has already turned the view this frame,
@@ -1487,7 +1488,10 @@ void game_render(Game *g, Platform *pf, float alpha) {
     }
     game_render_at(g, pf, alpha);
     for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) g->players[i].c.pos = sp[i];
-    g->boss.c.pos = sb; g->cam.eye = se; g->cam.target = st;
+    // cur_dist goes back with the rest: camera_orbit and camera_above_terrain both shorten it, and
+    // running them once a frame instead of once a tick would otherwise reel the camera in a little
+    // further every frame the terrain is in the way, with nothing to push it back out but the tick.
+    g->boss.c.pos = sb; g->cam.eye = se; g->cam.target = st; g->cam.cur_dist = sdist;
 }
 void game_render_at(Game *g, Platform *pf, float alpha) {
     trace_frame(g, alpha);
