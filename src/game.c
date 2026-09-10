@@ -292,6 +292,11 @@ static void setup_level_content(Game *g) {
         snprintf(g->terrain.file, sizeof g->terrain.file, "%s", "levels/demo_terrain");
         if (!strcmp(SDL_getenv("HOLLOW_TERRAIN_DEMO"), "save")) terrain_save(&g->terrain, HOLLOW_ASSET_DIR);
     }
+    // Ground detail by convention: assets/textures/ground_detail.* multiplies into the biome colours.
+    // 0.45 repeats per metre is one tile every 2.2 m: close enough that the grain reads under the
+    // player's feet, far enough that the tiling does not stripe the hillsides at 600 m.
+    int gd = world_texture_find(&g->wt, "ground_detail");
+    if (gd >= 0) terrain_set_detail(&g->terrain, world_texture(&g->wt, gd), 0.45f, world_texture_gain(&g->wt, gd));
     resolve_ground(g, 0);
     particles_clear(&g->particles);
     for (int i = 0; i < g->level.nemitters; i++) {
@@ -1310,7 +1315,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         if (x->in_shadow) {
             draw_level(x, lv, &g->wt);
             if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain); }
-            props_draw(x, &g->props, lv, t);
+            props_draw(x, &g->props, lv, &g->wt, t);
             for (int i = 0; i < NET_MAX_PLAYERS; i++) {
                 if (!g->net.slots[i].active || !g->player_models[i].loaded || g->player_models[i].is_sprite) continue;
                 Character cc = g->players[i].c; cc.pos = vpos[i];
@@ -1326,7 +1331,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     draw_level(x, lv, &g->wt);
     if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain);
         terrain_draw_water(x, &g->terrain); }
-    props_draw(x, &g->props, lv, t);
+    props_draw(x, &g->props, lv, &g->wt, t);
     {
         Vec4 pt = v4(lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), 1);
         Vec4 bt = v4(1, 1, 1, 1);

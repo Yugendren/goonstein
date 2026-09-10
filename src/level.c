@@ -8,10 +8,53 @@
 
 static const char *k_tex_names[TEX_COUNT] = { "stone", "tile", "wood", "metal", "flesh", "plaster", "flat" };
 
+// ---------------------------------------------------------------- assets/textures/NAME.png|jpg
+// One texture per image file, no level line: dropping a photoscan in the folder is the whole
+// workflow. Scanned lazily (the first name lookup) because the level loader runs before the
+// renderer, and only once, so ids stay put while a level is edited and saved.
+static char k_user_name[LEVEL_MAX_USER_TEX][32];
+static char k_user_file[LEVEL_MAX_USER_TEX][128];
+static int  k_nuser = -1;   // -1 = not scanned yet
+
+static int cmp_name(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
+
+static void scan_user_textures(void) {
+    if (k_nuser >= 0) return;
+    k_nuser = 0;
+    char dir[640]; snprintf(dir, sizeof dir, "%s/textures", HOLLOW_ASSET_DIR);
+    int count = 0;
+    char **files = SDL_GlobDirectory(dir, "*", 0, &count);
+    if (!files) return;   // no textures folder: nothing to scan, every name stays procedural
+    SDL_qsort(files, (size_t)count, sizeof *files, cmp_name);   // ids must not depend on the filesystem's order
+    for (int i = 0; i < count; i++) {
+        const char *dot = strrchr(files[i], '.');
+        if (!dot || (SDL_strcasecmp(dot, ".png") != 0 && SDL_strcasecmp(dot, ".jpg") != 0 && SDL_strcasecmp(dot, ".jpeg") != 0)) continue;
+        if (k_nuser >= LEVEL_MAX_USER_TEX) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "assets/textures: over %d images, ignoring %s", LEVEL_MAX_USER_TEX, files[i]); continue; }
+        snprintf(k_user_name[k_nuser], sizeof k_user_name[0], "%.*s", (int)(dot - files[i]), files[i]);
+        snprintf(k_user_file[k_nuser], sizeof k_user_file[0], "textures/%s", files[i]);
+        k_nuser++;
+    }
+    SDL_free(files);
+}
+
+int         level_user_tex_count(void)     { scan_user_textures(); return k_nuser; }
+const char *level_user_tex_name(int i)     { scan_user_textures(); return i >= 0 && i < k_nuser ? k_user_name[i] : ""; }
+const char *level_user_tex_file(int i)     { scan_user_textures(); return i >= 0 && i < k_nuser ? k_user_file[i] : ""; }
+
 int level_tex_from_name(const char *name) {
     for (int i = 0; i < TEX_COUNT; i++)
         if (strcmp(name, k_tex_names[i]) == 0) return i;
+    scan_user_textures();
+    for (int i = 0; i < k_nuser; i++)
+        if (strcmp(name, k_user_name[i]) == 0) return TEX_COUNT + i;
     return -1;
+}
+
+const char *level_tex_name(int id) {
+    if (id >= 0 && id < TEX_COUNT) return k_tex_names[id];
+    scan_user_textures();
+    if (id >= TEX_COUNT && id - TEX_COUNT < k_nuser) return k_user_name[id - TEX_COUNT];
+    return k_tex_names[TEX_FLAT];
 }
 
 // Split a mutable line into whitespace-separated tokens; returns token count.
@@ -257,6 +300,7 @@ static bool parse_level(Level *out, const char *path) {
             memset(pr, 0, sizeof *pr);
             SDL_strlcpy(pr->file, tok[1], sizeof pr->file);
             pr->pos = v3(f[0], f[1], f[2]); pr->yaw = f[3] * DEG2RAD; pr->scale = f[4]; pr->tint = v4(1, 1, 1, 1); pr->stretch = v3(1, 1, 1);
+            pr->tex = -1; pr->tex_tile = 1;   // the memset above zeroed these; 0 would mean TEX_STONE
             if (pr->scale <= 0) {
                 // prop has no pitch field, so a line written as if it did puts its pitch into scale;
                 // a .part is how something actually gets tilted.
@@ -279,6 +323,15 @@ static bool parse_level(Level *out, const char *path) {
                 }
                 else if (strcmp(tok[i], "stretch") == 0 && i + 3 < n && parse_floats(tok, i + 1, 3, g3)) { pr->stretch = v3(g3[0], g3[1], g3[2]); i += 4; }
                 else if (strcmp(tok[i], "name") == 0 && i + 1 < n) { SDL_strlcpy(pr->name, tok[i + 1], sizeof pr->name); i += 2; }   // a cutscene actor: `actor prop:NAME move ...`
+                else if (strcmp(tok[i], "tex") == 0 && i + 1 < n) {
+                    // tex NAME [TILE]: one texture over every piece of the prop, projected in
+                    // world space at TILE repeats per metre so scale and stretch never smear it.
+                    int t = level_tex_from_name(tok[i + 1]);
+                    if (t < 0) SDL_Log("level_load:%d: unknown texture '%s'", line_no, tok[i + 1]);
+                    else pr->tex = t;
+                    i += 2;
+                    if (i < n && parse_floats(tok, i, 1, g3)) { pr->tex_tile = g3[0]; i += 1; }
+                }
                 else { SDL_Log("level_load:%d: bad prop option '%s', ignoring the rest of the line", line_no, tok[i]); break; }
             }
             if (pr->collide <= 0) {   // no collider on the line: take the part's own, scaled like the prop
@@ -476,7 +529,7 @@ bool level_save(const Level *lv, const char *path) {
         fprintf(f, "block %.3f %.3f %.3f  %.3f %.3f %.3f  %s  %.3f %.3f %.3f  %.3f  %s\n",
                 b->center.x, b->center.y, b->center.z,
                 b->size.x, b->size.y, b->size.z,
-                k_tex_names[b->tex],
+                level_tex_name(b->tex),
                 b->tint.x, b->tint.y, b->tint.z,
                 b->uv_tile,
                 b->solid ? "solid" : "pass");
@@ -493,6 +546,7 @@ bool level_save(const Level *lv, const char *path) {
         if (pr->stretch.x != 1.0f || pr->stretch.y != 1.0f || pr->stretch.z != 1.0f)
             fprintf(f, " stretch %.3f %.3f %.3f", pr->stretch.x, pr->stretch.y, pr->stretch.z);
         if (pr->name[0]) fprintf(f, " name %s", pr->name);
+        if (pr->tex >= 0) fprintf(f, " tex %s %.3f", level_tex_name(pr->tex), pr->tex_tile > 0 ? pr->tex_tile : 1.0f);
         if (pr->collide > 0.0f && !pr->collide_default) {
             fprintf(f, " collide %.3f", pr->collide);
             if (pr->collide_h > 0.0f || pr->collide_deck) fprintf(f, " %.3f", pr->collide_h > 0 ? pr->collide_h : 5.0f);

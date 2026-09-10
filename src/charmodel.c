@@ -101,7 +101,7 @@ bool charmodel_apply(Gfx *g, CharModel *cm, const CharSpec *sp) {
     cm->nsub = 0;
     for (int i = 0; i < sp->nattach && i < SPEC_MAX_ATTACH; i++) {
         const char *file = sp->attach[i].file; size_t L = strlen(file);
-        PartDoc doc; Piece single = { .size = v3(1, 1, 1), .tint = v4(1, 1, 1, 1) }; const Piece *pieces = &single; int np = 1;
+        PartDoc doc; Piece single = { .size = v3(1, 1, 1), .tint = v4(1, 1, 1, 1), .tex = -1, .tex_tile = 1 }; const Piece *pieces = &single; int np = 1;
         if (L > 5 && !strcmp(file + L - 5, ".part")) { char pp[640]; snprintf(pp, sizeof pp, "%s/%s", HOLLOW_ASSET_DIR, file); if (part_load(&doc, pp)) { pieces = doc.pieces; np = doc.n; } else np = 0; }
         else snprintf(single.file, sizeof single.file, "%s", file);
         for (int k = 0; k < np && cm->nsub < 32; k++) {

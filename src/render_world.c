@@ -1,4 +1,6 @@
 #include "render_world.h"
+#include "vendor/stb_image.h"   // implementation lives in gfx.c; this file only needs the declarations
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -81,8 +83,65 @@ static Texture make_texture(Gfx *g, int id) {
     return t;
 }
 
+// Like gfx_texture_load (box-filter downsample to max_size), but also hands back the image's mean
+// colour so callers can build a gain that undoes it (see world_texture_gain). Sampling strides
+// across the source at up to ~256x256 worth of pixels, so a folder of 4k scans costs nothing extra.
+static Texture load_texture_mean(Gfx *g, const char *path, int max_size, Vec3 *mean_out) {
+    int w, h, n; unsigned char *px = stbi_load(path, &w, &h, &n, 4);
+    if (!px) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "texture load failed: %s", path); *mean_out = v3(1, 1, 1); return g->white; }
+    int f = 1; while ((w / f) > max_size || (h / f) > max_size) f *= 2;
+    int dw = w / f, dh = h / f; unsigned char *out = px;
+    if (f > 1) {
+        out = malloc((size_t)dw * dh * 4);
+        for (int y = 0; y < dh; y++) for (int x = 0; x < dw; x++) for (int c = 0; c < 4; c++) {
+            int sum = 0;
+            for (int yy = 0; yy < f; yy++) for (int xx = 0; xx < f; xx++) sum += px[((y * f + yy) * w + (x * f + xx)) * 4 + c];
+            out[(y * dw + x) * 4 + c] = (unsigned char)(sum / (f * f));
+        }
+    }
+    // Mean colour: stride across the (already downsampled) image so at most ~256x256 samples are summed.
+    int sx = dw > 256 ? dw / 256 : 1, sy = dh > 256 ? dh / 256 : 1;
+    double sum[3] = {0, 0, 0}; long cnt = 0;
+    for (int y = 0; y < dh; y += sy) for (int x = 0; x < dw; x += sx) {
+        const unsigned char *px4 = &out[(y * dw + x) * 4];
+        sum[0] += px4[0]; sum[1] += px4[1]; sum[2] += px4[2]; cnt++;
+    }
+    *mean_out = cnt ? v3((float)(sum[0] / cnt / 255.0), (float)(sum[1] / cnt / 255.0), (float)(sum[2] / cnt / 255.0)) : v3(1, 1, 1);
+    Texture t = gfx_texture_create(g, out, dw, dh);
+    if (out != px) free(out);
+    stbi_image_free(px);
+    return t;
+}
+
 void world_textures_create(Gfx *g, WorldTextures *wt) {
     for (int i = 0; i < TEX_COUNT; i++) wt->tex[i] = i == TEX_FLAT ? g->white : make_texture(g, i);
+    // Photoscans from assets/textures/. 1024 is plenty at the internal resolution and keeps a
+    // folder of 4k source images off the GPU.
+    wt->nuser = level_user_tex_count();
+    for (int i = 0; i < wt->nuser; i++) {
+        char path[700]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, level_user_tex_file(i));
+        wt->user[i] = load_texture_mean(g, path, 1024, &wt->user_mean[i]);
+        SDL_Log("texture: %s -> %s", level_user_tex_name(i), level_user_tex_file(i));
+    }
+}
+
+const Texture *world_texture(const WorldTextures *wt, int id) {
+    if (id >= 0 && id < TEX_COUNT) return &wt->tex[id];
+    int u = id - TEX_COUNT;
+    if (u >= 0 && u < wt->nuser) return &wt->user[u];
+    return &wt->tex[TEX_FLAT];
+}
+
+Vec3 world_texture_gain(const WorldTextures *wt, int id) {
+    int u = id - TEX_COUNT;
+    if (u < 0 || u >= wt->nuser) return v3(1, 1, 1);
+    Vec3 m = wt->user_mean[u];
+    return v3(1.0f / fmaxf(m.x, 0.04f), 1.0f / fmaxf(m.y, 0.04f), 1.0f / fmaxf(m.z, 0.04f));
+}
+
+int world_texture_find(const WorldTextures *wt, const char *name) {
+    for (int i = 0; i < wt->nuser; i++) if (!strcmp(level_user_tex_name(i), name)) return TEX_COUNT + i;
+    return -1;
 }
 
 void draw_blob_shadow(Gfx *g, Vec3 pos, float radius, float strength) {
@@ -90,14 +149,15 @@ void draw_blob_shadow(Gfx *g, Vec3 pos, float radius, float strength) {
 }
 void world_textures_destroy(Gfx *g, WorldTextures *wt) {
     for (int i = 0; i < TEX_COUNT; i++) gfx_texture_destroy(g, &wt->tex[i]);
+    for (int i = 0; i < wt->nuser; i++) gfx_texture_destroy(g, &wt->user[i]);
+    wt->nuser = 0;
 }
 
 void draw_level(Gfx *g, const Level *lv, const WorldTextures *wt) {
     for (int i = 0; i < lv->nblocks; i++) {
         const Block *b = &lv->blocks[i];
         if (b->tex < 0) continue;   // invisible collider
-        int t = b->tex < TEX_COUNT ? b->tex : TEX_FLAT;
-        gfx_draw_box(g, &wt->tex[t], b->center, b->size, 0, b->tint, b->uv_tile);
+        gfx_draw_box(g, world_texture(wt, b->tex), b->center, b->size, 0, b->tint, b->uv_tile);
     }
 }
 

@@ -186,6 +186,7 @@ static void place_piece(LevelEd *e, Level *lv, Vec3 at) {
     Prop *p = &lv->props[lv->nprops++];
     memset(p, 0, sizeof *p);
     snprintf(p->file, sizeof p->file, "%s", k->file);
+    p->tex = -1; p->tex_tile = 1;
     p->pos = at; p->yaw = e->ghost_yaw; p->scale = e->ghost_scale; p->stretch = v3(1, 1, 1); p->tint = v4(1, 1, 1, 1); p->glow = k->glow; p->collide = e->ghost_collide ? (k->collide > 0 ? k->collide : 0.5f) : 0;
     if (e->tr && e->tr->present && p->collide > 0 && strcmp(k->category, "trees") != 0) terrain_flatten_pad(e->tr, at, fmaxf(p->collide * e->ghost_scale, 0.8f) + 0.4f, at.y);   // structures get level ground
     add_collider_for(lv, p);
@@ -282,6 +283,7 @@ void leveled_tick(LevelEd *e, Level *lv, Terrain *tr, Camera *cam, const Input *
                     if (crowded) continue;
                     Prop *pr = &lv->props[lv->nprops++]; memset(pr, 0, sizeof *pr);
                     snprintf(pr->file, sizeof pr->file, "%s", k->file);
+                    pr->tex = -1; pr->tex_tile = 1;
                     pr->pos = p; pr->yaw = (float)(rand() % 360) * DEG2RAD; pr->scale = k->scale * (0.8f + 0.4f * (float)(rand() % 100) / 100.0f); pr->tint = v4(1, 1, 1, 1); pr->glow = k->glow; pr->collide = k->collide;
                     add_collider_for(lv, pr);
                     e->dirty = true;
@@ -455,6 +457,7 @@ void leveled_generate_world(LevelEd *e, Level *lv, Terrain *tr) {
             const KitPiece *k = &e->kit[pick];
             Prop *pr = &lv->props[lv->nprops++]; memset(pr, 0, sizeof *pr);
             snprintf(pr->file, sizeof pr->file, "%s", k->file);
+            pr->tex = -1; pr->tex_tile = 1;
             pr->pos = q; pr->yaw = (float)(rand() % 360) * DEG2RAD; pr->scale = k->scale * (0.8f + 0.4f * (rand() % 100) / 100.0f); pr->stretch = v3(1, 1, 1); pr->tint = v4(1, 1, 1, 1); pr->glow = k->glow; pr->collide = k->collide;
             add_collider_for(lv, pr);
         }
@@ -484,7 +487,7 @@ static void group_as_part(LevelEd *e, Level *lv) {
         pc->pos = v3(rel.x * c - rel.z * sn, rel.y, rel.x * sn + rel.z * c);   // undo the anchor's yaw
         Vec3 st = p->stretch.x == 0 && p->stretch.y == 0 && p->stretch.z == 0 ? v3(1, 1, 1) : p->stretch;
         pc->size = v3(p->scale * st.x, p->scale * st.y, p->scale * st.z);
-        pc->yaw = (p->yaw - oyaw) / DEG2RAD; pc->tint = p->tint;
+        pc->yaw = (p->yaw - oyaw) / DEG2RAD; pc->tint = p->tint; pc->tex = p->tex; pc->tex_tile = p->tex_tile;
     }
     char dir[640]; snprintf(dir, sizeof dir, "%s/models/own", HOLLOW_ASSET_DIR); SDL_CreateDirectory(dir);
     char path[700]; snprintf(path, sizeof path, "%s/%s.part", dir, e->part_name);
@@ -494,7 +497,7 @@ static void group_as_part(LevelEd *e, Level *lv) {
     for (int a = 0; a < n; a++) for (int b = a + 1; b < n; b++) if (idx[b] > idx[a]) { int t = idx[a]; idx[a] = idx[b]; idx[b] = t; }
     for (int i = 0; i < n; i++) { remove_collider_for(lv, &lv->props[idx[i]]); for (int k = idx[i]; k < lv->nprops - 1; k++) lv->props[k] = lv->props[k + 1]; lv->nprops--; }
     Prop *g2 = &lv->props[lv->nprops++]; memset(g2, 0, sizeof *g2);
-    snprintf(g2->file, sizeof g2->file, "models/own/%s.part", e->part_name); g2->pos = origin; g2->yaw = oyaw; g2->scale = 1; g2->stretch = v3(1, 1, 1); g2->tint = v4(1, 1, 1, 1);
+    snprintf(g2->file, sizeof g2->file, "models/own/%s.part", e->part_name); g2->tex = -1; g2->tex_tile = 1; g2->pos = origin; g2->yaw = oyaw; g2->scale = 1; g2->stretch = v3(1, 1, 1); g2->tint = v4(1, 1, 1, 1);
     e->sel_prop = lv->nprops - 1; e->nmulti = 0; e->dirty = true;
     // the part joins the palette right away
     char rel[160]; snprintf(rel, sizeof rel, "models/own/%s.part", e->part_name);
@@ -521,7 +524,7 @@ static void ungroup(LevelEd *e, Level *lv) {
         snprintf(p->file, sizeof p->file, "%s", pc->file);
         Vec3 rel = v3(pc->pos.x * group.scale, pc->pos.y * group.scale, pc->pos.z * group.scale);
         p->pos = v3(group.pos.x + rel.x * c + rel.z * sn, group.pos.y + rel.y, group.pos.z - rel.x * sn + rel.z * c);
-        p->yaw = group.yaw + pc->yaw * DEG2RAD; p->scale = group.scale; p->stretch = pc->size; p->tint = pc->tint;
+        p->yaw = group.yaw + pc->yaw * DEG2RAD; p->scale = group.scale; p->stretch = pc->size; p->tint = pc->tint; p->tex = pc->tex; p->tex_tile = pc->tex_tile;
         if (e->nmulti < 64) e->multi[e->nmulti++] = lv->nprops - 1;
     }
     e->sel_prop = lv->nprops - 1; e->dirty = true;

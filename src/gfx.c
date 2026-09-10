@@ -690,6 +690,12 @@ void gfx_draw_box(Gfx *g, const Texture *t, Vec3 center, Vec3 size, float yaw, V
     g->planar_next = false;
 }
 
+void gfx_draw_planar(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, float tile) {
+    g->planar_next = true;
+    gfx_draw(g, m, t, model, tint, v4(tile, 0, 0, 0));
+    g->planar_next = false;
+}
+
 void gfx_draw_box_wire(Gfx *g, Vec3 c, Vec3 s, Vec4 color) {
     if (g->in_shadow) return;
     const float th = 0.02f;

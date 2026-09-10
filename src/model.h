@@ -101,6 +101,10 @@ bool anim_finished(const AnimPlayer *p, const Model *m);
 
 void model_pose(const Model *m, const AnimPlayer *p, ModelPose *out);
 void model_draw(Gfx *g, const Model *m, const ModelPose *pose, Mat4 world, Vec4 tint);
+// Same, but `tex` (if given) replaces the model's own textures on every rigid mesh, projected in
+// world space at `tile` repeats per metre. Skinned meshes keep theirs: planar uvs would swim as
+// the mesh deforms. This is how a level's `tex NAME` paints a whole prop with one image.
+void model_draw_tex(Gfx *g, const Model *m, const ModelPose *pose, Mat4 world, Vec4 tint, const Texture *tex, float tile);
 // Draw only the meshes whose node name is one of `names`, posed by `host` — another model that
 // shares this one's skeleton (same joint names and inverse binds), so a part borrowed from a second
 // file follows the host's animation. Skinned meshes take the host's joint matrices; rigid ones

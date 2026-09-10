@@ -28,6 +28,10 @@ void terrain_destroy(Gfx *g, Terrain *t) {
     if (t->water_tex_ok) gfx_texture_destroy(g, &t->water_tex); t->water_tex_ok = false;
 }
 
+void terrain_set_detail(Terrain *t, const Texture *tex, float tile, Vec3 gain) {
+    t->detail = tex; t->detail_tile = tile; t->detail_gain = gain;
+}
+
 bool terrain_inside(const Terrain *t, float x, float z) {
     float u = (x - t->origin.x) / t->cell, v = (z - t->origin.z) / t->cell;
     return u >= 0 && v >= 0 && u <= N - 1 && v <= N - 1;
@@ -99,7 +103,8 @@ void terrain_draw(Gfx *g, Terrain *t) {
     if (!t->present) return;
     terrain_update_mesh(g, t);
     if (!t->mesh_ok) return;
-    gfx_draw(g, &t->mesh, &g->white, m4_identity(), v4(1, 1, 1, 1), v4(1, 1, 0, 0));
+    if (t->detail) gfx_draw_planar(g, &t->mesh, t->detail, m4_identity(), v4(t->detail_gain.x, t->detail_gain.y, t->detail_gain.z, 1), t->detail_tile);
+    else gfx_draw(g, &t->mesh, &g->white, m4_identity(), v4(1, 1, 1, 1), v4(1, 1, 0, 0));
 }
 
 // How far past the grid the sea is carried. Any level's far plane cuts the skirt long before its

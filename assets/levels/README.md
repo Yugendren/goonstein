@@ -10,10 +10,13 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
     boss     x y z yaw                         # boss start
     arena    minx miny minz maxx maxy maxz     # fight bounds (legacy, camera no longer clamps to it)
     block    x y z  sx sy sz  tex  r g b  tile  [solid|pass]
-             # box: centre, size, texture (stone tile wood metal flesh plaster flat), tint, repeats per metre
+             # box: centre, size, texture, tint, repeats per metre. The texture name is one of the
+             # seven procedural ones (stone tile wood metal flesh plaster flat) or the stem of any
+             # image in assets/textures/ -- drop foo.jpg in there and `foo` is a texture name here.
              # tex "flat" is untextured: the tint is the colour. The trailing word is optional and
              # defaults to solid; write "pass" for a block characters walk through.
     prop     FILE x y z yaw scale [tint r g b] [glow r g b] [stretch sx sy sz] [collide R [H] [deck]]
+             #                                 [tex NAME [TILE]] [name NAME]
              # FILE is relative to assets/, e.g. models/kaykit/hex/tree_single_A.gltf
              # glow adds emissive colour (bloom picks it up). collide R adds an invisible solid
              # box 2R across at the prop's base, H metres tall (default 5, tall enough that the
@@ -23,6 +26,10 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
              # itself declares (a `collide` line inside it, scaled by this prop's scale), which is
              # how a hundred palms get trunks without a hundred collider lines here. A collider
              # narrower than 1.2 m across is ignored by the camera, so it does not bounce off trunks.
+             # tex NAME paints the whole prop with one world texture (any name a `block` takes)
+             # instead of the model's own, projected in world space at TILE repeats per metre
+             # (default 1) so scale and stretch never smear it. A .part's piece may carry its own
+             # `tex`, which wins over the prop's.
     collider x y z sx sy sz                    # invisible solid box
     light    x y z  r g b  radius intensity [flicker F]   # point light; F ~0.3 for torches
     emitter  TYPE x y z  ex ey ez  rate  r g b  size life

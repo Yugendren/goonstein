@@ -17,10 +17,18 @@ typedef struct Terrain {
     bool  present;               // false = the level has no terrain (flat ground blocks only)
     float water;                 // water surface height (metres); below -900 = no water
     char  file[128];             // base path relative to assets/, e.g. levels/glade_terrain
+    // Ground detail map (optional): a photoscan multiplied into the biome colours with world-space
+    // planar UVs, so the flat-white/vertex-colour ground picks up grain. NULL = none (see terrain_draw).
+    const Texture *detail; float detail_tile; Vec3 detail_gain;
 } Terrain;
 
 void  terrain_init(Terrain *t, float cell, Vec3 origin, float base_height, Vec3 base_color);
 void  terrain_destroy(Gfx *g, Terrain *t);
+// A ground detail map, multiplied into the biome colours with world-space planar UVs.
+// `gain` should be 1/mean so the map adds grain without darkening the biome palette.
+// tex = NULL clears it. Call after terrain_load/terrain_init/terrain_generate: they reset the
+// terrain wholesale and would otherwise clobber this.
+void  terrain_set_detail(Terrain *t, const Texture *tex, float tile, Vec3 gain);
 // Height and normal at a world position (bilinear); outside the grid returns the edge height.
 float terrain_height(const Terrain *t, float x, float z);
 Vec3  terrain_normal(const Terrain *t, float x, float z);

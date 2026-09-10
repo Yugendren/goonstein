@@ -1,4 +1,5 @@
 #include "props.h"
+#include "render_world.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -39,8 +40,9 @@ static bool prop_sphere(Gfx *g, PropCache *pc, PropModel *pm, Vec3 *cen, float *
     return true;
 }
 
-void props_draw(Gfx *g, PropCache *pc, const Level *lv, float time) {
+void props_draw(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTextures *wt, float time) {
     (void)time;
+    pc->wt = wt;   // so a piece's own `tex` resolves from any later props_draw_matrix caller
     // One frustum for the whole pass: the camera's in the main pass, the sun's ortho box in the
     // shadow pass. Assemblies cull as a whole, on the union of their pieces' bounds.
     Frustum fr = frustum_from_view_proj(g->frame.view_proj);
@@ -68,7 +70,8 @@ void props_draw(Gfx *g, PropCache *pc, const Level *lv, float time) {
             if (!keep) { pc->props_culled++; continue; }
         }
         pc->props_drawn++;
-        props_draw_matrix(g, pc, p->file, world, p->tint, p->glow, 0);
+        const Texture *tex = p->tex >= 0 && wt ? world_texture(wt, p->tex) : NULL;
+        props_draw_matrix(g, pc, p->file, world, p->tint, p->glow, tex, p->tex_tile > 0 ? p->tex_tile : 1.0f, 0);
     }
     gfx_set_material(g, NULL);
 }
@@ -131,7 +134,7 @@ static bool load_into(Gfx *g, PropModel *pm, const char *file) {
     return pm->ok;
 }
 
-void props_draw_matrix(Gfx *g, PropCache *pc, const char *file, Mat4 world, Vec4 tint, Vec3 glow, int depth) {
+void props_draw_matrix(Gfx *g, PropCache *pc, const char *file, Mat4 world, Vec4 tint, Vec3 glow, const Texture *tex, float tile, int depth) {
     PropModel *pm = load_one(g, pc, file);
     if (!pm) return;
     if (pm->part) {
@@ -139,17 +142,19 @@ void props_draw_matrix(Gfx *g, PropCache *pc, const char *file, Mat4 world, Vec4
         for (int i = 0; i < pm->part->n; i++) {
             const Piece *p = &pm->part->pieces[i];
             Vec4 t = v4(tint.x * p->tint.x, tint.y * p->tint.y, tint.z * p->tint.z, tint.w);
-            props_draw_matrix(g, pc, p->file, m4_mul(world, piece_matrix(p)), t, glow, depth + 1);
+            const Texture *pt = tex; float ptile = tile;
+            if (p->tex >= 0 && pc->wt) { pt = world_texture(pc->wt, p->tex); ptile = p->tex_tile > 0 ? p->tex_tile : 1.0f; }
+            props_draw_matrix(g, pc, p->file, m4_mul(world, piece_matrix(p)), t, glow, pt, ptile, depth + 1);
         }
         return;
     }
     Material m = material_default(); m.emissive = glow;
     gfx_set_material(g, &m);
-    model_draw(g, &pm->model, &pm->rest, world, tint);
+    model_draw_tex(g, &pm->model, &pm->rest, world, tint, tex, tile);
     gfx_set_material(g, NULL);
 }
 void props_draw_one(Gfx *g, PropCache *pc, const char *file, Vec3 pos, float yaw, float scale, Vec4 tint, Vec3 glow) {
-    props_draw_matrix(g, pc, file, m4_trs(pos, yaw, v3(scale, scale, scale)), tint, glow, 0);
+    props_draw_matrix(g, pc, file, m4_trs(pos, yaw, v3(scale, scale, scale)), tint, glow, NULL, 0, 0);
 }
 
 bool props_bounds(Gfx *g, PropCache *pc, const char *file, Vec3 *bmin, Vec3 *bmax) {

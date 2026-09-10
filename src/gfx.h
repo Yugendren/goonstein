@@ -109,6 +109,9 @@ void gfx_set_material(Gfx *g, const Material *m);          // applies to followi
 void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Vec4 uv_xform);
 void gfx_draw_skinned(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, const Mat4 *joints, int njoints);
 void gfx_draw_box(Gfx *g, const Texture *t, Vec3 center, Vec3 size, float yaw, Vec4 tint, float uv_tile);
+// Draw with world-space planar UVs at `tile` repeats per metre, ignoring the mesh's own uvs
+// (the editor's shape .objs have none). Same as gfx_draw_box's uv_tile path.
+void gfx_draw_planar(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, float tile);
 void gfx_draw_box_wire(Gfx *g, Vec3 center, Vec3 size, Vec4 color);
 // Upright sprite: a quad w x h metres standing on `foot`, turned about Y to face the camera,
 // nearest-sampled, alpha-cutout, lit like everything else. uv is the frame rect (u0 v0 u1 v1).

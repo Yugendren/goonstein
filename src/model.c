@@ -577,6 +577,10 @@ void model_pose(const Model *m, const AnimPlayer *p, ModelPose *out) {
 }
 
 void model_draw(Gfx *g, const Model *m, const ModelPose *pose, Mat4 world, Vec4 tint) {
+    model_draw_tex(g, m, pose, world, tint, NULL, 0);
+}
+
+void model_draw_tex(Gfx *g, const Model *m, const ModelPose *pose, Mat4 world, Vec4 tint, const Texture *tex, float tile) {
     for (int i = 0; i < m->nmeshes; i++) {
         const ModelMesh *mm = &m->meshes[i];
         // A hidden flag on the mesh node or any ancestor hides the mesh.
@@ -585,6 +589,7 @@ void model_draw(Gfx *g, const Model *m, const ModelPose *pose, Mat4 world, Vec4 
         if (hidden) continue;
         const Texture *t = &m->textures[mm->tex];
         if (mm->skinned) gfx_draw_skinned(g, &mm->gpu, t, world, tint, pose->joints, m->njoints);
+        else if (tex) gfx_draw_planar(g, &mm->gpu, tex, m4_mul(world, pose->global[mm->node]), tint, tile);
         else gfx_draw(g, &mm->gpu, t, m4_mul(world, pose->global[mm->node]), tint, v4(1, 1, 0, 0));
     }
 }

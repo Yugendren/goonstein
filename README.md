@@ -240,7 +240,10 @@ Props are culled per pass against the camera and the sun frustum, and skipped wh
 few pixels; bounding spheres are cached per file. A generated world with 1779 pieces draws about
 30 pieces at the play camera and about 200 at a wide editor view, at 4 to 7 ms a frame on an M4
 with shadows on. Textures cap at 512 for props. The debugger shows frame time, draw calls and the
-drawn/culled counts; `HOLLOW_NOVSYNC=1` and the `perf:` line at exit measure headlessly.
+drawn/culled counts; `HOLLOW_NOVSYNC=1` and the `perf:` line at exit measure headlessly. Terrain is
+one flat-white mesh with per-vertex biome colours (cheap, but smooth at 3.5m cells); if
+`assets/textures/ground_detail.*` exists it is multiplied on top with world-space planar UVs, tinted
+by 1/its mean colour so the biome palette is unchanged — grain, not a repaint.
 
 ### Headless Blender (installed with Homebrew, never opened)
 
