@@ -29,6 +29,7 @@ int main(int argc, char **argv) {
     // --third         force third-person view
     // --first         force first-person view (R.E.P.O.-style: eye in the head, own model hidden)
     // --log FILE      write the debug log to FILE instead of hollow.log
+    // --test NAME     run a scripted headless check: "throw" hurls a fragile item at a wall
     int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *shot_every_dir = NULL; int shot_every = 0; bool spawn_set = false; float spawn_x = 0, spawn_z = 0; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
     bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1; bool log_set = false;
     static Game game;   // large; static keeps it off the stack (and zeroed)
@@ -62,6 +63,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--third")) game.force_third = true;
         else if (!strcmp(argv[i], "--first")) game.force_first = true;
         else if (!strcmp(argv[i], "--log") && i + 1 < argc) { log_set = true; snprintf(game.log_path, sizeof game.log_path, "%s", argv[++i]); }
+        else if (!strcmp(argv[i], "--test") && i + 1 < argc) snprintf(game.test_mode, sizeof game.test_mode, "%s", argv[++i]);   // scripted headless check: throw
         // --host/--slots/--join/--name already consumed by netgame_parse_args; skip so they are not mistaken for something else
         else if (!strcmp(argv[i], "--host") && i + 1 < argc) i++;
         else if (!strcmp(argv[i], "--slots") && i + 1 < argc) i++;

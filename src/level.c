@@ -398,6 +398,16 @@ static bool parse_level(Level *out, const char *path) {
             Npc *np = &out->npcs[out->nnpcs++]; memset(np, 0, sizeof *np);
             SDL_strlcpy(np->name, tok[1], sizeof np->name); SDL_strlcpy(np->file, tok[2], sizeof np->file); SDL_strlcpy(np->scene, tok[7], sizeof np->scene);
             np->pos = v3(f[0], f[1], f[2]); np->yaw = f[3] * DEG2RAD; np->radius = n >= 9 ? (float)atof(tok[8]) : 2.5f;
+        } else if (strcmp(cmd, "item") == 0) {
+            // item NAME x y z [yaw]
+            if (n != 5 && n != 6) { SDL_Log("level_load:%d: bad item line", line_no); continue; }
+            float f[4];
+            if (!parse_floats(tok, 2, n - 2, f)) { SDL_Log("level_load:%d: bad item line", line_no); continue; }
+            if (out->nitems >= LEVEL_MAX_ITEMS) { SDL_Log("level_load:%d: too many items", line_no); continue; }
+            LevelItem *it = &out->items[out->nitems++]; memset(it, 0, sizeof *it);
+            SDL_strlcpy(it->name, tok[1], sizeof it->name);
+            it->pos = v3(f[0], f[1], f[2]); it->yaw = n == 6 ? f[3] * DEG2RAD : 0.0f;
+
         } else if (strcmp(cmd, "trigger") == 0) {
             // trigger name minx miny minz maxx maxy maxz [once]
             if (n != 8 && n != 9) { SDL_Log("level_load:%d: bad trigger line", line_no); continue; }
@@ -508,6 +518,8 @@ bool level_save(const Level *lv, const char *path) {
     else if (lv->view == VIEW_FIRST) { if (lv->view_bob == 1.0f) fprintf(f, "view first\n"); else fprintf(f, "view first %.2f\n", lv->view_bob); }
     for (int i = 0; i < lv->nscenes; i++) fprintf(f, "scene %s %s\n", lv->scenes[i].name, lv->scenes[i].file);
     for (int i = 0; i < lv->nnpcs; i++) fprintf(f, "npc %s %s %.3f %.3f %.3f %.1f %s %.2f\n", lv->npcs[i].name, lv->npcs[i].file, lv->npcs[i].pos.x, lv->npcs[i].pos.y, lv->npcs[i].pos.z, lv->npcs[i].yaw / DEG2RAD, lv->npcs[i].scene, lv->npcs[i].radius);
+    for (int i = 0; i < lv->nitems; i++)
+        fprintf(f, "item %s %.3f %.3f %.3f %.1f\n", lv->items[i].name, lv->items[i].pos.x, lv->items[i].pos.y, lv->items[i].pos.z, lv->items[i].yaw / DEG2RAD);
     if (lv->terrain_file[0])  fprintf(f, "terrain %s\n", lv->terrain_file);
 
     fprintf(f, "spawn %.3f %.3f %.3f %.3f\n",
@@ -702,11 +714,20 @@ Trigger *level_trigger_at(Level *lv, Vec3 p) {
     for (int i = 0; i < lv->ntriggers; i++) {
         Trigger *t = &lv->triggers[i];
         if (t->fired) continue;
+        // "hold" is a query volume (the boat's cargo hold), not a scene cue; the explore loop
+        // logs every trigger it gets here, so it must never fire on its own.
+        if (strcmp(t->name, "hold") == 0) continue;
         if (point_in_box(p, t->vmin, t->vmax)) {
             if (t->once) t->fired = true;
             return t;
         }
     }
+    return NULL;
+}
+
+const Trigger *level_trigger_named(const Level *lv, const char *name) {
+    for (int i = 0; i < lv->ntriggers; i++)
+        if (strcmp(lv->triggers[i].name, name) == 0) return &lv->triggers[i];
     return NULL;
 }
 

@@ -16,6 +16,8 @@
 #include "terrain.h"
 #include "widgets.h"
 #include "netgame.h"
+#include "phys.h"
+#include "items.h"
 
 #define INTERNAL_W 1280
 #define INTERNAL_H 800
@@ -39,6 +41,7 @@ typedef struct Game {
     Boss boss; PlayerDef player_def; BossDef boss_def;
     CharModel player_models[NET_MAX_PLAYERS], boss_model;
     PropCache props; Particles particles; Battle battle; Uifx fx; bool battle_loaded;
+    PhysWorld phys; Items items;   // M2: rigid bodies and the loot that rides on them
     LevelEd leveled; bool leveled_ready;
     Builder builder; bool builder_ready;
     Terrain terrain; bool gen_done;
@@ -73,6 +76,7 @@ typedef struct Game {
     bool     force_first;         // --first: force first-person view
     bool     slot_tinted[NET_MAX_PLAYERS];   // this slot fell back to hero.txt, so the slot colour is what tells it apart
     char     log_path[256];       // --log FILE (default hollow.log)
+    char     test_mode[32];       // --test NAME: a scripted headless check ("throw")
 } Game;
 
 void game_init(Game *g);

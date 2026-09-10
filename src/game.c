@@ -130,8 +130,8 @@ static void host_teleport(void *ud, const char *a, Vec3 pos, float yaw) {
 }
 static void host_sound(void *ud, const char *name) {
     (void)ud;
-    static const char *names[SND_COUNT] = { "footstep", "swing", "hit", "parry", "hurt", "stagger", "roar", "death", "blip", "heart", "door", "sting", "whiff", "fail" };
-    for (int i = 0; i < SND_COUNT; i++) if (!strcmp(name, names[i])) { audio_play((SoundId)i, 0.9f, 1.0f); return; }
+    int id = audio_sound_from_name(name);   // one table, in audio.c, shared with the item files
+    if (id >= 0) { audio_play((SoundId)id, 0.9f, 1.0f); return; }
     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "scene: unknown sound %s", name);
 }
 static void host_daytime(void *ud, float hour, float dur) {
@@ -298,6 +298,7 @@ static void setup_level_content(Game *g) {
     int gd = world_texture_find(&g->wt, "ground_detail");
     if (gd >= 0) terrain_set_detail(&g->terrain, world_texture(&g->wt, gd), 0.45f, world_texture_gain(&g->wt, gd));
     resolve_ground(g, 0);
+    items_load_level(g);   // the loot: bodies, models and the boat's hold volume
     particles_clear(&g->particles);
     for (int i = 0; i < g->level.nemitters; i++) {
         const LevelEmitter *le = &g->level.emitters[i];
@@ -495,6 +496,9 @@ void game_start_at(Game *g, const char *where) {
 // A deliberately simple bot: parry when a parryable windup is about to land, dodge the rest,
 // otherwise close in and attack. Exists so the fight can be exercised headlessly.
 static void bot_input(Game *g, Input *in) {
+    // M2: in the overworld the bot's whole job is the loot run. It falls through to the old wander
+    // (and to the fight bot) whenever there is nothing left to carry.
+    if (g->state == GS_EXPLORE && items_bot_input(g, in)) return;
     if (netgame_on(&g->net) || g->cam.mode == CAM_FIRST) { netgame_bot_wander(g, in); return; }
     const Boss *b = &g->boss; const Player *p = &PLAYER(g);
     in->move_x = in->move_y = 0; in->attack = in->parry = in->dodge = false;
@@ -612,6 +616,51 @@ static void apply_events(Game *g, const CombatEvents *ev) {
     if (ev->hitstop > g->hitstop) g->hitstop = ev->hitstop;
 }
 
+// ---------------------------------------------------------------- scripted headless checks
+// --test throw: a hundred ticks in, pick the first fragile item on the level, put it five metres
+// off the nearest wall and hurl it at 16 m/s. Everything after that is the ordinary item code, so
+// the log line the break prints is real evidence that the fragile path works.
+static void test_throw(Game *g) {
+    static int stage = 0; static unsigned fired_at = 0; static int watched = -1;
+    if (strcmp(g->test_mode, "throw") != 0 || g->state != GS_EXPLORE) return;
+    Items *its = &g->items;
+    if (stage == 0 && g->tick >= 100) {
+        int idx = -1;
+        for (int i = 0; i < its->n; i++)
+            if (its->it[i].used && !its->it[i].broken && its->defs[its->it[i].def].fragile > 0) { idx = i; break; }
+        if (idx < 0) { SDL_Log("throw test: no fragile item on %s", g->level.path); stage = 2; return; }
+        Item *it = &its->it[idx];
+        int best = -1; float bd = 1e9f;
+        for (int b = 0; b < g->level.nblocks; b++) {
+            const Block *bl = &g->level.blocks[b];
+            if (!bl->solid || bl->size.y < 1.5f) continue;
+            float d = v3_len(v3_sub(bl->center, it->pos));
+            if (d < bd) { bd = d; best = b; }
+        }
+        if (best < 0) { SDL_Log("throw test: no wall anywhere near item %u", it->id); stage = 2; return; }
+        const Block *bl = &g->level.blocks[best];
+        Vec3 away = v3_sub(it->pos, bl->center); away.y = 0;
+        if (v3_len(away) < 0.1f) away = v3(1, 0, 0);
+        away = v3_norm(away);
+        float standoff = fmaxf(bl->size.x, bl->size.z) * 0.5f + 5.0f;
+        Vec3 from = v3_add(bl->center, v3_scale(away, standoff));
+        Vec3 dir = v3_norm(v3_sub(bl->center, from));
+        PhysBody *b = phys_body(&g->phys, it->body);
+        if (!b) { stage = 2; return; }
+        phys_place(&g->phys, it->body, from, quat_identity(), true);
+        phys_wake(&g->phys, it->body);
+        phys_impulse(&g->phys, it->body, v3_scale(dir, 16.0f * b->mass), v3_add(from, v3(0, 0.05f, 0)));
+        SDL_Log("throw test: item %u (%s) thrown at 16.0 m/s from %.1f %.1f %.1f into a wall %.1f m away, threshold %.1f m/s",
+                it->id, its->defs[it->def].display, (double)from.x, (double)from.y, (double)from.z,
+                (double)standoff, (double)its->defs[it->def].fragile);
+        watched = idx; fired_at = g->tick; stage = 1;
+    } else if (stage == 1 && g->tick > fired_at + 150) {
+        const Item *it = &its->it[watched];
+        SDL_Log("throw test: item %u %s (%u breaks this run)", it->id, it->broken ? "BROKE" : "did NOT break", its->breaks);
+        stage = 2;
+    }
+}
+
 // ---------------------------------------------------------------- tick
 
 // The orbit camera collides with blocks; the terrain is handled here by lifting the eye above the ground.
@@ -631,7 +680,11 @@ static void camera_above_terrain(Game *g) {
 static void tick_explore(Game *g, const Input *in, float dt) {
     CombatEvents ev = {0};
     Vec3 dir = netgame_local_input(g, camera_move_dir(&g->cam, in->move_x, in->move_y), in);
-    player_update(&PLAYER(g), in, dir, &g->level, NULL, dt, &ev);
+    // Carrying something two-handed costs 40% of your speed and all of your sprint. The host applies
+    // the same rule to every remote player (see netgame.c), so prediction and authority agree.
+    Input carried_in = *in;
+    if (items_two_handed(g, g->local)) { dir = v3_scale(dir, ITEM_SLOW_SPEED); carried_in.sprint = false; }
+    player_update(&PLAYER(g), &carried_in, dir, &g->level, NULL, dt, &ev);
     resolve_ground(g, dt);
     apply_events(g, &ev);
     { const Look *ck = &g->level.look; camera_iso_set(ck->cam_pitch, ck->cam_dist, ck->cam_fov, ck->cam_yaw); if (SDL_getenv("HOLLOW_CAM")) { float a = ck->cam_pitch, b = ck->cam_dist, c = ck->cam_fov, d = ck->cam_yaw; sscanf(SDL_getenv("HOLLOW_CAM"), "%f %f %f %f", &a, &b, &c, &d); camera_iso_set(a, b, c, d); } }
@@ -661,7 +714,11 @@ static void tick_explore(Game *g, const Input *in, float dt) {
         if (d < 5.0f && !c->scripted_moving) { float want = atan2f(PLAYER(g).c.pos.x - c->pos.x, PLAYER(g).c.pos.z - c->pos.z); float diff = want - c->yaw; while (diff > PI) diff -= 2 * PI; while (diff < -PI) diff += 2 * PI; c->yaw += diff * fminf(1, dt * 6); }
         if (d < np->radius && g->talk_npc < 0) g->talk_npc = i;
     }
-    if (g->talk_npc >= 0 && in->interact && g->state == GS_EXPLORE && !g->no_scenes) { const Npc *np = &g->level.npcs[g->talk_npc]; dbg_log("talk to %s", np->name); play_scene(g, np->scene, GS_EXPLORE); }
+    items_tick(g, in, dt);   // after the camera: the hold point hangs off this tick's view
+    // Hands full, or loot in view: E belongs to the item, not to the conversation.
+    if (g->talk_npc >= 0 && in->interact && g->state == GS_EXPLORE && !g->no_scenes
+        && g->items.carry[g->local].item < 0 && g->items.look_at < 0)
+        { const Npc *np = &g->level.npcs[g->talk_npc]; dbg_log("talk to %s", np->name); play_scene(g, np->scene, GS_EXPLORE); }
     audio_set_drone(0.45f);
     audio_set_fight(0.0f);
 }
@@ -864,6 +921,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     case GS_BATTLE:  tick_battle(g, in, g->pf, dt); break;
     }
     netgame_post_tick(g, dt);
+    if (g->test_mode[0]) test_throw(g);
     for (int i = 0; i < g->nnpcs; i++) { Character *c = &g->npcs[i].c; character_script_update(c, dt); game_ground_character(g, c, dt); if (g->npcs[i].ok) charmodel_drive_simple(&g->npcs[i].model, c, dt); }
     if (g->daytime_dur > 0) { g->daytime_t += dt; float k = clampf(g->daytime_t / g->daytime_dur, 0, 1); g->level.look.daytime = lerpf(g->daytime_from, g->daytime_to, k * k * (3 - 2 * k)); if (k >= 1) g->daytime_dur = 0; }
     if (g->state != GS_SCENE) {
@@ -1204,6 +1262,7 @@ static void draw_hud(Game *g, Platform *pf) {
     }
     if (g->msg_t > 0) gfx_ui_text(x, 12, H - 16, 1.0f, v4(0.9f, 0.8f, 0.4f, 1), g->msg);
     if (g->talk_npc >= 0 && g->state == GS_EXPLORE) { char s2[96]; snprintf(s2, sizeof s2, "E   talk to %s", g->level.npcs[g->talk_npc].name); text_center(x, W * 0.5f, H - 70, 1.3f, v4(1, 0.9f, 0.6f, 1), s2); }
+    if (g->state == GS_EXPLORE) items_draw_hud(g);
     if (g->hint_t > 0 && g->state == GS_EXPLORE) {
         float a = fminf(1, g->hint_t);
         text_center(x, W * 0.5f, 30, 1.0f, v4(0.85f, 0.85f, 0.8f, a), "WASD move   Shift sprint   E interact   walk the path");
@@ -1316,6 +1375,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             draw_level(x, lv, &g->wt);
             if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain); }
             props_draw(x, &g->props, lv, &g->wt, t);
+            items_draw(g);
             for (int i = 0; i < NET_MAX_PLAYERS; i++) {
                 if (!g->net.slots[i].active || !g->player_models[i].loaded || g->player_models[i].is_sprite) continue;
                 Character cc = g->players[i].c; cc.pos = vpos[i];
@@ -1332,6 +1392,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain);
         terrain_draw_water(x, &g->terrain); }
     props_draw(x, &g->props, lv, &g->wt, t);
+    items_draw(g);
     {
         Vec4 pt = v4(lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), 1);
         Vec4 bt = v4(1, 1, 1, 1);
