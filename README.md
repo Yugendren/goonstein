@@ -18,9 +18,12 @@ Windows (PowerShell):
 
 ### Play together
 
-- Host: `./goonstein/goonstein --host 7777`
-- Join: `./goonstein/goonstein --join IP:7777`
+Run the game and pick `HOST GAME`. The address to read out sits in the top-right corner of the
+screen, and in the Esc menu under `INVITE INFO`. Everyone else runs the same build, picks
+`JOIN GAME` and types it in. Nobody needs the command line.
+
 - Over the internet: put both machines on one [Tailscale](https://tailscale.com) tailnet and join the host's tailnet IP.
+- The flags still work, and skip the menu: `--host 7777`, `--join IP:7777`.
 
 Verified on macOS (Apple Silicon). The Linux and Windows zips are built by CI and have not been
 run on real hardware yet, so treat them as untested. If the game fails to start, send the
@@ -62,9 +65,12 @@ and what is verified versus untested.
 | Debug overlay | F1                        | Back / Select    |
 | Pause / step  | F2 / F3                   |                  |
 | Reload data   | F5                        |                  |
-| Quit          | Esc                       |                  |
+| Menu (pause)  | Esc                       |                  |
+| Player list   | hold Tab                  |                  |
 
 The layout follows Sekiro on PC. Level files also hot-reload on save while the game is running.
+Starting the game with no flags opens the main menu; Esc during play opens the in-game menu
+instead of quitting. A tool window (`[`, `]`, `\`) still takes Esc for itself while it is open.
 
 Three views, chosen per level. `view top` (the default) is the fixed camera from the level's
 `camera` line. `view third` (the slice) plays behind the hero with mouse look. `view first` is
@@ -390,6 +396,52 @@ simple frame-perfect bot play the fight and logs every swing, parry and hit. `--
 walking the path, so a `--shot-every` trail shows the world moving. This is how the fight is
 checked without a controller in hand.
 
+`--menu-test host[:PORT]` and `--menu-test join:HOST:PORT` (or the `HOLLOW_MENU_TEST` environment
+variable) drive the menu the way a player would -- move the highlight, take the row, type the
+address -- so the headless check exercises the real path. The log prints `menu: playing (hosting)`,
+`(joined)` or `(solo)` when the menu hands the game over, and `menu: no answer from ADDR` when a
+join times out.
+
+    ./build/bin/goonstein --volume 0 --frames 300 --screenshot menu.png
+    ./build/bin/goonstein --volume 0 --menu-test host:7801 --frames 420
+    ./build/bin/goonstein --volume 0 --menu-test join:127.0.0.1:7801 --frames 900
+
+## The menu
+
+Launching `./build/bin/goonstein` with no flags opens the main menu over the island: a slow
+camera orbit over the pier behind the rows `PLAY SOLO`, `HOST GAME`, `JOIN GAME`, `NAME`, `QUIT`.
+
+Navigation: arrow keys or `W`/`S`, the left stick or the d-pad, or the mouse (hovering highlights,
+clicking takes). `Enter`, `E` or the pad's A takes a row; `Esc` or the pad's B goes back.
+
+`NAME` is edited in place; it is written to `name` in `assets/settings.txt` and is the name other
+players see in join messages and the player list. While a text field owns the keyboard nothing
+else in the game sees a key, so typing a name cannot walk the player or open a tool window.
+
+`HOST GAME` listens on UDP `port` from `assets/settings.txt` (7777 by default) and starts playing
+straight away. The host's LAN address sits in the top-right corner of the screen so it can be read
+out to a friend; when the machine has more than one address, `INVITE INFO` in the Esc menu lists
+all of them.
+
+`JOIN GAME` is one text field, pre-filled with the last address that worked (`last_join` in
+`assets/settings.txt`). `HOST:PORT`, or a bare address which gets the default port. `Enter`
+connects; the screen says `connecting...` for up to five seconds and, if the host does not answer,
+drops back to the menu with the reason on one line (no answer, the address could not be reached,
+or the host is full).
+
+In game, `Esc` opens: `RESUME`, `INVITE INFO`, then `END HOST` (host), `LEAVE GAME` (client) or
+`MAIN MENU` (solo), then `QUIT`. The world keeps running behind the menu on purpose: a host that
+stopped answering for the length of a menu would drop its clients.
+
+`INVITE INFO` shows the address to give out (or the address you joined) and who is connected.
+Holding `Tab` during play shows the player list: name, round-trip time and the slot colour.
+
+Any of `--host`, `--join`, `--level`, `--start` or `--bot` skips the menu entirely, so every
+existing command line behaves exactly as before -- the command-line flags below are the other way
+in, still there for scripted testing and CI.
+
+New `assets/settings.txt` keys: `name`, `port`, `last_join`.
+
 ## Networking
 
 Four players on one map. One of them hosts and plays in the same process (a listen server), and
@@ -520,6 +572,10 @@ the pieces that fly off a broken item, is never sent at all; each side that has 
 broke (the host by simulating it, a client by the broken flag arriving) plays its own burst locally.
 
 ### Testing on a LAN
+
+The addresses can now be read off the host's own screen -- `HOST GAME`, then the corner readout
+or `INVITE INFO` -- instead of running `ipconfig getifaddr en0`; the flags below are the other way
+in, for scripted or headless testing.
 
 On the host machine, find its address (`ipconfig getifaddr en0` on macOS, `ip addr` on Linux),
 then:
