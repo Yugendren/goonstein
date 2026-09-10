@@ -15,8 +15,11 @@
 #   tools/voice_test.sh near        host ~1.5 m from the talker: the top of the curve
 #   tools/voice_test.sh mid         host ~12 m away
 #   tools/voice_test.sh far         host ~20 m away: nearly the 25 m cutoff
+#   tools/voice_test.sh wall        corridor level, with solid geometry on the line of sight
 #   tools/voice_test.sh loss        near, with HOLLOW_NET_LOSS=0.2 on all four processes
 #   tools/voice_test.sh all         near, mid and far in turn, then the attenuation table
+#
+# TALKER=goon_c picks the voice c1 talks in (default goon_a).
 #
 # Nothing here is ever audible: HOLLOW_SILENT=1 (and either voice test hook on its own) stops the
 # game opening a playback device at all, and voice.c renders its bus on the main thread instead,
@@ -48,8 +51,16 @@ case "$CASE" in
   near) SPAWN="--spawn 0 -3";  LOSS="" ;;
   mid)  SPAWN="--spawn 12 -3"; LOSS="" ;;
   far)  SPAWN="--spawn 20 -3"; LOSS="" ;;
+  # Occlusion needs actual `block` geometry, and the lantern level is all props: corridor is built
+  # out of them. Note what is doing the listening -- the camera eye, not the body, which in third
+  # person sits several metres back and above. That is deliberate (you hear from where you are
+  # looking) but it means the two spawns below were arrived at by measurement, not by reading the
+  # level file: at 0 8 the eye's line to the talker crosses the corridor's structure and the log
+  # says `muffled`. Compare it with a `near` run at the same TALKER for the unmuffled version --
+  # inside a tunnel with a ceiling there is no reliably clear line to compare against.
+  wall)  SPAWN="--spawn 0 8";   LOSS=""; LEVEL=corridor ;;
   loss) SPAWN="--spawn 0 -3";  LOSS="0.2" ;;
-  *) echo "usage: $0 near|mid|far|loss|all [seconds]"; exit 2 ;;
+  *) echo "usage: $0 near|mid|far|wall|loss|all [seconds]"; exit 2 ;;
 esac
 
 rm -rf "$OUT"; mkdir -p "$OUT"
@@ -66,9 +77,13 @@ sleep 6
 
 # c1 talks. c2 and c3 are just bodies moving around, so the host is mixing one voice among four.
 # c1 talks and stands still (no --bot), so the distance to the host is fixed for the whole run.
+# --hero pins its character too: without it the talker's voice preset follows whichever slot the
+# host happened to hand out, and two runs are then not comparable (goon_b's radio preset is several
+# dB hotter than goon_d's ring).
 HOLLOW_VOICE_WAV="$WAV" \
   "$BIN" --volume 0 --join 127.0.0.1:7777 --name c1 --start "level:$LEVEL" --first \
-         --voice open --frames $((FRAMES - 400)) --log "$OUT/hollow_c1.log" &
+         --hero "${TALKER:-goon_a}" --voice open --frames $((FRAMES - 400)) \
+         --log "$OUT/hollow_c1.log" &
 for i in 2 3; do
   HOLLOW_VOICE_WAV="$WAV" \
     "$BIN" --volume 0 --join 127.0.0.1:7777 --bot --name "c$i" --start "level:$LEVEL" --first \

@@ -35,8 +35,14 @@ import wave
 import numpy as np
 
 
-def read_wav(path):
-    """-> (mono float32 in [-1,1], sample rate). Any channel count, 16-bit PCM."""
+def read_wav(path, fold="mean"):
+    """-> (mono float32 in [-1,1], sample rate). Any channel count, 16-bit PCM.
+
+    `fold` decides how a stereo file is made mono. "mean" is what you want for pitch. "power" is
+    what you want for level: it takes sqrt(L^2 + R^2), which is invariant under the equal-power
+    pan the mixer applies, so a measurement is not quietly reading the pan as distance -- a hard
+    pan is 3 dB down on a centred one under "mean" and identical under "power".
+    """
     with wave.open(path, "rb") as w:
         n, ch, sw, sr = w.getnframes(), w.getnchannels(), w.getsampwidth(), w.getframerate()
         raw = w.readframes(n)
@@ -44,7 +50,8 @@ def read_wav(path):
         sys.exit(f"{path}: expected 16-bit PCM, got {sw * 8}-bit")
     x = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
     if ch > 1:
-        x = x.reshape(-1, ch).mean(axis=1)
+        x = x.reshape(-1, ch)
+        x = np.sqrt((x ** 2).sum(axis=1)) * np.sign(x[:, 0]) if fold == "power" else x.mean(axis=1)
     return x, sr
 
 
@@ -211,22 +218,25 @@ def cmd_distance(args):
                     dist += float(m.group(3)); gain += float(m.group(4)); n += 1
         if not n:
             print(f"{d}: nobody talked"); continue
-        x, sr = read_wav(wavs[0])
-        # Skip the first two seconds of the talking: the jitter buffer is still filling.
-        w = int(0.5 * sr)
-        loud = [float(np.sqrt(np.mean(x[i:i + w] ** 2))) for i in range(0, len(x) - w, w)]
-        live = [v for v in loud if v > 1e-4]
-        rms = float(np.sqrt(np.mean(np.array(live) ** 2))) if live else 0.0
+        x, sr = read_wav(wavs[0], fold="power")
+        # The 90th percentile of the per-100 ms level, not the mean. The same sentence is playing
+        # in every run, but a plain average silently compares different things: at 20 m the quiet
+        # consonants fall under any noise floor you pick and drop out of the average, which flatters
+        # the distant run by several dB. The loud vowels are present in all of them, so comparing
+        # the top of the distribution compares like with like.
+        w = int(0.1 * sr)
+        lv = np.array([float(np.sqrt(np.mean(x[i:i + w] ** 2))) for i in range(0, len(x) - w, w)])
+        rms = float(np.percentile(lv, 90)) if len(lv) else 0.0
         rows.append((os.path.basename(d.rstrip("/")), dist / n, gain / n, rms))
     if not rows:
         return
     ref = rows[0]
-    print(f"{'run':<10} {'distance m':>11} {'log gain':>9} {'measured rms':>13} "
+    print(f"{'run':<10} {'distance m':>11} {'log gain':>9} {'level p90':>11} "
           f"{'measured dB':>12} {'expected dB':>12} {'error dB':>9}")
     for name, dist, gain, rms in rows:
         mdb = 20 * math.log10(rms / ref[3]) if rms > 0 and ref[3] > 0 else float("-inf")
         edb = 20 * math.log10(gain / ref[2]) if gain > 0 and ref[2] > 0 else float("-inf")
-        print(f"{name:<10} {dist:11.1f} {gain:9.3f} {rms:13.6f} {mdb:12.2f} {edb:12.2f} "
+        print(f"{name:<10} {dist:11.1f} {gain:9.3f} {rms:11.6f} {mdb:12.2f} {edb:12.2f} "
               f"{mdb - edb:9.2f}")
 
 

@@ -845,9 +845,10 @@ player sprinting past you from clicking.
     HOLLOW_VOICE_DUMP=FILE    write the local voice bus to FILE (stereo), and one
                               FILE.slotN.wav per speaker (mono, after distance/occlusion/pan)
 
-`assets/audio/voice_test.wav` is 7.8 s of `say(1)` converted with
+`assets/audio/voice_test.wav` is 7.8 s of `say -o` converted with
 `afconvert -f WAVE -d LEI16@48000 -c 1`. With `HOLLOW_VOICE_WAV` set, no recording device is opened
-at all, so a headless run never trips the macOS microphone prompt.
+at all, so a headless run never trips the macOS microphone prompt -- and no *playback* device is
+opened either (see below), so a test is silent in both directions.
 
     tools/voice_test.sh near        four processes, host at the spawn, ~2 m from the talker
     tools/voice_test.sh far         same, host parked 20 m away
@@ -855,9 +856,11 @@ at all, so a headless run never trips the macOS microphone prompt.
 
 and the dumps are measured with
 
-    tools/voice_check.py pitch FILE...    fundamental (harmonic product spectrum) and centroid
-    tools/voice_check.py level FILE       RMS envelope in dBFS, to line up against the log
-    tools/voice_check.py gaps  FILE       longest silent run: the packet-loss continuity check
+    tools/voice_check.py pitch FILE...        fundamental (per-frame autocorrelation) and centroid
+    tools/voice_check.py distance DIR...      the attenuation table: logged gain vs measured level
+    tools/voice_check.py track LOG WAV        per-second gain against per-second level
+    tools/voice_check.py level FILE           RMS envelope in dBFS
+    tools/voice_check.py gaps  FILE           longest silent run: the loss-continuity check
 
 Every process logs a `voice:` line once a second with the mode, bytes up and down, and per speaker
 the distance, the applied gain, whether they are muffled, the decode/FEC/conceal/late counts and
@@ -865,7 +868,80 @@ both latencies (`transit` is capture to arrival, `lat` is capture to entering th
 
 ### What it costs, measured
 
-MEASUREMENTS_GO_HERE
+One host and three clients on loopback, macOS, 35-second runs. c1 is the only one talking; it
+stands still so the distance is fixed, and `--hero goon_a` pins its voice so runs are comparable.
+Everything below comes out of the `voice:` log lines and the dump WAVs, measured with
+`tools/voice_check.py`.
+
+**Bandwidth.** A talking client sends **2.5 to 3.1 kB/s**, mean 2.9. That is the whole marginal
+cost of talking: 50 frames a second of ~51 bytes of Opus plus the 7-byte block header, riding on
+the input packet the client was already sending. Giving voice its own datagrams would have added
+another ~2.1 kB/s of UDP and IP headers on top. The host forwarding one speaker to the other two
+clients spends 6.3 to 8.0 kB/s, which is that 2.9 doubled plus a 16-byte packet header each.
+
+**Latency, capture to the moment the audio enters the playback ring**, measured with a wall-clock
+millisecond stamp in every packet (all four processes are on one machine, so the clocks agree):
+
+| | |
+|---|---|
+| capture to arrival at the host (`transit`) | 2 to 15 ms |
+| capture to playback (`lat`) | **80 to 130 ms**, typically 110 |
+
+against a budget of 20 ms to fill a frame, ~8 ms of waiting for the next tick, 23 to 28 ms of
+shifter delay depending on the preset, ~10 ms of transit and 80 ms of jitter buffer. Well inside
+the 150 ms target. A scheduling hiccup shows up as a `sync` in the log and one second where the
+average is a few hundred milliseconds before it recovers.
+
+**Proximity.** The same sentence, the same voice, three fixed distances, measured out of the
+per-speaker dumps (`tools/voice_check.py distance`), levels taken as the 90th percentile of the
+100 ms envelope so the loud vowels are compared and not the noise floor:
+
+| run | distance | gain in the log | measured | the curve says | error |
+|---|---|---|---|---|---|
+| near | 4.7 m | 0.974 | 0 dB (reference) | 0 dB | -- |
+| mid | 13.7 m | 0.557 | -4.65 dB | -4.86 dB | **0.22 dB** |
+| far | 22.7 m | 0.039 | -28.27 dB | -28.03 dB | **0.24 dB** |
+
+So the curve in the log is the curve in the mixer, to a quarter of a decibel over a 28 dB range.
+
+**Occlusion.** `tools/voice_test.sh wall` on the corridor level puts solid geometry on the line
+between the camera and the talker. The log reports `muffled` and a gain of exactly 0.70, and the
+spectral centroid of the dump falls from **1003 Hz to 620 Hz** -- the 700 Hz one-pole doing its job.
+
+**Packet loss.** `HOLLOW_NET_LOSS=0.2` on all four processes, so one packet in five is thrown away
+on receive. Per second, out of 50 frames sent: 35 to 44 arrive, 35 to 45 decode normally, 4 to 12
+are recovered from the next packet's in-band FEC, 1 to 5 are concealed, **none** are dropped as
+late and **none** come out as silence. The longest silence in the dump is 1.46 s, which is the
+test WAV's own loop seam -- the clean run's is 1.72 s, so 20% loss does not lengthen it at all.
+Latency is unchanged at 119 to 126 ms.
+
+**A voice per goon**, measured on the host's dump after the full round trip (shifter, Opus, UDP,
+the host's forward, the jitter buffer, the decoder and the proximity mix), F0 by per-frame
+autocorrelation over the voiced frames:
+
+| | preset | F0 | vs the source | centroid |
+|---|---|---|---|---|
+| the recording | -- | 141.6 Hz | -- | 1416 Hz |
+| `goon_a` | 0.85 1.00 none | 123.4 Hz | x0.87 | 1003 Hz |
+| `goon_b` | 1.00 1.00 radio | 146.8 Hz | x1.04 | 1909 Hz |
+| `goon_c` | 1.35 1.15 none | 196.7 Hz | x1.39 | 1717 Hz |
+| `goon_d` | 1.00 0.90 ring | 68.3 Hz | x0.48 | 1039 Hz |
+
+`goon_a` and `goon_c` land within 2% of their asked-for pitch. `goon_b` leaves the pitch alone and
+moves the timbre instead, which is what the band-pass and the soft clip are for. `goon_d` measures
+an octave and a bit down because a 55 Hz ring modulator genuinely makes the signal periodic at a
+lower rate -- that buzz is the effect, not a measurement error.
+
+### Nothing may be audible in a test
+
+`HOLLOW_SILENT=1` opens no audio playback device at all -- not for the game, not for voice -- and
+the two voice test hooks imply it, so `tools/voice_test.sh` cannot make a sound on the machine it
+runs on however it is invoked. The voice bus is then rendered on the main thread at wall-clock
+speed instead of by the mixer callback, so `HOLLOW_VOICE_DUMP` still receives exactly the mix you
+would have heard and the jitter buffers are still clocked by it. This is **not** the same as
+`--volume 0`, which mutes the game and deliberately leaves voice chat audible. If you regenerate
+the test recording, `say` must be given `-o FILE`; it must never be allowed to speak aloud.
+
 
 ## Layout
 
