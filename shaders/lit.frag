@@ -22,6 +22,7 @@ layout(set = 3, binding = 1, std140) uniform Material {
     vec4 emissive;         // rgb added, a = unlit amount (sprites keep their own colours)
     vec4 rim;              // rgb, a = strength
     vec4 water;            // x = 1 shades this surface as sea; yz = the coast texture's world origin in xz, w = 1 / its span
+    vec4 flatc;   // rgb = the bound texture's mean colour, a = how far to blend toward it ("flat" is a reserved GLSL keyword)
 };
 layout(location = 0) in vec3 v_wpos;
 layout(location = 1) in vec3 v_normal;
@@ -32,7 +33,11 @@ layout(location = 0) out vec4 o_color;
 float band(float x, float edge, float soft) { return smoothstep(edge - soft, edge + soft, x); }
 
 void main() {
-    vec4 t = texture(tex, v_uv) * v_color * tint;
+    // At flatc.a 1 the texture contributes nothing but its silhouette and its average colour,
+    // which is the Roblox/Peak reading of a material -- everything a solid, and the tint and
+    // vertex colour still telling one thing from another.
+    vec4 s = texture(tex, v_uv);
+    vec4 t = vec4(mix(s.rgb, flatc.rgb, flatc.a), s.a) * v_color * tint;
     if (t.a < 0.5) discard;
     t.rgb = pow(t.rgb, vec3(2.2));   // albedo is sRGB; light in linear
     vec3 n = normalize(v_normal);

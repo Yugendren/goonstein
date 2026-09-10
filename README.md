@@ -455,6 +455,12 @@ reshaped with the Blender scripts. `assets/models/polyhaven/barrel_03/*.recolor`
 character pass and the world style pass snap to it, and it reloads live when saved. Change that
 file and the whole game's colour identity changes.
 
+On top of those levers sit three complete candidate art directions -- **camcorder**, **flat** and
+**ink** -- each a handful of `look` lines in `assets/looks/`. A level picks one with a single
+`look include camcorder` line and nothing else changes. `assets/looks/README.md` describes what
+each one is, what it costs, and what it would cost on a weak GPU; the levels in the tree are all
+still on the plain look.
+
 ### The art pipeline in one paragraph
 
 Characters and props are 3D, drawn through the pixel-art pass (small layer, grid-snapped camera,
@@ -476,6 +482,22 @@ simple frame-perfect bot play the fight and logs every swing, parry and hit. `--
 `--first` force a view whatever the level says, and in first person the bot wanders instead of
 walking the path, so a `--shot-every` trail shows the world moving. This is how the fight is
 checked without a controller in hand.
+
+### Capturing a comparable frame
+
+Three environment variables exist only so that two captures of the same shot can be put side by
+side. `HOLLOW_FIXED_DT=1` advances exactly one tick per rendered frame and ignores the wall clock,
+so a given `--frames N` always lands on the same moment of the simulation -- without it a heavier
+render setting reaches a different point in a bot's walk and the two frames are not the same shot.
+`HOLLOW_NOHUD=1` drops the HUD. `HOLLOW_CAM="PITCH DIST FOV YAW [free]"` overrides the level's
+`camera` line and now also frames the third-person orbit; the trailing `free` leaves the yaw to the
+game, which matters whenever something still has to walk somewhere, because movement is
+camera-relative and a frozen yaw freezes which way forward is. `HOLLOW_LOOK=NAME` applies
+`assets/looks/NAME.txt` over whatever the level authored (see `assets/looks/README.md`). Together:
+
+    HOLLOW_SILENT=1 HOLLOW_NOHUD=1 HOLLOW_FIXED_DT=1 HOLLOW_LOOK=ink \
+      HOLLOW_CAM="22 26 50 0" ./build/bin/goonstein --level island --volume 0 --no-scenes \
+      --third --spawn 0 108 --frames 200 --screenshot summit_ink.png
 
 `--menu-test host[:PORT]` and `--menu-test join:HOST:PORT` (or the `HOLLOW_MENU_TEST` environment
 variable) drive the menu the way a player would -- move the highlight, take the row, type the

@@ -97,6 +97,160 @@ static bool part_collider(PartCollide *cache, int *n, const char *file, float *r
     return *r > 0;
 }
 
+// Deepest an "look include" is allowed to nest, so a file that includes itself (directly or
+// through a cycle) can't recurse forever.
+#define LOOK_INCLUDE_MAX_DEPTH 4
+
+// Parse one look line into `lk`. Returns false if `cmd` is not a look command at all (the caller
+// then tries the placement commands), and logs and returns true for a look line it could not read.
+// `where` names the file `tok`/`line_no` came from, for messages raised while walking a `look
+// include`d file; `depth` is how many `look include`s deep we already are.
+static bool parse_look_line(Look *lk, char **tok, int n, int line_no, const char *where, int depth) {
+    (void)where;   // only the `look include` branch below needs it, to name the file it recurses into
+    const char *cmd = tok[0];
+    float f[12];
+
+    if (strcmp(cmd, "sun") == 0) {
+        if (n != 8 || !parse_floats(tok, 1, 7, f)) { SDL_Log("level_load:%d: bad sun line", line_no); return true; }
+        lk->sun_dir = v3(f[0], f[1], f[2]); lk->sun_intensity = f[3]; lk->sun_color = v3(f[4], f[5], f[6]);
+    } else if (strcmp(cmd, "ambient") == 0) {
+        if (n != 7 || !parse_floats(tok, 1, 6, f)) { SDL_Log("level_load:%d: bad ambient line", line_no); return true; }
+        lk->sky_ambient = v3(f[0], f[1], f[2]); lk->ground_ambient = v3(f[3], f[4], f[5]);
+    } else if (strcmp(cmd, "fogv") == 0) {
+        if (n != 9 || !parse_floats(tok, 1, 8, f)) { SDL_Log("level_load:%d: bad fogv line", line_no); return true; }
+        lk->fog_color = v3(f[0], f[1], f[2]); lk->fog_density = f[3]; lk->fog_base = f[4];
+        lk->fog_falloff = f[5]; lk->fog_scatter = f[6]; lk->fog_start = f[7];
+    } else if (strcmp(cmd, "sky") == 0) {
+        if (n != 13 || !parse_floats(tok, 1, 12, f)) { SDL_Log("level_load:%d: bad sky line", line_no); return true; }
+        lk->sky_zenith = v3(f[0], f[1], f[2]); lk->sky_horizon = v3(f[3], f[4], f[5]); lk->sky_ground = v3(f[6], f[7], f[8]);
+        lk->sun_glow = f[9]; lk->stars = f[10]; lk->sky_fog_blend = f[11];
+    } else if (strcmp(cmd, "toon") == 0) {
+        if (n != 4 || !parse_floats(tok, 1, 3, f)) { SDL_Log("level_load:%d: bad toon line", line_no); return true; }
+        lk->toon_softness = f[0]; lk->shadow_floor = f[1]; lk->rim_power = f[2];
+    } else if (strcmp(cmd, "grade") == 0) {
+        if (n != 6 || !parse_floats(tok, 1, 5, f)) { SDL_Log("level_load:%d: bad grade line", line_no); return true; }
+        lk->exposure = f[0]; lk->saturation = f[1]; lk->contrast = f[2]; lk->bloom = f[3]; lk->bloom_threshold = f[4];
+    } else if (strcmp(cmd, "lift") == 0 || strcmp(cmd, "gain") == 0) {
+        if (n != 4 || !parse_floats(tok, 1, 3, f)) { SDL_Log("level_load:%d: bad %s line", line_no, cmd); return true; }
+        if (cmd[0] == 'l') lk->lift = v3(f[0], f[1], f[2]); else lk->gain = v3(f[0], f[1], f[2]);
+    } else if (strcmp(cmd, "shadow") == 0) {
+        if (n < 2 || !parse_floats(tok, 1, 1, f)) { SDL_Log("level_load:%d: bad shadow line", line_no); return true; }
+        lk->shadow = f[0];
+    } else if (strcmp(cmd, "style") == 0) {
+        // style SNAP OUTLINE LEVELS PIXEL
+        float s[4] = { 0, 0, 0, 1 };
+        if (n < 5 || !parse_floats(tok, 1, 4, s)) { SDL_Log("level_load:%d: bad style line", line_no); return true; }
+        lk->style_snap = s[0]; lk->style_outline = s[1]; lk->style_levels = s[2]; lk->style_pixel = s[3];
+    } else if (strcmp(cmd, "pixel") == 0) {
+        // pixel SCALE [LEVELS] [OUTLINE] [PALETTE] [INNER]   (trailing fields keep their default; "pixel 0" turns the pass off)
+        float p[5] = { 3, 8, 1, 0, 0.6f };
+        int given = n - 1 > 5 ? 5 : n - 1;
+        if (given < 1 || !parse_floats(tok, 1, given, p)) { SDL_Log("level_load:%d: bad pixel line", line_no); return true; }
+        lk->pixel_scale = p[0]; lk->pixel_levels = p[1]; lk->pixel_outline = p[2]; lk->pixel_palette = p[3]; lk->pixel_inner = p[4];
+    } else if (strcmp(cmd, "daytime") == 0) {
+        // daytime HOUR   (0..24; the sun, sky and fog colour follow the clock)
+        if (n != 2 || !parse_floats(tok, 1, 1, f)) { SDL_Log("level_load:%d: bad daytime line", line_no); return true; }
+        lk->daytime = f[0];
+    } else if (strcmp(cmd, "look") == 0) {
+        if (n < 2) { SDL_Log("level_load:%d: bad look line", line_no); return true; }
+        const char *sub = tok[1];
+        if (strcmp(sub, "far") == 0) {
+            // look far METRES   (camera far plane in metres; default 80. A big open level needs ~600)
+            if (n != 3 || !parse_floats(tok, 2, 1, f) || f[0] < 1) { SDL_Log("level_load:%d: bad look line (want 'look far METRES')", line_no); return true; }
+            lk->view_far = f[0];
+        } else if (strcmp(sub, "res") == 0) {
+            // look res SCALE [nearest|linear]   (SCALE 0.25..1; the word defaults to linear)
+            if (n < 3 || !parse_floats(tok, 2, 1, f) || f[0] <= 0) { SDL_Log("level_load:%d: bad look res line", line_no); return true; }
+            lk->render_scale = f[0];
+            lk->render_nearest = 0;
+            if (n >= 4) {
+                if (strcmp(tok[3], "nearest") == 0) lk->render_nearest = 1;
+                else if (strcmp(tok[3], "linear") == 0) lk->render_nearest = 0;
+                else { SDL_Log("level_load:%d: bad look res filter '%s'", line_no, tok[3]); return true; }
+            }
+        } else if (strcmp(sub, "texcap") == 0) {
+            if (n != 3 || !parse_floats(tok, 2, 1, f)) { SDL_Log("level_load:%d: bad look texcap line", line_no); return true; }
+            lk->tex_cap = f[0];
+        } else if (strcmp(sub, "flat") == 0) {
+            if (n != 3 || !parse_floats(tok, 2, 1, f)) { SDL_Log("level_load:%d: bad look flat line", line_no); return true; }
+            lk->flat = f[0];
+        } else if (strcmp(sub, "grain") == 0) {
+            if (n != 3 || !parse_floats(tok, 2, 1, f)) { SDL_Log("level_load:%d: bad look grain line", line_no); return true; }
+            lk->grain = f[0];
+        } else if (strcmp(sub, "vignette") == 0) {
+            if (n != 3 || !parse_floats(tok, 2, 1, f)) { SDL_Log("level_load:%d: bad look vignette line", line_no); return true; }
+            lk->vignette = f[0];
+        } else if (strcmp(sub, "chroma") == 0) {
+            if (n != 3 || !parse_floats(tok, 2, 1, f)) { SDL_Log("level_load:%d: bad look chroma line", line_no); return true; }
+            lk->chroma = f[0];
+        } else if (strcmp(sub, "dither") == 0) {
+            if (n != 3 || !parse_floats(tok, 2, 1, f)) { SDL_Log("level_load:%d: bad look dither line", line_no); return true; }
+            lk->dither = f[0];
+        } else if (strcmp(sub, "ink") == 0) {
+            // look ink WIDTH [WOBBLE] [LUMA]   (trailing values keep their defaults 1 0 0)
+            float v[3] = { 1, 0, 0 };
+            int given = n - 2 > 3 ? 3 : n - 2;
+            if (given < 1 || !parse_floats(tok, 2, given, v)) { SDL_Log("level_load:%d: bad look ink line", line_no); return true; }
+            lk->ink_width = v[0]; lk->ink_wobble = v[1]; lk->ink_luma = v[2];
+        } else if (strcmp(sub, "hatch") == 0) {
+            if (n != 3 || !parse_floats(tok, 2, 1, f)) { SDL_Log("level_load:%d: bad look hatch line", line_no); return true; }
+            lk->hatch = f[0];
+        } else if (strcmp(sub, "paper") == 0) {
+            if (n != 3 || !parse_floats(tok, 2, 1, f)) { SDL_Log("level_load:%d: bad look paper line", line_no); return true; }
+            lk->paper = f[0];
+        } else if (strcmp(sub, "include") == 0) {
+            // look include FILE   (or FILE.txt): pulls in assets/looks/FILE.txt as if its lines were
+            // written here. Guards its own depth so a cyclic include can't recurse forever.
+            if (n != 3) { SDL_Log("level_load:%d: bad look include line", line_no); return true; }
+            if (depth >= LOOK_INCLUDE_MAX_DEPTH) { SDL_Log("level_load:%d: look include '%s' nested too deep, ignoring", line_no, tok[2]); return true; }
+
+            char name[96];
+            snprintf(name, sizeof name, "%s%s", tok[2], strchr(tok[2], '.') ? "" : ".txt");
+            char inc_path[768]; snprintf(inc_path, sizeof inc_path, "%s/looks/%s", HOLLOW_ASSET_DIR, name);
+            size_t inc_size = 0;
+            void *inc_data = SDL_LoadFile(inc_path, &inc_size);
+            if (!inc_data) { SDL_Log("level_load:%d: look include: could not read '%s': %s", line_no, inc_path, SDL_GetError()); return true; }
+            char *inc_buf = (char *)malloc(inc_size + 1);
+            if (!inc_buf) { SDL_free(inc_data); SDL_Log("level_load:%d: look include: out of memory", line_no); return true; }
+            memcpy(inc_buf, inc_data, inc_size);
+            inc_buf[inc_size] = '\0';
+            SDL_free(inc_data);
+
+            int inc_line_no = 0;
+            char *inc_save = NULL;
+            for (char *inc_line = SDL_strtok_r(inc_buf, "\n", &inc_save); inc_line; inc_line = SDL_strtok_r(NULL, "\n", &inc_save)) {
+                inc_line_no++;
+                char *hash = strchr(inc_line, '#');
+                if (hash) *hash = '\0';
+                size_t len = strlen(inc_line);
+                while (len > 0 && (inc_line[len - 1] == '\r' || inc_line[len - 1] == ' ' || inc_line[len - 1] == '\t')) inc_line[--len] = '\0';
+                char *inc_tok[32];
+                int inc_n = tokenize(inc_line, inc_tok, 32);
+                if (inc_n == 0) continue;
+                if (!parse_look_line(lk, inc_tok, inc_n, inc_line_no, name, depth + 1))
+                    SDL_Log("level_load: %s:%d: '%s' is not a look line (an included look file may only set the look)", name, inc_line_no, inc_tok[0]);
+            }
+            free(inc_buf);
+        } else {
+            SDL_Log("level_load:%d: unknown look sub-command '%s'", line_no, tok[1]);
+        }
+    } else {
+        return false;
+    }
+    return true;
+}
+
+// Apply assets/looks/NAME.txt on top of a level that has already loaded. The only caller is the
+// HOLLOW_LOOK env hook, whose whole job is shooting one view under several art styles without
+// editing the level; a level that wants a look for keeps writes `look include NAME` in its own text.
+void level_look_include(Level *lv, const char *name) {
+    char cmd[] = "look", sub[] = "include", file[96];
+    SDL_strlcpy(file, name, sizeof file);
+    char *tok[3] = { cmd, sub, file };
+    parse_look_line(&lv->look, tok, 3, 0, lv->path, 0);
+    lv->fog_color = lv->look.fog_color;
+}
+
 // Parse the whole file into `out`. Returns false and logs on any fatal (I/O) error;
 // bad individual lines are warned about and skipped, not fatal.
 static bool parse_level(Level *out, const char *path) {
@@ -118,7 +272,8 @@ static bool parse_level(Level *out, const char *path) {
         .exposure = 1.0f, .saturation = 1.1f, .contrast = 1.05f, .bloom = 0.35f, .bloom_threshold = 1.0f,
         .lift = v3(0.01f, 0.01f, 0.03f), .gain = v3(1, 1, 1),
         .pixel_scale = 3, .pixel_levels = 8, .pixel_outline = 1, .pixel_palette = 1, .pixel_inner = 0.6f, .shadow = 1.0f, .style_snap = 0, .style_outline = 0, .style_levels = 0, .style_pixel = 1, .cam_pitch = 36, .cam_dist = 14, .cam_fov = 32, .cam_yaw = -35, .view_far = 80,
-        .daytime = -1.0f };
+        .daytime = -1.0f,
+        .render_scale = 1, .render_nearest = 0, .tex_cap = 0, .flat = 0, .grain = 0, .vignette = 0.45f, .chroma = 0, .dither = 0, .ink_width = 1, .ink_wobble = 0, .ink_luma = 0, .hatch = 0, .paper = 0 };
 
     size_t size = 0;
     void *data = SDL_LoadFile(path, &size);
@@ -150,6 +305,13 @@ static bool parse_level(Level *out, const char *path) {
         if (n == 0) continue; // blank / comment-only line
 
         const char *cmd = tok[0];
+
+        // Every line that only sets how the level looks (sun/ambient/fogv/sky/toon/grade/lift/gain/
+        // shadow/style/pixel/daytime/look) is handled here, including a `look include` that pulls
+        // more of the same from assets/looks/. `fogv` inside it also lands in out->look.fog_color, so
+        // refresh the legacy out->fog_color mirror every time -- the old `fog` line below still wins
+        // if it comes later, same as before this line existed.
+        if (parse_look_line(&out->look, tok, n, line_no, path, 0)) { out->fog_color = out->look.fog_color; continue; }
 
         if (strcmp(cmd, "fog") == 0) {
             float f[5];
@@ -222,33 +384,6 @@ static bool parse_level(Level *out, const char *path) {
             // terrain FILE   (base name relative to assets/, e.g. levels/glade_terrain)
             if (n != 2) { SDL_Log("level_load:%d: bad terrain line", line_no); continue; }
             SDL_strlcpy(out->terrain_file, tok[1], sizeof out->terrain_file);
-        } else if (strcmp(cmd, "sun") == 0) {
-            float f[7];
-            if (n != 8 || !parse_floats(tok, 1, 7, f)) { SDL_Log("level_load:%d: bad sun line", line_no); continue; }
-            out->look.sun_dir = v3(f[0], f[1], f[2]); out->look.sun_intensity = f[3]; out->look.sun_color = v3(f[4], f[5], f[6]);
-        } else if (strcmp(cmd, "ambient") == 0) {
-            float f[6];
-            if (n != 7 || !parse_floats(tok, 1, 6, f)) { SDL_Log("level_load:%d: bad ambient line", line_no); continue; }
-            out->look.sky_ambient = v3(f[0], f[1], f[2]); out->look.ground_ambient = v3(f[3], f[4], f[5]);
-        } else if (strcmp(cmd, "fogv") == 0) {
-            float f[8];
-            if (n != 9 || !parse_floats(tok, 1, 8, f)) { SDL_Log("level_load:%d: bad fogv line", line_no); continue; }
-            out->look.fog_color = v3(f[0], f[1], f[2]); out->look.fog_density = f[3]; out->look.fog_base = f[4];
-            out->look.fog_falloff = f[5]; out->look.fog_scatter = f[6]; out->look.fog_start = f[7];
-            out->fog_color = out->look.fog_color;
-        } else if (strcmp(cmd, "sky") == 0) {
-            float f[12];
-            if (n != 13 || !parse_floats(tok, 1, 12, f)) { SDL_Log("level_load:%d: bad sky line", line_no); continue; }
-            out->look.sky_zenith = v3(f[0], f[1], f[2]); out->look.sky_horizon = v3(f[3], f[4], f[5]); out->look.sky_ground = v3(f[6], f[7], f[8]);
-            out->look.sun_glow = f[9]; out->look.stars = f[10]; out->look.sky_fog_blend = f[11];
-        } else if (strcmp(cmd, "toon") == 0) {
-            float f[3];
-            if (n != 4 || !parse_floats(tok, 1, 3, f)) { SDL_Log("level_load:%d: bad toon line", line_no); continue; }
-            out->look.toon_softness = f[0]; out->look.shadow_floor = f[1]; out->look.rim_power = f[2];
-        } else if (strcmp(cmd, "grade") == 0) {
-            float f[5];
-            if (n != 6 || !parse_floats(tok, 1, 5, f)) { SDL_Log("level_load:%d: bad grade line", line_no); continue; }
-            out->look.exposure = f[0]; out->look.saturation = f[1]; out->look.contrast = f[2]; out->look.bloom = f[3]; out->look.bloom_threshold = f[4];
         } else if (strcmp(cmd, "combat") == 0) {
             out->combat_realtime = n >= 2 && strcmp(tok[1], "realtime") == 0;
         } else if (strcmp(cmd, "view") == 0) {
@@ -263,34 +398,6 @@ static bool parse_level(Level *out, const char *path) {
             float f[4] = { 36, 14, 32, -35 };
             if (n < 4 || !parse_floats(tok, 1, n - 1 > 4 ? 4 : n - 1, f)) { SDL_Log("level_load:%d: bad camera line", line_no); continue; }
             out->look.cam_pitch = f[0]; out->look.cam_dist = f[1]; out->look.cam_fov = f[2]; out->look.cam_yaw = f[3];
-        } else if (strcmp(cmd, "style") == 0) {
-            // style SNAP OUTLINE LEVELS PIXEL
-            float f[4] = { 0, 0, 0, 1 };
-            if (n < 5 || !parse_floats(tok, 1, 4, f)) { SDL_Log("level_load:%d: bad style line", line_no); continue; }
-            out->look.style_snap = f[0]; out->look.style_outline = f[1]; out->look.style_levels = f[2]; out->look.style_pixel = f[3];
-        } else if (strcmp(cmd, "look") == 0) {
-            // look far F   (camera far plane in metres; default 80. A big open level needs ~600)
-            float f[1];
-            if (n != 3 || strcmp(tok[1], "far") != 0 || !parse_floats(tok, 2, 1, f) || f[0] < 1) { SDL_Log("level_load:%d: bad look line (want 'look far METRES')", line_no); continue; }
-            out->look.view_far = f[0];
-        } else if (strcmp(cmd, "shadow") == 0) {
-            float f[1]; if (n < 2 || !parse_floats(tok, 1, 1, f)) { SDL_Log("level_load:%d: bad shadow line", line_no); continue; }
-            out->look.shadow = f[0];
-        } else if (strcmp(cmd, "pixel") == 0) {
-            // pixel SCALE [LEVELS] [OUTLINE] [PALETTE] [INNER]   (trailing fields keep their default; "pixel 0" turns the pass off)
-            float f[5] = { 3, 8, 1, 0, 0.6f };
-            int given = n - 1 > 5 ? 5 : n - 1;
-            if (given < 1 || !parse_floats(tok, 1, given, f)) { SDL_Log("level_load:%d: bad pixel line", line_no); continue; }
-            out->look.pixel_scale = f[0]; out->look.pixel_levels = f[1]; out->look.pixel_outline = f[2]; out->look.pixel_palette = f[3]; out->look.pixel_inner = f[4];
-        } else if (strcmp(cmd, "daytime") == 0) {
-            // daytime HOUR   (0..24; the sun, sky and fog colour follow the clock)
-            float f[1];
-            if (n != 2 || !parse_floats(tok, 1, 1, f)) { SDL_Log("level_load:%d: bad daytime line", line_no); continue; }
-            out->look.daytime = f[0];
-        } else if (strcmp(cmd, "lift") == 0 || strcmp(cmd, "gain") == 0) {
-            float f[3];
-            if (n != 4 || !parse_floats(tok, 1, 3, f)) { SDL_Log("level_load:%d: bad %s line", line_no, cmd); continue; }
-            if (cmd[0] == 'l') out->look.lift = v3(f[0], f[1], f[2]); else out->look.gain = v3(f[0], f[1], f[2]);
         } else if (strcmp(cmd, "prop") == 0) {
             // prop FILE x y z yaw scale [tint r g b] [glow r g b] [collide R]
             float f[5];
@@ -511,6 +618,18 @@ bool level_save(const Level *lv, const char *path) {
     fprintf(f, "pixel    %.0f %.0f %.2f %.0f %.2f\n", lk->pixel_scale, lk->pixel_levels, lk->pixel_outline, lk->pixel_palette, lk->pixel_inner);
     fprintf(f, "shadow   %.2f\n", lk->shadow);
     if (lk->view_far != 80.0f) fprintf(f, "look far %.1f\n", lk->view_far);
+    if (lk->render_scale != 1.0f || lk->render_nearest != 0.0f)
+        fprintf(f, "look res %.3f %s\n", lk->render_scale, lk->render_nearest != 0.0f ? "nearest" : "linear");
+    if (lk->tex_cap != 0.0f)  fprintf(f, "look texcap %.0f\n", lk->tex_cap);
+    if (lk->flat != 0.0f)     fprintf(f, "look flat %.3f\n", lk->flat);
+    if (lk->grain != 0.0f)    fprintf(f, "look grain %.3f\n", lk->grain);
+    if (lk->vignette != 0.45f) fprintf(f, "look vignette %.3f\n", lk->vignette);
+    if (lk->chroma != 0.0f)   fprintf(f, "look chroma %.3f\n", lk->chroma);
+    if (lk->dither != 0.0f)   fprintf(f, "look dither %.3f\n", lk->dither);
+    if (lk->ink_width != 1.0f || lk->ink_wobble != 0.0f || lk->ink_luma != 0.0f)
+        fprintf(f, "look ink %.3f %.3f %.3f\n", lk->ink_width, lk->ink_wobble, lk->ink_luma);
+    if (lk->hatch != 0.0f)    fprintf(f, "look hatch %.3f\n", lk->hatch);
+    if (lk->paper != 0.0f)    fprintf(f, "look paper %.3f\n", lk->paper);
     fprintf(f, "style    %.2f %.2f %.0f %.0f\n", lk->style_snap, lk->style_outline, lk->style_levels, lk->style_pixel);
     fprintf(f, "camera   %.0f %.1f %.0f %.0f\n", lk->cam_pitch, lk->cam_dist, lk->cam_fov, lk->cam_yaw);
     if (lk->daytime >= 0) fprintf(f, "daytime  %.2f\n", lk->daytime);

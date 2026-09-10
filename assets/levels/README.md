@@ -83,11 +83,38 @@ sinks below what the scene asked for, which is how an actor climbs out of a boat
                                                # island uses 600). The sun shadow map is fitted to the visible range
                                                # and fades out at its own edge, so raising this costs draws, not shadows.
                                                # Keep `fogv` thick enough to hide whatever the far plane now reveals.
+    look res   scale [nearest|linear]          # internal render resolution, 1 = full (1280x800), 0.25..1 = upscaled from
+                                               # fewer shaded pixels; the word picks the upscale filter (default linear)
+    look texcap pixels                         # cap every texture's longest edge at this many pixels (0 = engine default);
+                                               # VRAM and bandwidth, not a look on its own
+    look flat  amount                          # 0..1 blend every material toward its own texture's mean colour, so a
+                                               # photoscan and a hand-made box read as the same kind of surface
+    look grain amount                          # 0..1 film grain; small reads, 0.02 is already visible
+    look vignette amount                       # 0..2 corner darkening (default 0.45)
+    look chroma pixels                         # 0..4 chromatic aberration at the frame's corners (cheap-lens look)
+    look dither amount                         # 0..0.2 ordered 4x4 dither added before the `style` colour crunch;
+                                               # roughly 1/LEVELS hides banding from a low `style ... LEVELS ...`
+    look ink   width [wobble] [luma]           # ink line width in pixels (1 = the old one-pixel depth ink); wobble is
+                                               # how far the sample point wanders in pixels, stepped at 8 Hz so lines
+                                               # "boil"; luma 0..1 adds a screen-luminance edge for interior creases
+                                               # (a folded arm, a window in a wall) that the depth edge cannot see.
+                                               # Trailing values keep their defaults (1 0 0).
+    look hatch amount                          # 0..1 screen-space crossed hatching where the frame is already dark
+    look paper amount                          # 0..1 paper texture (assets/textures/paper.png) multiplied over the frame
+    look include file                          # pulls in assets/looks/FILE.txt (FILE or FILE.txt, either works) and
+                                               # applies its lines as if they were written here -- everything before the
+                                               # include is overridden by it, everything after wins over it. An included
+                                               # file may only contain look lines (the ones on this page), plus comments
+                                               # and blank lines. See assets/looks/README.md for the three candidate looks.
     combat   cards|realtime                    # the boss fight: card battle with rhythm parries (default) or the third-person action fight
     view     top|third                         # overworld view: the fixed camera line (default) or behind the hero with mouse look (third person)
     camera   pitch dist fov [yaw]              # overworld camera: 36 14 32 -35 isometric (default), 25 9 50 closer over the shoulder
     style    snap outline levels pixel         # world style layer: snap the whole frame to the palette 0..1, ink depth edges 0..1,
-                                               # colour levels (0 = palette instead), world pixel size (1 = off, 2..4 = pixel-art world)
+                                               # colour levels (0 = palette instead), world pixel size (1 = off, 2..4 = pixel-art world).
+                                               # The ink test is a RELATIVE depth step (dz/z), not an absolute one, so one
+                                               # outline setting works at 8 m and at 200 m; past about 250 m the depth buffer
+                                               # has no precision left and nothing is inked, which is what stops the horizon
+                                               # coming out as a black bar. `look ink` sets its width, wobble and luma edge.
     pixel    scale [levels] [outline] [palette] [inner] # 3D characters as pixel art: scale = screen pixels per art pixel (0 off),
                                                # levels = colours per channel when palette is 0, palette 1 = snap to Endesga 32,
                                                # outline 0..1 = dark silhouette line, inner 0..1 = crease lines.

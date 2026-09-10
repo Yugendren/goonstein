@@ -95,6 +95,20 @@ typedef struct Look {
     float cam_pitch, cam_dist, cam_fov, cam_yaw;                                   // overworld camera (degrees, metres, degrees, degrees)
     float daytime;   // hour of the clock 0..24 driving the sun and sky (see daylight.h); negative = use the values above
     float view_far;  // camera far plane in metres (`look far F`); 80 is the village default, ~600 for a 300 m island
+
+    // The three candidate art directions, all off by default (see assets/looks/README.md).
+    float render_scale;    // internal render resolution, 1 = full (1280x800), 0.5 = 640x400 upscaled
+    float render_nearest;  // 1 = upscale that low-res frame with nearest neighbour, 0 = bilinear
+    float tex_cap;         // cap every texture's longest edge at this many pixels (0 = engine default)
+    float flat;            // 0..1 blend every material toward its texture's mean colour
+    float grain, vignette; // film grain amount and vignette strength (grain 0 and vignette 0.45 are the old hardcoded values)
+    float chroma;          // chromatic aberration at the frame's corners, in pixels
+    float dither;          // ordered 4x4 dither added before the `style` colour crunch
+    float ink_width;       // ink line width in pixels (1 = the old one-pixel depth ink)
+    float ink_wobble;      // ink sample wobble in pixels, stepped at 8 Hz, so lines "boil"
+    float ink_luma;        // 0..1 weight of a luminance edge added to the depth edge (interior creases)
+    float hatch;           // 0..1 screen-space hatching where the frame is already dark
+    float paper;           // 0..1 paper texture multiplied over the frame
 } Look;
 
 typedef struct Level {
@@ -124,6 +138,7 @@ typedef struct Level {
 
 // Parse a level file. Returns false and logs on error; on error *lv is left untouched.
 bool level_load(Level *lv, const char *path);
+void level_look_include(Level *lv, const char *name);   // apply assets/looks/NAME.txt over an already-loaded level (HOLLOW_LOOK)
 // Write the level back to disk in the text format level_load reads. Comments in the original file
 // are not preserved. Returns false and logs on failure.
 bool level_save(const Level *lv, const char *path);

@@ -1,0 +1,26 @@
+# CLEAN FLAT COLOUR -- the Peak / Roblox family.
+#
+# Full resolution, hard toon bands, thick black ink, and every material collapsed to its own mean
+# colour so nothing in the world is a photograph any more. The photoscans stay loaded (they still
+# decide each surface's colour) but stop contributing detail, which is what makes a scan and a
+# hand-made box look like they belong to the same game.
+#
+# `look include flat` in a level, or paste these lines.
+
+look res      1.0
+look flat     0.60           # blend each material two thirds of the way to its texture's mean colour.
+                             # Not 1.0: our characters are one texture atlas each, so at 1.0 a goon
+                             # becomes a single orange silhouette and a face stops being a face.
+look ink      3 0 0.35       # 3 px wide, no wobble, plus a light luminance edge for interior creases
+look vignette 0.25           # nearly none: this look is supposed to read as clean
+
+fogv     0.62 0.70 0.80   0.0035  0.0  0.020  0.30  60
+                             # thin and pale: distance is depth cueing here, not atmosphere
+toon     0.02 0.42 2.4       # hard band edges, a bright shadow floor -- shade is a colour, not darkness
+grade    1.16 1.20 1.06 0.0 1.0
+                             # saturated and bloom-free; the colour does the work
+lift     0.020 0.024 0.030
+gain     1.03 1.02 1.00
+style    0 1.0 0 1           # depth-edge ink at full strength, no colour crunch, no pixelation
+pixel    0                   # characters are drawn at full resolution like everything else
+shadow   0.75                # softened: a hard sun shadow fights the flat fills

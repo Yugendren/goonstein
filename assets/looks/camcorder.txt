@@ -1,0 +1,28 @@
+# CAMCORDER 2006 -- the Lethal Company / found-footage family.
+#
+# The whole frame is rendered at 640x400 and blown up with nearest neighbour, so every pixel on
+# screen is four. That is the cheapest lever in the engine and the only one of the three candidates
+# that makes the game FASTER rather than prettier: a weak GPU shades a quarter of the fragments.
+# Everything else here is there to make that low resolution look deliberate instead of broken --
+# a dirty lens, a 32-level colour crunch dithered so the dusk sky does not band, and fog thick
+# enough that the far plane never has to prove itself.
+#
+# Paste these lines into a level, or write `look include camcorder` and leave it at that.
+
+look res      0.5 nearest    # 640x400 internal, hard pixels on the way up
+look texcap   256            # no albedo bigger than 256 px: VRAM and bandwidth, not looks
+look chroma   1.1            # red and blue drift apart toward the corners (cheap lens, composite cable)
+look dither   0.035          # ~1/32, pairs with the 32 colour levels below
+look vignette 0.85           # the lens darkening the corners, not a filter
+look grain    0.012          # barely there. Set it to 0 if you hate grain; nothing else depends on it.
+
+fogv     0.44 0.42 0.46   0.0165  0.0  0.020  0.35  10
+                             # heavy dusk haze: full at 60 m, so the 600 m far plane is never seen
+grade    0.92 0.86 1.12 0.0 1.0
+                             # bloom 0 -- and at 0 the engine skips the bright pass and both blurs entirely
+toon     0.30 0.22 3.0       # soft bands: a camcorder has no edges to speak of
+lift     0.020 0.018 0.026
+gain     1.02 0.99 0.96      # a hair cold, like a cheap CCD at dusk
+style    1 0 32 1            # snap 1, no ink, 32 colour levels, no world pixelation
+pixel    0                   # no pixel-art character pass: the whole frame is already low-res
+shadow   0.85

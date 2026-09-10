@@ -13,7 +13,7 @@ typedef struct PVertex { float pos[3], uv[2], color[4]; } PVertex;      // parti
 typedef struct UIVertex { float pos[2], uv[2], color[4]; } UIVertex;
 
 typedef struct Mesh { SDL_GPUBuffer *vb, *ib; Uint32 index_count; } Mesh;
-typedef struct Texture { SDL_GPUTexture *tex; int w, h; } Texture;
+typedef struct Texture { SDL_GPUTexture *tex; int w, h; float mean[3]; } Texture;   // mean = average sRGB colour, for `look flat`
 
 #define GFX_MAX_LIGHTS 16
 typedef struct PointLight { Vec3 pos; float radius; Vec3 color; float intensity; } PointLight;
@@ -41,6 +41,14 @@ typedef struct PostParams {
     Vec3  lift, gain;
     float bloom_threshold, bloom_knee;
     float style_snap, style_outline, style_levels, style_pixel;   // world style layer: palette snap, depth-edge ink, colour levels, pixel size
+    // camcorder / flat / sketch layers; all zero = the plain look
+    float ink_width;    // depth+luma edge width in pixels (1 = the old one-pixel ink)
+    float ink_wobble;   // edge sample wobble in pixels, stepped at 8 Hz ("boiling" lines)
+    float ink_luma;     // 0..1 weight of the luminance edge added to the depth edge
+    float paper;        // 0..1 paper texture multiplied over the frame
+    float chroma;       // chromatic aberration at the corners, in pixels
+    float dither;       // ordered 4x4 dither added before the colour crunch
+    float hatch;        // 0..1 screen-space hatching in the shadows
 } PostParams;
 
 #define UI_MAX_VERTS 262144
@@ -50,7 +58,12 @@ typedef struct PostParams {
 
 typedef struct Gfx {
     SDL_GPUDevice *dev;
-    int iw, ih;                                   // internal resolution
+    int iw, ih;                                   // internal render resolution (gfx_set_render_scale)
+    int uiw, uih;                                  // fixed UI coordinate space gfx_init was called with; never changes
+    float render_scale; bool render_nearest;       // gfx_set_render_scale
+    int tex_cap;                                   // gfx_set_texture_cap; 0 = no override
+    float flat;                                    // gfx_set_flat: 0..1 blend of every material toward its texture's mean colour
+    Texture paper;                                 // repeating paper grain for the sketch look (assets/textures/paper.png)
     SDL_GPUTexture *hdr, *depth, *ldr, *bloom_a, *bloom_b;
     int bw, bh;                                   // bloom resolution
     // pixel-art character layer: a small target whose texels become art pixels (see gfx_pixel_begin)
@@ -94,6 +107,15 @@ typedef struct Gfx {
 
 bool gfx_init(Gfx *g, Platform *pf, int internal_w, int internal_h);
 void gfx_shutdown(Gfx *g);
+// Internal render resolution as a fraction (0.25..1) of the fixed UI space gfx_init was called
+// with; the UI itself stays crisp at full size. nearest picks hard-edged upscale blit over the
+// default soft bilinear one. Rebuilds the render targets, so only call this between frames.
+void gfx_set_render_scale(Gfx *g, float scale, bool nearest);
+// Caps every subsequently loaded texture's longest edge; 0 disables the cap. A memory/bandwidth
+// lever for weak hardware, not a look.
+void gfx_set_texture_cap(Gfx *g, int cap);
+// `look flat`: blend every lit material toward its bound texture's mean colour, 0..1.
+void gfx_set_flat(Gfx *g, float amount);
 
 Mesh    gfx_mesh_create(Gfx *g, const Vertex *v, Uint32 nv, const Uint16 *idx, Uint32 ni);
 Mesh    gfx_skinned_mesh_create(Gfx *g, const SkinVertex *v, Uint32 nv, const Uint16 *idx, Uint32 ni);

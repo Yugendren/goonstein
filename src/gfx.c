@@ -28,9 +28,9 @@ typedef struct FrameUniforms {
     Sint32 counts[4];
     Mat4 sun_vp; Vec4 shadow;
 } FrameUniforms;
-typedef struct MaterialUniforms { Vec4 tint, emissive, rim, water; } MaterialUniforms;
+typedef struct MaterialUniforms { Vec4 tint, emissive, rim, water, flat; } MaterialUniforms;
 typedef struct SkyUniforms { Mat4 inv_view_proj; Vec4 cam_pos, sun_dir, sun_color, zenith, horizon, ground, params, fog_color; } SkyUniforms;
-typedef struct PostUniforms { Vec4 params, res, flash, grade, lift, gain, style; Vec4 pal[64]; Sint32 npal[4]; } PostUniforms;
+typedef struct PostUniforms { Vec4 params, res, flash, grade, lift, gain, style, ink, film; Vec4 pal[64]; Sint32 npal[4]; } PostUniforms;
 typedef struct PixUniforms { Vec4 res, offset, params; Vec4 pal[64]; Sint32 npal[4]; } PixUniforms;
 
 // ---------------------------------------------------------------- shaders and helpers
@@ -129,6 +129,18 @@ void gfx_mesh_destroy(Gfx *g, Mesh *m) {
 
 Texture gfx_texture_create(Gfx *g, const unsigned char *rgba, int w, int h) {
     Texture t = { .w = w, .h = h };
+    // Average colour, for `look flat`. Opaque texels only: a cutout leaf texture is mostly
+    // transparent, and averaging the transparent texels in would drag every plant toward black.
+    {
+        long sum[3] = {0, 0, 0}, sum_all[3] = {0, 0, 0}; long n = 0, n_all = (long)w * h;
+        for (long i = 0; i < n_all; i++) {
+            const unsigned char *p = rgba + i * 4;
+            sum_all[0] += p[0]; sum_all[1] += p[1]; sum_all[2] += p[2];
+            if (p[3] >= 128) { sum[0] += p[0]; sum[1] += p[1]; sum[2] += p[2]; n++; }
+        }
+        if (n == 0) { n = n_all; sum[0] = sum_all[0]; sum[1] = sum_all[1]; sum[2] = sum_all[2]; }
+        if (n > 0) { t.mean[0] = (float)sum[0] / n / 255.0f; t.mean[1] = (float)sum[1] / n / 255.0f; t.mean[2] = (float)sum[2] / n / 255.0f; }
+    }
     t.tex = SDL_CreateGPUTexture(g->dev, &(SDL_GPUTextureCreateInfo){
         .type = SDL_GPU_TEXTURETYPE_2D, .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER,
         .width = (Uint32)w, .height = (Uint32)h, .layer_count_or_depth = 1, .num_levels = 1 });
@@ -143,6 +155,9 @@ Texture gfx_texture_create(Gfx *g, const unsigned char *rgba, int w, int h) {
 }
 
 Texture gfx_texture_load(Gfx *g, const char *path, int max_size) {
+    // A memory and bandwidth lever for weak hardware, not a look: a 2k albedo on a 640x400 frame
+    // is never more than a few texels per pixel of waste.
+    if (g->tex_cap > 0 && max_size > g->tex_cap) max_size = g->tex_cap;
     int w, h, n; unsigned char *px = stbi_load(path, &w, &h, &n, 4);
     if (!px) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "texture load failed: %s", path); return g->white; }
     int f = 1; while ((w / f) > max_size || (h / f) > max_size) f *= 2;
@@ -252,6 +267,8 @@ static SDL_GPUGraphicsPipeline *make_pipe(Gfx *g, const char *name, const PipeDe
 bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     memset(g, 0, sizeof *g);
     g->dev = pf->gpu; g->iw = iw; g->ih = ih; g->bw = iw / 4; g->bh = ih / 4;
+    g->uiw = iw; g->uih = ih;   // fixed UI coordinate space; gfx_set_render_scale never touches this
+    g->render_scale = 1.0f;
     SDL_Log("gfx: %dx%d internal on GPU driver '%s'", iw, ih, SDL_GetGPUDeviceDriver(g->dev));
     log_format_support(g, "HDR colour target (RGBA16F)", HDR_FMT, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
     log_format_support(g, "LDR colour target (RGBA8)", LDR_FMT, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
@@ -283,7 +300,7 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     SDL_GPUShader *fs_vs = load_shader(g, "fs.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 0);
     SDL_GPUShader *bright_fs = load_shader(g, "bright.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
     SDL_GPUShader *blur_fs = load_shader(g, "blur.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
-    SDL_GPUShader *post_fs = load_shader(g, "post.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1);
+    SDL_GPUShader *post_fs = load_shader(g, "post.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 1);
     SDL_GPUShader *blit_fs = load_shader(g, "blit.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0);
     SDL_GPUShader *pixcomp_fs = load_shader(g, "pixcomp.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
     SDL_GPUShader *ui_vs = load_shader(g, "ui.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
@@ -390,6 +407,9 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->ui2_scale = 1;
     { char fp[512]; snprintf(fp, sizeof fp, "%s/fonts/VT323-Regular.ttf", HOLLOW_ASSET_DIR); size_t n = 0; g->ttf = SDL_LoadFile(fp, &n);
       if (!g->ttf) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "tool font missing (%s); using the debug font", fp); }
+    // Sketch look's paper grain. Missing file falls back to g->white, which makes the paper layer
+    // a no-op (gfx_texture_load_exact already logs the failure).
+    { char fp[512]; snprintf(fp, sizeof fp, "%s/textures/paper.png", HOLLOW_ASSET_DIR); g->paper = gfx_texture_load_exact(g, fp); }
     return true;
 }
 
@@ -414,6 +434,7 @@ void gfx_shutdown(Gfx *g) {
     if (g->por_hdr) SDL_ReleaseGPUTexture(g->dev, g->por_hdr); if (g->por_depth) SDL_ReleaseGPUTexture(g->dev, g->por_depth);
     if (g->por_comp) SDL_ReleaseGPUTexture(g->dev, g->por_comp); if (g->por_comp_depth) SDL_ReleaseGPUTexture(g->dev, g->por_comp_depth);
     if (g->portrait.tex) SDL_ReleaseGPUTexture(g->dev, g->portrait.tex);
+    gfx_texture_destroy(g, &g->paper);
     SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_pixcomp);
 }
 
@@ -422,11 +443,12 @@ void gfx_shutdown(Gfx *g) {
 static void push_frame_uniforms(Gfx *g, const FrameParams *fp);
 static void fill_palette(Gfx *g, Vec4 *pal, Sint32 *npal);
 static void fullscreen_pass(Gfx *g, SDL_GPUCommandBuffer *cmd, SDL_GPUGraphicsPipeline *pipe, SDL_GPUTexture *dst, const SDL_GPUTextureSamplerBinding *samplers, Uint32 nsamplers, const void *uniforms, Uint32 usize, const SDL_GPUViewport *vpt);
-static void push_material(Gfx *g, Vec4 tint) {
+static void push_material(Gfx *g, Vec4 tint, const Texture *t) {
     const Material *m = &g->material;
     MaterialUniforms u = { .tint = v4(tint.x * m->tint.x, tint.y * m->tint.y, tint.z * m->tint.z, tint.w * m->tint.w),
                            .emissive = v4(m->emissive.x, m->emissive.y, m->emissive.z, m->unlit), .rim = v4(m->rim_color.x, m->rim_color.y, m->rim_color.z, m->rim),
-                           .water = v4(m->water, m->water_origin.x, m->water_origin.y, m->water_origin.z) };
+                           .water = v4(m->water, m->water_origin.x, m->water_origin.y, m->water_origin.z),
+                           .flat = v4(t ? t->mean[0] : 1.0f, t ? t->mean[1] : 1.0f, t ? t->mean[2] : 1.0f, g->flat) };
     SDL_PushGPUFragmentUniformData(g->cmd, 1, &u, sizeof u);
 }
 
@@ -467,7 +489,7 @@ static void push_frame_uniforms(Gfx *g, const FrameParams *fp) {
     }
     SDL_PushGPUFragmentUniformData(g->cmd, 0, &u, sizeof u);
     memcpy(g->frame_uniforms, &u, sizeof u); g->frame_uniforms_size = sizeof u;
-    push_material(g, v4(1, 1, 1, 1));
+    push_material(g, v4(1, 1, 1, 1), NULL);
 }
 
 // ---------------------------------------------------------------- sun shadow map
@@ -539,11 +561,15 @@ void gfx_portrait_end(Gfx *g) {
     }
     // tone map into the UI texture (neutral grade)
     {
+        // designated initializers keep ink/film zero except ink.x: a portrait keeps a one-pixel
+        // ink width if outlines are ever turned on for it.
         PostUniforms u = { .params = v4(0, 0, 0, 1), .res = v4((float)g->por_size, (float)g->por_size, 0, 0), .flash = v4(0, 0, 0, 0),
-                           .grade = v4(1, 1, 1, 0), .lift = v4(0, 0, 0, 0), .gain = v4(1, 1, 1, 0), .style = v4(0, 0, 0, 1) };
+                           .grade = v4(1, 1, 1, 0), .lift = v4(0, 0, 0, 0), .gain = v4(1, 1, 1, 0), .style = v4(0, 0, 0, 1),
+                           .ink = v4(1, 0, 0, 0) };
         fill_palette(g, u.pal, u.npal);
-        SDL_GPUTextureSamplerBinding sb[3] = { { .texture = g->por_comp, .sampler = g->samp_nearest }, { .texture = g->por_comp, .sampler = g->samp_nearest }, { .texture = g->por_comp_depth, .sampler = g->samp_nearest } };
-        fullscreen_pass(g, g->cmd, g->pipe_post, g->portrait.tex, sb, 3, &u, sizeof u, NULL);
+        SDL_GPUTextureSamplerBinding sb[4] = { { .texture = g->por_comp, .sampler = g->samp_nearest }, { .texture = g->por_comp, .sampler = g->samp_nearest },
+                                                { .texture = g->por_comp_depth, .sampler = g->samp_nearest }, { .texture = g->paper.tex, .sampler = g->samp_linear } };
+        fullscreen_pass(g, g->cmd, g->pipe_post, g->portrait.tex, sb, 4, &u, sizeof u, NULL);
     }
 }
 
@@ -598,7 +624,7 @@ static void fill_palette(Gfx *g, Vec4 *pal, Sint32 *npal) { memcpy(pal, g->palet
 
 static void repush_frame(Gfx *g) {
     SDL_PushGPUFragmentUniformData(g->cmd, 0, g->frame_uniforms, g->frame_uniforms_size);
-    push_material(g, v4(1, 1, 1, 1));
+    push_material(g, v4(1, 1, 1, 1), NULL);
     g->bound_pipe = NULL; g->bound_tex = NULL;
 }
 
@@ -638,6 +664,33 @@ void gfx_pixel_end(Gfx *g) {
 
 void gfx_set_material(Gfx *g, const Material *m) { g->material = m ? *m : material_default(); }
 void gfx_set_sprite_lean(Gfx *g, float lean) { g->sprite_lean = lean; }
+void gfx_set_texture_cap(Gfx *g, int cap) { g->tex_cap = cap; }
+void gfx_set_flat(Gfx *g, float amount) { g->flat = clampf(amount, 0, 1); }
+
+// Internal render resolution, independent of the fixed uiw/uih the UI is laid out in. SDL_GPU
+// defers texture release until the GPU is done with the old ones, so this is safe to call between
+// frames; the pass/shadow/portrait guard below is only against calling it mid-frame.
+void gfx_set_render_scale(Gfx *g, float scale, bool nearest) {
+    if (g->pass || g->in_shadow || g->in_portrait) return;
+    if (scale < 0.25f) scale = 0.25f; if (scale > 1.0f) scale = 1.0f;
+    int w = (int)(g->uiw * scale + 0.5f), h = (int)(g->uih * scale + 0.5f);
+    w &= ~1; h &= ~1;   // even, so the quarter-res bloom targets stay whole
+    if (w == g->iw && h == g->ih) { g->render_scale = scale; g->render_nearest = nearest; return; }
+    SDL_ReleaseGPUTexture(g->dev, g->hdr); SDL_ReleaseGPUTexture(g->dev, g->depth); SDL_ReleaseGPUTexture(g->dev, g->ldr);
+    SDL_ReleaseGPUTexture(g->dev, g->bloom_a); SDL_ReleaseGPUTexture(g->dev, g->bloom_b);
+    g->iw = w; g->ih = h; g->bw = w / 4; g->bh = h / 4;
+    g->hdr = make_target(g, HDR_FMT, w, h, false);
+    g->depth = make_target(g, DEPTH_FMT, w, h, true);
+    g->ldr = make_target(g, LDR_FMT, w, h, false);
+    g->bloom_a = make_target(g, HDR_FMT, g->bw, g->bh, false);
+    g->bloom_b = make_target(g, HDR_FMT, g->bw, g->bh, false);
+    // the pixel-art layer is sized off g->iw/scale inside gfx_set_pixel_look, which early-outs
+    // when its scale argument is unchanged: force a rebuild at the new size.
+    if (g->pix) { SDL_ReleaseGPUTexture(g->dev, g->pix); g->pix = NULL; }
+    if (g->pix_depth) { SDL_ReleaseGPUTexture(g->dev, g->pix_depth); g->pix_depth = NULL; }
+    g->pixel_scale = 0;
+    g->render_scale = scale; g->render_nearest = nearest;
+}
 
 // Returns false for a pipeline the driver refused at startup, and every caller drops the draw.
 // Binding NULL and drawing anyway trips SDL's "Graphics pipeline not bound!" assert, which with
@@ -660,7 +713,7 @@ void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Ve
     if (!bind_pipe(g, g->in_shadow ? g->pipe_shadow : g->pipe_world)) return;
     VSUniforms u = { g->frame.view_proj, model, uv_xform, v4(g->planar_next ? 1.0f : 0.0f, 0, 0, 0) };
     SDL_PushGPUVertexUniformData(g->cmd, 0, &u, sizeof u);
-    if (!g->in_shadow) push_material(g, tint);
+    if (!g->in_shadow) push_material(g, tint, t);
     bind_tex(g, t, g->samp_linear);
     SDL_BindGPUVertexBuffers(g->pass, 0, &(SDL_GPUBufferBinding){ .buffer = m->vb }, 1);
     SDL_BindGPUIndexBuffer(g->pass, &(SDL_GPUBufferBinding){ .buffer = m->ib }, SDL_GPU_INDEXELEMENTSIZE_16BIT);
@@ -677,7 +730,7 @@ void gfx_draw_skinned(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 
     memset(tmp, 0, sizeof tmp);
     memcpy(tmp, joints, (size_t)(njoints > 64 ? 64 : njoints) * sizeof(Mat4));
     SDL_PushGPUVertexUniformData(g->cmd, 1, tmp, sizeof tmp);
-    if (!g->in_shadow) push_material(g, tint);
+    if (!g->in_shadow) push_material(g, tint, t);
     bind_tex(g, t, g->samp_linear);
     SDL_BindGPUVertexBuffers(g->pass, 0, &(SDL_GPUBufferBinding){ .buffer = m->vb }, 1);
     SDL_BindGPUIndexBuffer(g->pass, &(SDL_GPUBufferBinding){ .buffer = m->ib }, SDL_GPU_INDEXELEMENTSIZE_16BIT);
@@ -722,7 +775,7 @@ void gfx_draw_sprite(Gfx *g, const Texture *t, Vec3 foot, float w, float h, cons
     VSUniforms vu = { g->frame.view_proj, m, xf, v4(0, 0, 0, 0) };
     SDL_PushGPUVertexUniformData(g->cmd, 0, &vu, sizeof vu);
     Material saved = g->material; if (g->material.unlit <= 0) g->material.unlit = 0.8f;
-    push_material(g, tint); g->material = saved;
+    push_material(g, tint, t); g->material = saved;
     // nearest sampling for crisp pixels; force a rebind since the sampler differs
     SDL_BindGPUFragmentSamplers(g->pass, 0, &(SDL_GPUTextureSamplerBinding){ .texture = t->tex, .sampler = g->samp_nearest }, 1);
     g->bound_tex = NULL;
@@ -1014,8 +1067,10 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
     }
     SDL_EndGPURenderPass(g->pass); g->pass = NULL;
 
-    // Bloom: bright extract to quarter res, then two blur ping-pongs
-    {
+    // Bloom: bright extract to quarter res, then two blur ping-pongs. Skipped entirely at bloom 0
+    // -- four full-screen passes a level that wants no bloom no longer pays for. post.frag already
+    // skips the bloom fetch when grade.w is zero, so the stale bloom_a target is never read.
+    if (pp->bloom > 0.0f) {
         Vec4 bp = v4(pp->bloom_threshold, pp->bloom_knee, 0, 0);
         fullscreen_pass(g, pf->cmd, g->pipe_bright, g->bloom_a, &(SDL_GPUTextureSamplerBinding){ .texture = g->hdr, .sampler = g->samp_clamp }, 1, &bp, sizeof bp, NULL);
         for (int i = 0; i < 2; i++) {
@@ -1030,10 +1085,13 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
             .flash = v4(pp->flash_color.x, pp->flash_color.y, pp->flash_color.z, pp->flash),
             .grade = v4(pp->exposure, pp->saturation, pp->contrast, pp->bloom),
             .lift = v4(pp->lift.x, pp->lift.y, pp->lift.z, 0), .gain = v4(pp->gain.x, pp->gain.y, pp->gain.z, 0),
-            .style = v4(pp->style_snap, pp->style_outline, pp->style_levels, pp->style_pixel) };
+            .style = v4(pp->style_snap, pp->style_outline, pp->style_levels, pp->style_pixel),
+            .ink  = v4(pp->ink_width, pp->ink_wobble, pp->ink_luma, pp->paper),
+            .film = v4(pp->chroma, pp->dither, pp->hatch, (float)(g->paper.w > 0 ? g->paper.w : 512)) };
         fill_palette(g, u.pal, u.npal);
-        SDL_GPUTextureSamplerBinding s[3] = { { .texture = g->hdr, .sampler = g->samp_clamp }, { .texture = g->bloom_a, .sampler = g->samp_clamp }, { .texture = g->depth, .sampler = g->samp_nearest } };
-        fullscreen_pass(g, pf->cmd, g->pipe_post, g->ldr, s, 3, &u, sizeof u, NULL);
+        SDL_GPUTextureSamplerBinding s[4] = { { .texture = g->hdr, .sampler = g->samp_clamp }, { .texture = g->bloom_a, .sampler = g->samp_clamp },
+            { .texture = g->depth, .sampler = g->samp_nearest }, { .texture = g->paper.tex, .sampler = g->samp_linear } };
+        fullscreen_pass(g, pf->cmd, g->pipe_post, g->ldr, s, 4, &u, sizeof u, NULL);
     }
     // UI over the LDR image
     if (g->ui_count > 0) {
@@ -1046,7 +1104,9 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
         SDL_GPUColorTargetInfo ct = { .texture = g->ldr, .load_op = SDL_GPU_LOADOP_LOAD, .store_op = SDL_GPU_STOREOP_STORE };
         SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(pf->cmd, &ct, 1, NULL);
         SDL_BindGPUGraphicsPipeline(pass, g->pipe_ui);
-        SDL_PushGPUVertexUniformData(pf->cmd, 0, &(Vec4){ (float)g->iw, (float)g->ih, 0, 0 }, sizeof(Vec4));
+        // the UI is laid out in the fixed uiw/uih space, not the (possibly scaled-down) render
+        // resolution -- see gfx_set_render_scale.
+        SDL_PushGPUVertexUniformData(pf->cmd, 0, &(Vec4){ (float)g->uiw, (float)g->uih, 0, 0 }, sizeof(Vec4));
         SDL_BindGPUVertexBuffers(pass, 0, &(SDL_GPUBufferBinding){ .buffer = g->ui_vb }, 1);
         for (int i = 0; i < g->ui_nbatches; i++) {
             if (g->ui_batches[i].count == 0) continue;
@@ -1060,7 +1120,9 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
         float ta = (float)g->iw / (float)g->ih, sw = (float)pf->swap_w, sh = (float)pf->swap_h;
         float vw = sw, vh = sw / ta; if (vh > sh) { vh = sh; vw = sh * ta; }
         SDL_GPUViewport vpt = { .x = (sw - vw) * 0.5f, .y = (sh - vh) * 0.5f, .w = vw, .h = vh, .min_depth = 0, .max_depth = 1 };
-        fullscreen_pass(g, pf->cmd, g->pipe_blit, pf->swapchain, &(SDL_GPUTextureSamplerBinding){ .texture = g->ldr, .sampler = g->samp_clamp }, 1, NULL, 0, &vpt);
+        // At half internal resolution the choice between a soft bilinear upscale and hard
+        // nearest-neighbour blocks is most of the difference between "cheap camera" and "retro".
+        fullscreen_pass(g, pf->cmd, g->pipe_blit, pf->swapchain, &(SDL_GPUTextureSamplerBinding){ .texture = g->ldr, .sampler = g->render_nearest ? g->samp_nearest : g->samp_clamp }, 1, NULL, 0, &vpt);
     }
     // Tool window screenshot: the same UI list into an offscreen texture
     if (g->want_tool_shot && g->ui2_count > 0) {

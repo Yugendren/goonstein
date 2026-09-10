@@ -87,6 +87,7 @@ static Texture make_texture(Gfx *g, int id) {
 // colour so callers can build a gain that undoes it (see world_texture_gain). Sampling strides
 // across the source at up to ~256x256 worth of pixels, so a folder of 4k scans costs nothing extra.
 static Texture load_texture_mean(Gfx *g, const char *path, int max_size, Vec3 *mean_out) {
+    if (g->tex_cap > 0 && max_size > g->tex_cap) max_size = g->tex_cap;   // `look texcap`, same lever as gfx_texture_load
     int w, h, n; unsigned char *px = stbi_load(path, &w, &h, &n, 4);
     if (!px) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "texture load failed: %s", path); *mean_out = v3(1, 1, 1); return g->white; }
     int f = 1; while ((w / f) > max_size || (h / f) > max_size) f *= 2;
