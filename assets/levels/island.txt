@@ -1295,6 +1295,10 @@ item globe      -50.0  10.49   -90.0    0
 item vase        20.0  16.83   -37.0    0
 item briefcase  -71.0   1.81  -111.5  -25
 item gnome       30.0  16.78   -48.5    0
+item bat        -29.0  15.04   -30.0   20
+item wrench     -35.0  15.08   -34.0  -40
+item pistol     -70.3   1.84  -110.6   65
+item shotgun    -69.5   1.94  -112.0  -15
 # The boat's cargo hold: everything inside this box counts toward the run's value.
 # The floor of the volume is the hull, not the deck: an item resting on the deck sits only a few
 # centimetres above it, and a box that starts exactly at deck height counts it in and out again

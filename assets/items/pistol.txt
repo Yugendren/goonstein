@@ -1,0 +1,25 @@
+# pistol.txt -- sidearm found wherever the boat keeps its "emergencies". Definitely a toy shape.
+# Kenney Blaster Kit's blaster-h (models/kenney/blaster-kit/pistol.glb): a single-mesh toy blaster,
+# picked for its compact one-hand proportions over the kit's bulkier designs. Raw model bounds are
+# 0.165 x 0.2745 x 0.648 m (X x Y x Z), origin at the model's own geometric centre (all three axes
+# roughly symmetric about it). Scale 0.31 brings it to a hand-sized 0.20 m long; half below is half
+# of the scaled bounds. NOTE for hand/viewmodel attachment: the muzzle points -Z, not +Z -- the
+# grip is not at the origin either, it is a cluster of geometry around z=+0.08 (0.26 x 0.31 raw,
+# offset from centre); see ASSETS.md.
+model      models/kenney/blaster-kit/pistol.glb
+display    Pistol, Safety Allegedly On
+weapon     gun
+damage     34                          # of a 100-point wind pool
+rate       4.0                         # shots per second
+range      45                          # metres; hitscan
+ammo       12                          # rounds in a full load
+knock      3.0                         # m/s shove on whatever it hits
+fire_sound shot                        # firing sound
+mass       1.0                         # kg
+half       0.026 0.043 0.100           # half the scaled model bounds (0.051 x 0.085 x 0.201 m)
+fragile    0                           # unbreakable
+value      0                           # dollars; not evidence of anything
+grip       0 0.019 0.025   180 0 0        # Kenney's blaster-h faces -Z with its grip behind centre
+two_handed no
+scale      0.31
+tint       1.0 1.0 1.0                 # the model carries its own (toy-bright) paint

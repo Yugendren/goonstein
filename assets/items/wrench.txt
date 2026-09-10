@@ -1,0 +1,21 @@
+# wrench.txt -- a pipe wrench from wherever the bunkhouse keeps its plumbing tools.
+# Same story as bat.txt: no direct-download CC0 wrench turned up, so this is built in-repo from
+# shape primitives: models/own/wrench.part, 8 pieces, grip at the part's origin and the jaw end
+# along +Z. Part bounds are 0.086 x 0.167 x 0.348 m (X x Y x Z), off-centre because the jaw sticks
+# up and the adjuster knob sticks sideways -- half below is half of the part's own total size on
+# each axis, same convention as every other shape-built item.
+model      models/own/wrench.part
+display    Pipe Wrench, Property of Maintenance
+weapon     melee                       # swings, does not shoot
+damage     40                          # of a 100-point wind pool
+rate       2.2                         # swings per second
+range      1.6                         # metres; fixed melee arc
+knock      5.0                         # m/s shove on whatever it hits
+fire_sound whoosh                      # swing sound
+mass       2.4                         # kg; cast iron
+half       0.043 0.083 0.174           # half the part's own bounds (0.086 x 0.167 x 0.348 m)
+fragile    0                           # unbreakable
+value      25                          # dollars; a wrench is still a wrench
+two_handed no
+scale      1.0
+tint       1.0 1.0 1.0                 # the part's pieces carry their own paint
