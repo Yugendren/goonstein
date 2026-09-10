@@ -1435,6 +1435,29 @@ static void trace_dump(void) {
                 (double)r->yaw, (double)r->pitch, (double)r->pos.x, (double)r->pos.y, (double)r->pos.z, (double)r->speed, r->grounded); }
     fclose(f);
 }
+// The same measurement the trace is for, once a second, in hollow.log: how evenly the eye moved
+// from frame to frame while it was moving at all. The spread is quoted against the mean because
+// that is what a shake is -- a delta that is not the one before it. On a steady frame rate the
+// camera's own contribution is under 2%; anything much above that with a flat frame time is a
+// shake, and a flat spread with a jumpy frame time is the renderer missing frames, not the camera.
+static void smooth_meter(const Game *g) {
+    static Vec3 last_eye; static bool have; static double t0;
+    static float sum, sum2, ft, ft2; static int n;
+    Vec3 e = g->cam.eye; double now = g->frame_wall;
+    if (!have) { have = true; last_eye = e; t0 = now; return; }
+    float d = v3_len(v3_sub(e, last_eye)); last_eye = e;
+    float dt = (float)(now - t0 > 0 ? g->render_frame_dt : 0);
+    sum += d; sum2 += d * d; ft += dt; ft2 += dt * dt; n++;
+    if (now - t0 < 1.0 || n < 30) return;
+    float m = sum / (float)n, v = sum2 / (float)n - m * m;
+    float fm = ft / (float)n, fv = ft2 / (float)n - fm * fm;
+    if (m > 0.001f)   // standing still has no smoothness to report
+        dbg_log("smooth: eye %.2f mm/frame sd %.1f%% | frame %.2f ms sd %.2f ms | %.0f fps",
+                (double)(m * 1000), (double)(100.0f * sqrtf(fmaxf(v, 0)) / m),
+                (double)(fm * 1000), (double)(sqrtf(fmaxf(fv, 0)) * 1000), (double)(n / (now - t0)));
+    sum = sum2 = ft = ft2 = 0; n = 0; t0 = now;
+}
+
 static void trace_frame(const Game *g, float alpha) {
     if (!trace_ready) { trace_ready = true; const char *p = SDL_getenv("HOLLOW_TRACE"); if (!p) return;
         snprintf(trace_path, sizeof trace_path, "%s", p);
@@ -1494,7 +1517,7 @@ void game_render(Game *g, Platform *pf, float alpha) {
     g->boss.c.pos = sb; g->cam.eye = se; g->cam.target = st; g->cam.cur_dist = sdist;
 }
 void game_render_at(Game *g, Platform *pf, float alpha) {
-    trace_frame(g, alpha);
+    trace_frame(g, alpha); smooth_meter(g);
     g->frames++;
     if (g->time - g->fps_t >= 0.5) { g->fps = (float)(g->frames / (g->time - g->fps_t)); g->frames = 0; g->fps_t = g->time; }
     { static Uint64 last = 0; Uint64 now = SDL_GetPerformanceCounter(); if (last) { float ms = (float)((now - last) * 1000.0 / (double)SDL_GetPerformanceFrequency()); g->frame_ms = g->frame_ms > 0 ? g->frame_ms * 0.95f + ms * 0.05f : ms; } last = now; }
