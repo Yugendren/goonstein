@@ -6,7 +6,8 @@
 
 static const char *ANIM_NAMES[ANIM_COUNT] = {
     "idle", "walk", "attack", "parry", "parry_hit", "dodge", "hurt", "kneel", "dead", "roar", "stagger", "windup", "strike", "run", "attack2", "attack3",
-    "sprint", "block", "hurt_head", "hurt_heavy", "attack_run" };
+    "sprint", "block", "hurt_head", "hurt_heavy", "attack_run",
+    "down", "getup", "knocked", "gun_idle", "gun_fire", "gun_reload", "melee_idle", "melee_swing" };
 const char *anim_name(Anim a) { return (a >= 0 && a < ANIM_COUNT) ? ANIM_NAMES[a] : "?"; }
 Anim anim_from_name(const char *s) {
     for (int i = 0; i < ANIM_COUNT; i++) if (!strcmp(s, ANIM_NAMES[i])) return (Anim)i;

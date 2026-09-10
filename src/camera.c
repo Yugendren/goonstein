@@ -147,7 +147,15 @@ Mat4 camera_view_proj_offset(const Camera *c, float aspect, Vec3 offset) {
         float s = c->shake * 0.12f;
         eye = v3_add(eye, v3(sinf(c->shake_t * 47.0f) * s, cosf(c->shake_t * 61.0f) * s, sinf(c->shake_t * 53.0f) * s * 0.5f));
     }
-    Mat4 view = m4_look_at(eye, v3_add(c->target, offset), v3(0, 1, 0));
+    Vec3 target = v3_add(c->target, offset);
+    Vec3 up = v3(0, 1, 0);
+    if (fabsf(c->roll) > 1e-4f) {
+        // Rodrigues: rotate up about the forward axis so the horizon tilts with the camera.
+        Vec3 k = v3_norm(v3_sub(target, eye));
+        float ca = cosf(c->roll), sa = sinf(c->roll);
+        up = v3_add(v3_scale(up, ca), v3_add(v3_scale(v3_cross(k, up), sa), v3_scale(k, v3_dot(k, up) * (1 - ca))));
+    }
+    Mat4 view = m4_look_at(eye, target, up);
     Mat4 proj = m4_perspective(c->fov * DEG2RAD, aspect, 0.1f, c->view_far > 1 ? c->view_far : CAMERA_FAR_DEFAULT);
     return m4_mul(proj, view);
 }

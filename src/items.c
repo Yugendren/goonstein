@@ -11,6 +11,7 @@
 // with them). Grab, throw and drop travel as reliable messages; the host validates the distance.
 #include "game.h"
 #include "items.h"
+#include "weapons.h"
 #include "audio.h"
 #include "debug.h"
 #include <string.h>
@@ -185,6 +186,10 @@ bool items_grab(Game *g, int slot, int idx) {
     if (slot < 0 || slot >= 4 || idx < 0 || idx >= its->n) return false;
     Item *it = &its->it[idx];
     if (!it->used || it->broken || it->held_by >= 0 || it->drop_lock > 0) return false;
+    // --- weapons --- A weapon goes in the other hand, where there is no spring and no leash.
+    // Both the local press and a client's reliable grab come through here, so this is the one
+    // place that has to know the difference.
+    if (weapon_kind_of(g, idx) != WK_NONE) return weapons_equip(g, slot, idx);
     if (its->carry[slot].item >= 0) return false;
     // Reach, generously: the client asked from where it was a round trip ago.
     if (v3_len(v3_sub(it->pos, eye_of(g, slot))) > ITEM_REACH + 1.0f) return false;
@@ -224,6 +229,33 @@ void items_release(Game *g, int slot, bool thrown, Vec3 vel) {
     }
 }
 
+// --- weapons --- A weapon in a hand has no physics body: it is a model on the end of an arm, so
+// it cannot be shoved by a crate or drag its owner through a doorframe. These two put the body
+// back and take it away again; everything else about the item is unchanged.
+void items_body_detach(Game *g, int idx) {
+    Items *its = &g->items;
+    if (idx < 0 || idx >= its->n || !its->it[idx].used) return;
+    Item *it = &its->it[idx];
+    if (it->body < 0) return;
+    phys_remove(&g->phys, it->body);
+    it->body = -1;
+}
+
+bool items_body_attach(Game *g, int idx) {
+    Items *its = &g->items;
+    if (idx < 0 || idx >= its->n || !its->it[idx].used) return false;
+    Item *it = &its->it[idx];
+    if (it->body >= 0) return true;
+    const ItemDef *d = &its->defs[it->def];
+    int body = d->radius > 0 ? phys_add_sphere(&g->phys, it->pos, it->rot, d->radius, d->mass)
+                             : phys_add_box(&g->phys, it->pos, it->rot, d->half, d->mass);
+    if (body < 0) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "items: out of physics bodies putting '%s' down", d->name); return false; }
+    g->phys.b[body].user = idx;
+    it->body = body;
+    it->dirty = true;
+    return true;
+}
+
 void items_break(Game *g, int idx) {
     Items *its = &g->items;
     if (idx < 0 || idx >= its->n) return;
@@ -252,7 +284,10 @@ bool items_net_grab(Game *g, int slot, uint16_t id) {
 }
 void items_net_release(Game *g, int slot, uint16_t id, bool thrown, Vec3 vel) {
     int idx = items_find_id(&g->items, id);
-    if (idx < 0 || g->items.carry[slot].item != idx) return;
+    if (idx < 0) return;
+    // --- weapons --- dropping the thing in the weapon hand rides the same message as dropping loot
+    if (weapons_holds_item(g, slot, idx)) { weapons_drop(g, slot); return; }
+    if (g->items.carry[slot].item != idx) return;
     float speed = v3_len(vel);
     if (speed > 25.0f) vel = v3_scale(vel, 25.0f / speed);   // a client does not get to invent a railgun
     items_release(g, slot, thrown, vel);
@@ -264,11 +299,15 @@ void items_net_sample(Game *g, uint16_t id, Vec3 pos, Quat rot, int held_by, boo
     Item *it = &its->it[idx];
     it->held_by = held_by;
     it->in_hold = in_hold;   // the host decides what counts; a client bot must not fish it back out
+    // --- weapons --- Which hand it is in needs no bit on the wire: a weapon never goes on the
+    // carry spring, so "held and a weapon" is the same statement as "in the weapon hand".
+    it->weapon_hand = held_by >= 0 && its->defs[it->def].weapon != 0;
+    if (it->weapon_hand) { items_body_detach(g, idx); weapons_client_hold(g, held_by, idx); }
     // Reconcile our own hands with the host's answer. A grab someone else won has to come out of
     // them, and one the host granted has to go into them -- but not while our own prediction is
     // still in flight, or every snapshot older than the round trip would undo the grab we just made.
     Carry *lc = &its->carry[g->local];
-    if (lc->pending <= 0) {
+    if (lc->pending <= 0 && !it->weapon_hand) {
         if (held_by == g->local && lc->item != idx && lc->item < 0) { lc->item = idx; lc->charge = 0; lc->charging = false; it->leash_armed = false; }
         else if (held_by != g->local && lc->item == idx) { lc->item = -1; lc->charge = 0; lc->charging = false; }
     }
@@ -380,8 +419,11 @@ static void local_carry_input(Game *g, const Input *in, float dt) {
     uint16_t id = it->id;
     const ItemDef *d = &its->defs[it->def];
     // Left mouse charges; letting go throws. Everything else is a drop.
-    if (in->mouse_held) { c->charging = true; c->charge = fminf(c->charge + dt, ITEM_CHARGE_MAX); }
-    else if (c->charging) {
+    // --- weapons --- unless there is a gun in the other hand, in which case the left mouse belongs
+    // to the gun and the loot has to wait for Q.
+    bool armed = weapons_drawn(g, slot);
+    if (in->mouse_held && !armed) { c->charging = true; c->charge = fminf(c->charge + dt, ITEM_CHARGE_MAX); }
+    else if (c->charging && !armed) {
         float k = c->charge / ITEM_CHARGE_MAX;
         Vec3 vel = v3_scale(items_look_dir(g, slot), throw_speed(d, k));
         vel.y += 1.2f;   // a throw arcs; nobody bowls loot along the floor on purpose
@@ -482,6 +524,7 @@ void items_draw(Game *g) {
     for (int i = 0; i < its->n; i++) {
         const Item *it = &its->it[i];
         if (!it->used || it->broken) continue;
+        if (it->weapon_hand) continue;   // --- weapons --- drawn off its holder's hand or spine instead
         const ItemDef *d = &its->defs[it->def];
         if (!d->ok || !d->model[0]) continue;
         float s = d->scale;
@@ -493,7 +536,7 @@ void items_draw(Game *g) {
     if (!SDL_getenv("HOLLOW_NOBLOB"))
         for (int i = 0; i < its->n; i++) {
             const Item *it = &its->it[i];
-            if (!it->used || it->broken) continue;
+            if (!it->used || it->broken || it->weapon_hand) continue;
             const ItemDef *d = &its->defs[it->def];
             float r = d->radius > 0 ? d->radius : fmaxf(d->half.x, d->half.z);
             draw_blob_shadow(&g->gfx, it->pos, r * 2.0f, 0.4f);

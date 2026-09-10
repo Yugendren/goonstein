@@ -30,6 +30,15 @@ typedef struct ItemDef {
     float scale;           // model scale (default 1)
     Vec4  tint;            // model tint, and the colour of its debris
     int   sound;           // SoundId played when it breaks, -1 = none
+    // --- weapons --- (see weapons.h). `weapon` absent leaves all of this zero: ordinary loot.
+    int   weapon;          // WeaponKind: 0 none, 1 melee, 2 gun
+    float damage;          // of a goon's 100-point wind pool; 100 puts them on the floor
+    float rate;            // shots or swings per second
+    float wrange;          // metres a shot carries; a melee swing uses WEAP_SWING_ARC instead
+    int   ammo;            // rounds in a full gun
+    float knock;           // metres per second of shove given to whatever it hits
+    int   pellets;         // hitscan rays per shot: 1 for a pistol, a handful for a shotgun
+    int   fire_sound;      // SoundId played on firing, -1 = none
     bool  ok;
 } ItemDef;
 
@@ -51,6 +60,8 @@ typedef struct Item {
     Vec3     net_pos; Quat net_rot;   // host: what the last snapshot said, so a body that is awake
                                       // but not actually going anywhere costs nothing to replicate
     bool     sunk;             // resting under the sea: still an item, but not worth walking into the water for
+    bool     weapon_hand;      // --- weapons --- held as a weapon rather than on the carry spring:
+                               // no physics body, drawn by weapons.c off the holder's hand or spine
     bool     leash_armed;      // the spring has reeled it in at least once, so the leash may bite
     float    leash_t;          // seconds the spring has been over-stretched; a swing is not a drop
 } Item;
@@ -126,6 +137,11 @@ Vec3 items_look_dir(const struct Game *g, int slot);
 // Host-side commands. items_grab validates reach and returns false when it is refused.
 bool items_grab(struct Game *g, int slot, int item);
 void items_release(struct Game *g, int slot, bool thrown, Vec3 vel);
+// --- weapons --- The physics body of an item that is being taken into (or out of) a hand. A
+// weapon has no body while it is held: it is a model on the end of an arm, not a thing on a
+// string. Detach is safe to call twice; attach rebuilds the body at the item's current pos/rot.
+void items_body_detach(struct Game *g, int item);
+bool items_body_attach(struct Game *g, int item);
 // Break it now (an impact past the threshold, or the host being told to): debris, sound, value lost.
 void items_break(struct Game *g, int item);
 // 1, or ITEM_SLOW_SPEED while carrying something two-handed. Sprint is blocked at the same time.

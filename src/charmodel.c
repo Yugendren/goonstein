@@ -1,10 +1,11 @@
 #include "charmodel.h"
+#include "voice_dsp.h"   // --- voice --- the `voice` line names an effect
 static void sprite_settle(CharModel *cm);
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static void spec_defaults(CharSpec *sp) { memset(sp, 0, sizeof *sp); sp->scale = 1; sp->tex_size = 256; for (int a = 0; a < ANIM_COUNT; a++) sp->anims[a].contact = -1, sp->anims[a].rate = 1; }
+static void spec_defaults(CharSpec *sp) { memset(sp, 0, sizeof *sp); sp->scale = 1; sp->tex_size = 256; sp->voice_pitch = 1; sp->voice_formant = 1; sp->voice_effect = 0; for (int a = 0; a < ANIM_COUNT; a++) sp->anims[a].contact = -1, sp->anims[a].rate = 1; }
 
 bool charmodel_spec_load(CharSpec *sp, const char *config_path) {
     spec_defaults(sp);
@@ -20,6 +21,13 @@ bool charmodel_spec_load(CharSpec *sp, const char *config_path) {
         else if (!strcmp(key, "sprite")) { char *v = strtok(NULL, " \t\r"); if (v) snprintf(sp->sprite, sizeof sp->sprite, "%s", v); }
         else if (!strcmp(key, "texture_size")) { char *v = strtok(NULL, " \t\r"); if (v) sp->tex_size = atoi(v); }
         else if (!strcmp(key, "scale")) { char *v = strtok(NULL, " \t\r"); if (v) sp->scale = (float)atof(v); }
+        else if (!strcmp(key, "voice")) {   // voice PITCH FORMANT EFFECT  (voice chat preset, see src/voice.h)
+            char *vp = strtok(NULL, " \t\r"), *vf = strtok(NULL, " \t\r"), *ve = strtok(NULL, " \t\r");
+            if (vp) sp->voice_pitch = (float)atof(vp);
+            if (vf) sp->voice_formant = (float)atof(vf);
+            if (ve) { int e = voice_effect_from_name(ve); sp->voice_effect = e < 0 ? 0 : e; }
+            sp->has_voice = true;
+        }
         else if (!strcmp(key, "yaw_offset")) { char *v = strtok(NULL, " \t\r"); if (v) sp->yaw_offset_deg = (float)atof(v); }
         else if (!strcmp(key, "hide")) { char *nm; while ((nm = strtok(NULL, " \t\r")) && sp->nhidden < SPEC_MAX_HIDDEN) snprintf(sp->hidden[sp->nhidden++], 48, "%s", nm); }
         else if (!strcmp(key, "recolor")) {   // recolor r g b  r2 g2 b2   (0-255)
@@ -65,6 +73,7 @@ bool charmodel_spec_save(const CharSpec *sp, const char *config_path) {
     fprintf(f, "# Character built in the character builder. model / hide / borrow / recolor / attach / anim lines; see src/charmodel.h\n");
     if (sp->model[0]) fprintf(f, "model %s\n", sp->model); else fprintf(f, "sprite %s\n", sp->sprite);
     fprintf(f, "scale %.3f\ntexture_size %d\nyaw_offset %.1f\n", sp->scale, sp->tex_size, sp->yaw_offset_deg);
+    if (sp->has_voice) fprintf(f, "voice %.2f %.2f %s\n", sp->voice_pitch, sp->voice_formant, voice_effect_name(sp->voice_effect));
     if (sp->nhidden) { fprintf(f, "hide"); for (int i = 0; i < sp->nhidden; i++) fprintf(f, " %s", sp->hidden[i]); fprintf(f, "\n"); }
     for (int i = 0; i < sp->nrecolor; i++) fprintf(f, "recolor %d %d %d  %d %d %d\n", sp->rc_from[i][0], sp->rc_from[i][1], sp->rc_from[i][2], sp->rc_to[i][0], sp->rc_to[i][1], sp->rc_to[i][2]);
     for (int i = 0; i < sp->nborrow; i++) fprintf(f, "borrow %s %s\n", sp->borrow[i].file, sp->borrow[i].node);
@@ -178,6 +187,14 @@ int charmodel_spec_autobind(CharSpec *sp, const Model *m, int style) {
         { ANIM_KNEEL,     { "Sit_Floor_Down", "Sit_Chair_Down", "Kneel", NULL }, false, true, -1 },
         { ANIM_DEAD,      { "Death_A", "Death_B", "Death", NULL }, false, true, -1 },
         { ANIM_ROAR,      { "Cheer", "Taunt", "Yes", NULL }, false, false, -1 },
+        { ANIM_DOWN,        { "Death01", NULL, NULL, NULL }, false, true, -1 },
+        { ANIM_GETUP,       { "LayToIdle", NULL, NULL, NULL }, false, false, -1 },
+        { ANIM_KNOCKED,     { "Hit_Knockback", "Hit_B", NULL, NULL }, false, false, -1 },
+        { ANIM_GUN_IDLE,    { "Pistol_Idle_Loop", NULL, NULL, NULL }, true, false, -1 },
+        { ANIM_GUN_FIRE,    { "Pistol_Shoot", NULL, NULL, NULL }, false, false, -1 },
+        { ANIM_GUN_RELOAD,  { "Pistol_Reload", NULL, NULL, NULL }, false, false, -1 },
+        { ANIM_MELEE_IDLE,  { "Sword_Idle", NULL, NULL, NULL }, true, false, -1 },
+        { ANIM_MELEE_SWING, { "Sword_Attack", NULL, NULL, NULL }, false, false, -1 },
     };
     int bound = 0;
     for (size_t i = 0; i < sizeof T / sizeof *T; i++) {
@@ -241,6 +258,14 @@ static const struct { Anim a; const char *clips[3]; float contact; bool loop, ho
     { ANIM_HURT_HEAD,  { "Hit_Head", "Hit_B", NULL },              -1,    false, false, ANIM_HURT },
     { ANIM_HURT_HEAVY, { "Hit_Knockback", "Hit_B", NULL },         -1,    false, false, ANIM_HURT },
     { ANIM_ATTACK_RUN, { "Sword_Dash", "Shield_Dash", NULL },       0.20f, false, false, ANIM_ATTACK },
+    { ANIM_DOWN,        { "Death01", NULL, NULL },                  -1,    false, true,  ANIM_KNEEL },
+    { ANIM_GETUP,       { "LayToIdle", NULL, NULL },                -1,    false, false, ANIM_IDLE },
+    { ANIM_KNOCKED,     { "Hit_Knockback", "Hit_B", NULL },         -1,    false, false, ANIM_HURT_HEAVY },
+    { ANIM_GUN_IDLE,    { "Pistol_Idle_Loop", NULL, NULL },         -1,    true,  false, ANIM_IDLE },
+    { ANIM_GUN_FIRE,    { "Pistol_Shoot", NULL, NULL },             -1,    false, false, ANIM_ATTACK },
+    { ANIM_GUN_RELOAD,  { "Pistol_Reload", NULL, NULL },            -1,    false, false, ANIM_IDLE },
+    { ANIM_MELEE_IDLE,  { "Sword_Idle", NULL, NULL },               -1,    true,  false, ANIM_IDLE },
+    { ANIM_MELEE_SWING, { "Sword_Attack", NULL, NULL },             -1,    false, false, ANIM_ATTACK },
 };
 
 // The binding to actually play for an action: the character file's, else a default clip found by
@@ -427,6 +452,13 @@ float charmodel_sprite_contact(const CharModel *cm, const char *anim, int i, flo
     return sprite_contact_time(&cm->sdef, a, i, rate);
 }
 
+// A character's world transform: position, yaw (its own plus the model's yaw_offset so it faces
+// the way its clips were authored for) and scale. Shared by charmodel_draw and charmodel_bone_world
+// so the two can never drift apart.
+static Mat4 char_world(const CharModel *cm, const Character *c) {
+    return m4_trs(c->pos, c->yaw + cm->yaw_offset, v3(cm->scale, cm->scale, cm->scale));
+}
+
 void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint) {
     if (!cm->loaded) return;
     if (cm->is_sprite) {
@@ -437,8 +469,16 @@ void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint) {
         return;
     }
     model_pose(&cm->model, &cm->player, &cm->pose);
-    Mat4 world = m4_trs(c->pos, c->yaw + cm->yaw_offset, v3(cm->scale, cm->scale, cm->scale));
+    Mat4 world = char_world(cm, c);
     charmodel_draw_posed(g, cm, &cm->pose, world, tint);
+}
+
+bool charmodel_bone_world(const CharModel *cm, const Character *c, const char *bone, Mat4 *out) {
+    if (!cm->loaded || cm->is_sprite) return false;
+    int node = model_find_node(&cm->model, bone);
+    if (node < 0) return false;
+    *out = m4_mul(char_world(cm, c), cm->pose.global[node]);
+    return true;
 }
 
 

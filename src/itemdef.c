@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 // Split a mutable string into whitespace-separated tokens; returns token count (capped at max_tok,
 // so a line with more fields than expected comes back short and the caller's count check rejects it).
@@ -40,6 +41,8 @@ static void itemdef_defaults(ItemDef *def, const char *name) {
     def->scale = 1.0f;
     def->tint = v4(1, 1, 1, 1);
     def->sound = -1;
+    def->weapon = 0; def->damage = 0; def->rate = 1.0f; def->wrange = 0;
+    def->ammo = 0; def->knock = 0; def->pellets = 1; def->fire_sound = -1;
     def->ok = false;
 }
 
@@ -147,6 +150,37 @@ static bool itemdef_parse(ItemDef *def, const char *path) {
             int s = audio_sound_from_name(value);
             if (s < 0) SDL_Log("itemdef:%d: '%s' unknown sound '%s'", line_no, path, value);
             def->sound = s;
+
+        // --- weapons --- a weapon is an item with `weapon melee|gun` and a few numbers. Anything
+        // without that line is loot and never fires. See weapons.h for what the numbers do.
+        } else if (strcmp(key, "weapon") == 0) {
+            if (strcmp(value, "melee") == 0) def->weapon = 1;
+            else if (strcmp(value, "gun") == 0) def->weapon = 2;
+            else if (strcmp(value, "none") == 0) def->weapon = 0;
+            else { SDL_Log("itemdef:%d: '%s' bad weapon '%s' (want melee, gun or none)", line_no, path, value); continue; }
+
+        } else if (strcmp(key, "damage") == 0 || strcmp(key, "rate") == 0 || strcmp(key, "range") == 0 || strcmp(key, "knock") == 0) {
+            char *end = NULL;
+            float f = (float)SDL_strtod(value, &end);
+            if (end == value) { SDL_Log("itemdef:%d: '%s' bad %s", line_no, path, key); continue; }
+            if (key[0] == 'd') def->damage = fmaxf(f, 0);
+            else if (key[0] == 'r' && key[1] == 'a') { if (f < 0.05f) { SDL_Log("itemdef:%d: '%s' rate %.3f clamped to 0.05", line_no, path, f); f = 0.05f; } def->rate = f; }
+            else if (key[0] == 'r') def->wrange = fmaxf(f, 0);
+            else def->knock = fmaxf(f, 0);
+
+        } else if (strcmp(key, "ammo") == 0 || strcmp(key, "pellets") == 0) {
+            char *end = NULL;
+            float f = (float)SDL_strtod(value, &end);
+            if (end == value) { SDL_Log("itemdef:%d: '%s' bad %s", line_no, path, key); continue; }
+            int n = (int)f; if (n < 0) n = 0;
+            if (key[0] == 'a') { if (n > 255) n = 255; def->ammo = n; }
+            else def->pellets = n < 1 ? 1 : (n > 24 ? 24 : n);
+
+        } else if (strcmp(key, "fire_sound") == 0) {
+            if (*value == '\0') { SDL_Log("itemdef:%d: '%s' empty fire_sound name", line_no, path); continue; }
+            int fs = audio_sound_from_name(value);
+            if (fs < 0) SDL_Log("itemdef:%d: '%s' unknown fire_sound '%s'", line_no, path, value);
+            def->fire_sound = fs;
 
         } else {
             SDL_Log("itemdef:%d: '%s' unknown key '%s'", line_no, path, key);

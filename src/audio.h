@@ -22,6 +22,18 @@ typedef enum SoundId {
     SND_DROP,       // something heavy set down or dropped: a dull thud with a little rattle, ~0.35 s
     SND_SMASH,      // a fragile thing breaks: bright shatter over a low crack, ~0.6 s, the one
                      // the player remembers -- reads clearly even at a low gain
+    SND_SHOT,       // pistol crack: short bright noise burst over a fast low thump, ~0.25 s --
+                     // fired hundreds of times a run, so the high end is kept short to not fatigue
+    SND_BOOM,       // pump shotgun: SND_SHOT an octave lower and twice as long, ~0.5 s, with more
+                     // low-end body and a rattling (amplitude-modulated) tail
+    SND_CLICK,      // empty chamber: dry mechanical tick, ~0.06 s, a single tiny filtered noise
+                     // pop with almost no tone, kept quiet
+    SND_RELOAD,     // reload: two mechanical clunks ~0.35 s apart (mag out, mag in) inside ~1.0 s,
+                     // each a filtered noise burst with a low woody resonance
+    SND_WHOOSH,     // a bat/wrench swing through the air: noise sweep that rises then falls,
+                     // ~0.3 s -- SND_SWING's shape but heavier, with a lower centre and body tone
+    SND_THUD,       // a goon hitting the ground: soft, dull, low-frequency body impact with a
+                     // little cloth rustle, ~0.4 s -- comedic, not violent, no crack or snap
     SND_COUNT
 } SoundId;
 
@@ -38,6 +50,15 @@ void audio_set_drone(float intensity);
 void audio_set_fight(float intensity);
 // Master volume 0..1
 void audio_set_master(float v);
+
+// --- voice ---
+// Proximity voice chat bus. The mixer calls this once per callback block, on the audio thread,
+// *after* the game mix has been scaled by the master volume, so voice is audible with the game
+// muted (`--volume 0`). The callback must FILL `out` with `frames` interleaved stereo frames
+// (it is handed a zeroed buffer) and must not block: it owns its own lock, and the mixer's lock
+// is not held while it runs. Pass NULL to detach. See src/voice.c.
+typedef void (*AudioVoicePull)(float *out_stereo, int frames, void *user);
+void audio_set_voice_source(AudioVoicePull fn, void *user);
 
 // Sample playback (WAV via SDL_LoadWAV, OGG via stb_vorbis). Files are decoded fully at load and
 // cached by path; ids are stable for the run. Returns -1 on failure.

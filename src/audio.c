@@ -372,6 +372,104 @@ static float synth_smash(float t, Uint32 *seed, bool *done) {
     return (shatter * 0.6f + crack * 0.5f) * 0.5f;
 }
 
+static float synth_shot(float t, Uint32 *seed, bool *done) {
+    const float dur = 0.25f;
+    *done = t >= dur;
+    if (*done) return 0.0f;
+    // Pistol crack: a clipped noise burst kept to a few ms (this fires hundreds of times a run,
+    // so the high end must not linger) over a fast-decaying low thump for the punch.
+    float crackEnv = expdecay(t, 0.006f);
+    float crack = clampf(noise1(seed) * 2.5f, -1.0f, 1.0f) * crackEnv;
+    float thump = sinf(TWO_PI * 95.0f * t) * expdecay(t, 0.05f);
+    float tail = noise1(seed) * expdecay(t, 0.08f) * 0.1f;
+    return (crack * 0.6f + thump * 0.7f + tail) * 0.75f;
+}
+
+static float synth_boom(float t, Uint32 *seed, bool *done) {
+    const float dur = 0.5f;
+    *done = t >= dur;
+    if (*done) return 0.0f;
+    // SND_SHOT an octave lower and twice as long: more low-end body plus a rattling tail
+    // (amplitude-modulated noise) as the pump shotgun's report dies away.
+    float crackEnv = expdecay(t, 0.012f);
+    float crack = clampf(noise1(seed) * 2.5f, -1.0f, 1.0f) * crackEnv;
+    float thump = sinf(TWO_PI * 47.0f * t) * expdecay(t, 0.12f);
+    float sub = sinf(TWO_PI * 32.0f * t) * expdecay(t, 0.2f) * 0.6f;
+    float rattleEnv = expdecay(t, 0.3f) * (0.5f + 0.5f * sinf(TWO_PI * 24.0f * t));
+    float rattle = noise1(seed) * rattleEnv * 0.3f;
+    return (crack * 0.55f + thump * 0.8f + sub * 0.5f + rattle) * 0.75f;
+}
+
+static float synth_click(float t, Uint32 *seed, bool *done) {
+    const float dur = 0.06f;
+    *done = t >= dur;
+    if (*done) return 0.0f;
+    // Empty chamber: a single tiny filtered noise pop (averaging two consecutive noise samples,
+    // same crude smoothing trick as SND_GRAB), almost no tone, kept quiet.
+    float env = expdecay(t, 0.008f);
+    float n1 = noise1(seed);
+    float n2 = noise1(seed);
+    float pop = (n1 + n2) * 0.5f * env;
+    return pop * 0.35f;
+}
+
+static float synth_reload(float t, Uint32 *seed, bool *done) {
+    const float dur = 1.0f;
+    *done = t >= dur;
+    if (*done) return 0.0f;
+    // Two mechanical clunks (magazine out, magazine in) ~0.35 s apart, each a short filtered
+    // noise burst with a low woody resonance, so it reads clearly as "something is being done"
+    // under WEAP_RELOAD_TIME.
+    float out = 0.0f;
+    float t1 = t;
+    if (t1 >= 0.0f && t1 < 0.15f) {
+        float env = expdecay(t1, 0.03f);
+        float n1 = noise1(seed);
+        float n2 = noise1(seed);
+        float clunk = (n1 + n2) * 0.5f * env;
+        float wood = sinf(TWO_PI * 150.0f * t1) * expdecay(t1, 0.05f) * 0.5f;
+        out += clunk * 0.6f + wood;
+    }
+    float t2 = t - 0.35f;
+    if (t2 >= 0.0f && t2 < 0.15f) {
+        float env = expdecay(t2, 0.03f);
+        float n1 = noise1(seed);
+        float n2 = noise1(seed);
+        float clunk = (n1 + n2) * 0.5f * env;
+        float wood = sinf(TWO_PI * 130.0f * t2) * expdecay(t2, 0.05f) * 0.5f;
+        out += clunk * 0.6f + wood;
+    }
+    return out * 0.8f;
+}
+
+static float synth_whoosh(float t, Uint32 *seed, bool *done) {
+    const float dur = 0.3f;
+    *done = t >= dur;
+    if (*done) return 0.0f;
+    // A bat/wrench cutting the air: SND_SWING's shape (noise sweep, rises then falls) but
+    // heavier -- a lower filter centre and a low body tone so it reads as mass, not a blade.
+    float frac = t / dur;
+    float cutoff = 0.05f + 0.3f * sinf((float)M_PI * frac);
+    float n = noise1(seed);
+    float env = sinf((float)M_PI * frac);
+    float body = sinf(TWO_PI * 60.0f * t) * env * 0.35f;
+    return (n * env * cutoff * 1.6f + body) * 0.9f;
+}
+
+static float synth_thud(float t, Uint32 *seed, bool *done) {
+    const float dur = 0.4f;
+    *done = t >= dur;
+    if (*done) return 0.0f;
+    // A goon hitting the ground: soft and dull, not violent -- no crack or snap, just a low body
+    // impact plus a little cloth rustle as the pile settles.
+    float env = expdecay(t, 0.09f);
+    float body = sinf(TWO_PI * 65.0f * t) * env;
+    float sub = sinf(TWO_PI * 42.0f * t) * expdecay(t, 0.16f) * 0.5f;
+    float rustleEnv = expdecay(t, 0.2f) * 0.25f;
+    float rustle = noise1(seed) * rustleEnv;
+    return (body * 0.75f + sub * 0.5f + rustle) * 0.7f;
+}
+
 static float synth_sound(SoundId id, float t, Uint32 *seed, bool *done) {
     switch (id) {
         case SND_FOOTSTEP: return synth_footstep(t, seed, done);
@@ -391,6 +489,12 @@ static float synth_sound(SoundId id, float t, Uint32 *seed, bool *done) {
         case SND_GRAB:     return synth_grab(t, seed, done);
         case SND_DROP:     return synth_drop(t, seed, done);
         case SND_SMASH:    return synth_smash(t, seed, done);
+        case SND_SHOT:     return synth_shot(t, seed, done);
+        case SND_BOOM:     return synth_boom(t, seed, done);
+        case SND_CLICK:    return synth_click(t, seed, done);
+        case SND_RELOAD:   return synth_reload(t, seed, done);
+        case SND_WHOOSH:   return synth_whoosh(t, seed, done);
+        case SND_THUD:     return synth_thud(t, seed, done);
         default:           *done = true; return 0.0f;
     }
 }
@@ -402,6 +506,7 @@ static float synth_sound(SoundId id, float t, Uint32 *seed, bool *done) {
 static const char *SOUND_NAMES[SND_COUNT] = {
     "footstep", "swing", "hit", "parry", "hurt", "stagger", "roar", "death",
     "blip", "heart", "door", "sting", "whiff", "fail", "grab", "drop", "smash",
+    "shot", "boom", "click", "reload", "whoosh", "thud",
 };
 
 int audio_sound_from_name(const char *name) {
@@ -534,6 +639,30 @@ static void mix_block(float *out, int frames) {
     SDL_UnlockMutex(g_audio.mutex);
 }
 
+// --- voice ---
+// The voice chat bus. Set once from the main thread at startup and cleared at shutdown, read on
+// the audio thread; a torn read is not possible for a pointer-sized store on any platform we
+// ship, and the worst case is one block of missing or extra voice.
+static AudioVoicePull g_voice_pull = NULL;
+static void *g_voice_user = NULL;
+
+void audio_set_voice_source(AudioVoicePull fn, void *user) { g_voice_user = user; g_voice_pull = fn; }
+
+// Added after the master volume and after the game mix's tanh, then hard-clipped: voice must stay
+// intelligible when the game is loud, and must still be there when the game is silent.
+static void voice_bus_mix(float *buf, int frames) {
+    AudioVoicePull fn = g_voice_pull;
+    if (!fn) return;
+    static float vbuf[4096 * 2];
+    if (frames > 4096) frames = 4096;
+    memset(vbuf, 0, (size_t)frames * 2 * sizeof(float));
+    fn(vbuf, frames, g_voice_user);
+    for (int i = 0; i < frames * 2; i++) {
+        float v = buf[i] + vbuf[i];
+        buf[i] = v > 1.0f ? 1.0f : (v < -1.0f ? -1.0f : v);
+    }
+}
+
 static void SDLCALL audio_callback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount) {
     (void)userdata;
     (void)total_amount;
@@ -545,6 +674,7 @@ static void SDLCALL audio_callback(void *userdata, SDL_AudioStream *stream, int 
     while (frames > 0) {
         int chunk = frames > 4096 ? 4096 : frames;
         mix_block(buf, chunk);
+        voice_bus_mix(buf, chunk);   // --- voice ---
         SDL_PutAudioStreamData(stream, buf, chunk * (int)(sizeof(float) * 2));
         frames -= chunk;
     }

@@ -19,6 +19,7 @@ typedef struct Camera {
     float cur_dist;                    // after wall collision
     bool  locked; Vec3 lock_pos; bool has_lock;
     float view_far;                    // far plane in metres (the level's `look far`); 0 = the 80 m default
+    float roll;                        // radians the view lies over about the forward axis; a goon knocked flat sees the world side-on
     // Scene
     Vec3 goal_eye, goal_target; float goal_fov;
     float shake, shake_t;

@@ -9,6 +9,10 @@
 //   borrow FILE NODE           draw mesh node NODE from another rigged FILE (relative to assets/)
 //       on this character's skeleton. The KayKit rigs share joint names and inverse binds, so a
 //       Mage hat rides a Knight. Hiding the part it replaces is up to you (hide Knight_Helmet).
+//   voice  PITCH FORMANT EFFECT
+//       this character's voice chat preset: pitch multiplier (0.5..2), formant multiplier
+//       (0.7..1.5) and one of none|radio|ring. Applied at the microphone before Opus, so
+//       everyone hears the same voice. Missing line = 1.0 1.0 none. See src/voice.h.
 //   anim   NAME CLIP [loop] [hold] [contact F] [rate R]
 //       NAME is one of the Anim enum names (idle walk attack parry parry_hit dodge hurt kneel dead roar stagger)
 // Boss moves name their own clips in the enemy file (clip NAME contact F).
@@ -36,6 +40,8 @@ typedef struct CharSpec {
     struct { char file[128], bone[48]; Vec3 pos; float yaw, pitch, roll, scale; } attach[SPEC_MAX_ATTACH]; int nattach;
     // mesh parts taken from another rigged file and drawn on this skeleton: borrow FILE NODE
     struct { char file[128], node[48]; } borrow[SPEC_MAX_BORROW]; int nborrow;
+    // voice chat preset (`voice PITCH FORMANT EFFECT`); effect is a VoiceEffect from voice_dsp.h
+    float voice_pitch, voice_formant; int voice_effect; bool has_voice;
 } CharSpec;
 
 
@@ -76,6 +82,11 @@ void charmodel_drive_simple(CharModel *cm, const Character *c, float dt);
 void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint);
 // Draw a 3D character with an explicit pose and world matrix (portraits); attachments included.
 void charmodel_draw_posed(Gfx *g, const CharModel *cm, const ModelPose *pose, Mat4 world, Vec4 tint);
+// World matrix of one of a character's bones, as charmodel_draw would place it this frame: the
+// character's world transform times the posed bone. False when the model is a sprite, is not
+// loaded, or has no bone of that name. This is how a weapon rides hand_r without rebuilding the
+// character: the caller draws its own model at the matrix that comes back.
+bool charmodel_bone_world(const CharModel *cm, const Character *c, const char *bone, Mat4 *out);
 // Sprite helpers used by the battle: play a named sprite animation (fitted so the first contact lands at lead), and contact timing.
 void charmodel_sprite_play(CharModel *cm, const char *anim, float lead, bool restart);
 float charmodel_sprite_contact(const CharModel *cm, const char *anim, int i, float lead);

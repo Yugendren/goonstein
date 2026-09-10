@@ -13,6 +13,14 @@ typedef enum Anim {
     ANIM_BLOCK,                      // guard held (looping / holding), as opposed to the deflect tap
     ANIM_HURT_HEAD, ANIM_HURT_HEAVY, // bigger hit reactions, picked by damage size
     ANIM_ATTACK_RUN,                 // sprint attack
+    ANIM_DOWN,                       // lying where you fell: a held frame, and never called death
+    ANIM_GETUP,                      // pushing back up off the floor
+    ANIM_KNOCKED,                    // the moment of going over
+    ANIM_GUN_IDLE,                   // a pistol held at the hip
+    ANIM_GUN_FIRE,
+    ANIM_GUN_RELOAD,
+    ANIM_MELEE_IDLE,                 // a bat over the shoulder
+    ANIM_MELEE_SWING,
     ANIM_COUNT
 } Anim;
 const char *anim_name(Anim a);
