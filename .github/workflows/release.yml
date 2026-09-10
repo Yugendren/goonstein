@@ -6,7 +6,7 @@ name: release
 # of main and the download URLs never change.
 on:
   push:
-    branches: [main]
+    branches: [release]
   workflow_dispatch:
 
 permissions:
