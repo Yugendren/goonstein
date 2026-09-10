@@ -470,6 +470,18 @@ void items_tick(Game *g, const Input *in, float dt) {
     for (int i = 0; i < 4; i++) if (its->carry[i].pending > 0) its->carry[i].pending -= dt;
     if (its->lost_t > 0) its->lost_t -= dt;
 
+    // Snapshot every used item's pos/rot before anything this tick can move it. On a client that is
+    // interpolate_items, which is about to pin every remote replica to a new network sample; on the
+    // host (and for a client's own carried item) it is the body-refresh loop at the bottom of this
+    // function. Either way this is the one place both paths funnel through first, so prev and current
+    // stay exactly one tick apart and items_draw always has a clean pair to interpolate the render
+    // frame between -- see the comment on Item::prev_pos in items.h.
+    for (int i = 0; i < its->n; i++) {
+        Item *it = &its->it[i];
+        if (!it->used) continue;
+        it->prev_pos = it->pos; it->prev_rot = it->rot;
+    }
+
     if (client) interpolate_items(g);
     local_carry_input(g, in, dt);
     // The host pulls every carried item along; a client only its own (the rest are pinned replicas).
@@ -521,8 +533,32 @@ void items_tick(Game *g, const Input *in, float dt) {
 }
 
 // ---------------------------------------------------------------- drawing
+
+// Normalised lerp between two ticks' rotations: a slerp is more polish than one 1/60th of a second
+// needs, and the dot-sign flip is what keeps it turning the short way round rather than winding the
+// long way whenever the two quaternions land on opposite sides of the hypersphere. Kept local to
+// this file rather than added to hmath.h, which nobody else on this pass owns.
+static Quat quat_nlerp(Quat a, Quat b, float t) {
+    if (a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0.0f) b = (Quat){ -b.x, -b.y, -b.z, -b.w };
+    return quat_norm((Quat){ lerpf(a.x, b.x, t), lerpf(a.y, b.y, t), lerpf(a.z, b.z, t), lerpf(a.w, b.w, t) });
+}
+
+// Where to draw this item right now: between prev_pos (the tick before last) and pos (the one just
+// simulated), at this frame's fraction of the way through it. A jump of more than 4 m in a single
+// tick is not travel -- a phys_place snap, a fresh client snapshot correction, or a spawn -- and
+// interpolating across it would smear the item across the level between where it was and where it
+// landed, so it is drawn at rest instead. Same threshold and the same reasoning as game.c's own
+// lerp_or_cut for players.
+static Vec3 item_draw_pos(const Item *it, float a) {
+    return v3_len(v3_sub(it->pos, it->prev_pos)) > 4.0f ? it->pos : v3_lerp(it->prev_pos, it->pos, a);
+}
+static Quat item_draw_rot(const Item *it, float a) {
+    return v3_len(v3_sub(it->pos, it->prev_pos)) > 4.0f ? it->rot : quat_nlerp(it->prev_rot, it->rot, a);
+}
+
 void items_draw(Game *g) {
     Items *its = &g->items;
+    float a = game_render_alpha(g);
     for (int i = 0; i < its->n; i++) {
         const Item *it = &its->it[i];
         if (!it->used || it->broken) continue;
@@ -530,7 +566,8 @@ void items_draw(Game *g) {
         const ItemDef *d = &its->defs[it->def];
         if (!d->ok || !d->model[0]) continue;
         float s = d->scale;
-        props_draw_matrix(&g->gfx, &g->props, d->model, m4_from_trs(it->pos, it->rot, v3(s, s, s)), d->tint, v3(0, 0, 0), NULL, 0, 0);
+        Mat4 world = m4_from_trs(item_draw_pos(it, a), item_draw_rot(it, a), v3(s, s, s));
+        props_draw_matrix(&g->gfx, &g->props, d->model, world, d->tint, v3(0, 0, 0), NULL, 0, 0);
     }
     gfx_set_material(&g->gfx, NULL);
     if (g->gfx.in_shadow) return;   // the sun pass wants the loot's silhouette, not its confetti
@@ -541,6 +578,6 @@ void items_draw(Game *g) {
             if (!it->used || it->broken || it->weapon_hand) continue;
             const ItemDef *d = &its->defs[it->def];
             float r = d->radius > 0 ? d->radius : fmaxf(d->half.x, d->half.z);
-            draw_blob_shadow(&g->gfx, it->pos, r * 2.0f, 0.4f);
+            draw_blob_shadow(&g->gfx, item_draw_pos(it, a), r * 2.0f, 0.4f);
         }
 }

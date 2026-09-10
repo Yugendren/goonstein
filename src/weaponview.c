@@ -16,7 +16,13 @@
 #define VM_SWAY_MAX          0.05f  // metres, both axes
 #define VM_SWAY_YAW_GAIN      1.4f
 #define VM_SWAY_PITCH_GAIN    1.0f
-#define VM_SWAY_LAG           0.35f // per-call blend toward the target; see the comment in weapons_draw
+#define VM_SWAY_LAG           0.35f // the old per-call blend, kept only as the value VM_SWAY_RATE below
+                                     // is matched against; see the comment in weapons_draw
+// weapons_draw used to run once a tick (60 Hz); now it runs once a rendered frame, up to 240 Hz, so a
+// per-call blend of VM_SWAY_LAG would smooth four times as hard. VM_SWAY_RATE is the same lag turned
+// into a frame-rate-independent exponential rate, chosen so 1 - expf(-VM_SWAY_RATE * dt) equals
+// VM_SWAY_LAG at a 60 Hz frame: VM_SWAY_RATE = -60 * logf(1 - VM_SWAY_LAG) = -60 * logf(0.65) = 25.847.
+#define VM_SWAY_RATE          25.847f
 #define VM_SWAY_ROLL_GAIN    60.0f  // metres of sway -> degrees of roll
 #define VM_SWAY_ROLL_MAX       3.0f
 #define VM_ARM_THICK          0.075f
@@ -158,11 +164,14 @@ static void draw_viewmodel(Game *g) {
 
     Vec3 pos = v3_add(eye, v3_add(v3_scale(fwd, 0.45f), v3_add(v3_scale(right, 0.20f), v3_scale(up, -0.18f))));
 
-    // Bob: a small figure-of-eight off the local character's own locomotion, not the camera's.
-    const Character *lc = &g->players[slot].c;
-    float bobk = clampf(lc->speed / 3.0f, 0, 1);
-    pos = v3_add(pos, v3_scale(right, sinf(lc->walk_phase * 2.0f) * 0.014f * bobk));
-    pos = v3_add(pos, v3_scale(up, sinf(lc->walk_phase * 4.0f) * 0.010f * bobk));
+    // Bob: the camera's own render-rate bob phase and gain, not the character's walk_phase (which
+    // only advances at the 60 Hz sim tick and, driven at 4x for the vertical figure-of-eight, was a
+    // ~10 Hz vibration at a jog). Riding the same phase as the head means the gun and the eye bob to
+    // one beat instead of two, and it is deliberately a little larger than the eye's own bob -- that
+    // is what sells motion in first person without shaking the horizon.
+    float ph = camera_bob_phase(&g->cam), gain = camera_bob_gain(&g->cam);
+    pos = v3_add(pos, v3_scale(right, sinf(ph) * 0.022f * gain));          // one sway a stride
+    pos = v3_add(pos, v3_scale(up, sinf(ph * 2.0f) * 0.014f * gain));      // one dip a footfall
 
     Vec3 extra_pos = v3(0, 0, 0);
     float extra_yaw = 0, extra_pitch = 0, extra_roll = 0;
@@ -279,16 +288,24 @@ void weapons_draw(Game *g) {
     if (g->gfx.in_shadow) return;
 
     // Sway is derived here rather than passed in, because weapons_draw sees no Input: measure how
-    // far the camera turned since the last time we were called and lag the weapon behind it. The
-    // lag is a per-call blend rather than a dt-scaled one (this function has no dt either); that is
-    // frame-rate dependent in principle and unnoticeable in practice at a fraction of a metre.
+    // far the camera turned since the last time we were called and lag the weapon behind it.
     static float s_prev_cam_yaw = 0.0f, s_prev_cam_pitch = 0.0f;
     float dyaw = angle_wrap(g->cam.yaw - s_prev_cam_yaw);
     float dpitch = g->cam.pitch - s_prev_cam_pitch;
     s_prev_cam_yaw = g->cam.yaw; s_prev_cam_pitch = g->cam.pitch;
     Weapons *ws = &g->weapons;
-    ws->sway_x = lerpf(ws->sway_x, clampf(-dyaw * VM_SWAY_YAW_GAIN, -VM_SWAY_MAX, VM_SWAY_MAX), VM_SWAY_LAG);
-    ws->sway_y = lerpf(ws->sway_y, clampf(-dpitch * VM_SWAY_PITCH_GAIN, -VM_SWAY_MAX, VM_SWAY_MAX), VM_SWAY_LAG);
+    // This function is now called once a rendered frame rather than once a tick, so dyaw/dpitch are a
+    // per-frame delta, not the per-tick one the sway gains were tuned against: a fast turn spread over
+    // four 240 Hz frames would otherwise sway four times less per frame than the same turn at 60 Hz.
+    // Divide by the frame's dt and rescale to a nominal 60 Hz tick to keep the sway the same size
+    // regardless of frame rate; dt <= 0 (a paused frame, the very first one) leaves the sway where it
+    // was rather than dividing by zero.
+    float dt = fmaxf(game_frame_dt(g), 0.0f);
+    float norm = dt > 0.0f ? (1.0f / 60.0f) / dt : 0.0f;
+    dyaw *= norm; dpitch *= norm;
+    float k = 1.0f - expf(-VM_SWAY_RATE * dt);   // frame-rate-correct blend; see VM_SWAY_RATE above
+    ws->sway_x = lerpf(ws->sway_x, clampf(-dyaw * VM_SWAY_YAW_GAIN, -VM_SWAY_MAX, VM_SWAY_MAX), k);
+    ws->sway_y = lerpf(ws->sway_y, clampf(-dpitch * VM_SWAY_PITCH_GAIN, -VM_SWAY_MAX, VM_SWAY_MAX), k);
 
     bool did_viewmodel = false;
     if (g->cam.mode == CAM_FIRST && weapons_drawn(g, g->local)) { draw_viewmodel(g); did_viewmodel = true; }

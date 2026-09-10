@@ -57,6 +57,7 @@ typedef struct Item {
     bool     in_hold;          // inside the boat's cargo volume
     bool     dirty;            // host: changed since the last snapshot it went out in
     Vec3     pos; Quat rot;    // what the renderer draws: the body, or the interpolated replica
+    Vec3     prev_pos; Quat prev_rot;   // the tick before last, so the renderer can draw between ticks
     float    drop_lock;        // seconds before this item can be grabbed again
     // client interpolation, oldest first
     struct { double t; Vec3 pos; Quat rot; } hist[ITEM_HIST]; int nhist;
