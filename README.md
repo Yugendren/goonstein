@@ -6,6 +6,26 @@ you deflect osu-style. C11 on SDL3, targeting macOS, Linux (Steam Deck) and Wind
 
 This is the skeleton build: one corridor, one cutscene going in, one boss, one cutscene coming out.
 
+## Play it (testers)
+
+macOS / Linux:
+
+    curl -fsSL https://raw.githubusercontent.com/Yugendren/goonstein/main/get.sh | sh && ./goonstein/goonstein
+
+Windows (PowerShell):
+
+    irm https://raw.githubusercontent.com/Yugendren/goonstein/main/get.ps1 | iex
+
+### Play together
+
+- Host: `./goonstein/goonstein --host 7777`
+- Join: `./goonstein/goonstein --join IP:7777`
+- Over the internet: put both machines on one [Tailscale](https://tailscale.com) tailnet and join the host's tailnet IP.
+
+Verified on macOS (Apple Silicon). The Linux and Windows zips are built by CI and have not been
+run on real hardware yet, so treat them as untested. If the game fails to start, send the
+`hollow.log` file that sits next to the binary.
+
 ## Build and run
 
     cmake -B build -G Ninja

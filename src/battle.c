@@ -724,8 +724,15 @@ static void frame_rect(Gfx *g, float x, float y, float w, float h, float th, Vec
     gfx_ui_rect(g, x, y, th, h, c); gfx_ui_rect(g, x + w - th, y, th, h, c);
 }
 
-// Word-wrap a description into the card
-static void wrap_text(Gfx *g, float x, float y, float maxw, float sc, Vec4 col, const char *s) __attribute__((unused));
+// Word-wrap a description into the card. Kept for the card detail panel, not called right now;
+// MSVC has no __attribute__((unused)) (it reports the same thing as C4505, disabled in
+// CMakeLists.txt), so the marker has to be spelled per-compiler.
+#if defined(__GNUC__) || defined(__clang__)
+#define HOLLOW_MAYBE_UNUSED __attribute__((unused))
+#else
+#define HOLLOW_MAYBE_UNUSED
+#endif
+static void wrap_text(Gfx *g, float x, float y, float maxw, float sc, Vec4 col, const char *s) HOLLOW_MAYBE_UNUSED;
 static void wrap_text(Gfx *g, float x, float y, float maxw, float sc, Vec4 col, const char *s) {
     char line[96] = ""; char word[48]; const char *p = s; float ly = y;
     while (*p) {

@@ -752,7 +752,7 @@ static struct UiFont *font_get(Gfx *g, int px) {
     if (!g->ttf) return NULL;
     if (px < 8) px = 8; if (px > 64) px = 64;
     for (int i = 0; i < g->nfonts; i++) if (g->fonts[i].px == px) return &g->fonts[i];
-    if (g->nfonts >= 8) return &g->fonts[0];
+    if (g->nfonts >= GFX_UI_FONTS) return &g->fonts[0];
     struct UiFont *f = &g->fonts[g->nfonts];
     unsigned char *alpha = malloc(FONT_ATLAS * FONT_ATLAS);
     stbtt_bakedchar *cd = malloc(96 * sizeof *cd);
@@ -784,6 +784,14 @@ static void font_draw(Gfx *g, float x, float y, int px, Vec4 color, const char *
         ui_push(g, q.x0, q.y0, q.s0, q.t0, color); ui_push(g, q.x1, q.y0, q.s1, q.t0, color); ui_push(g, q.x1, q.y1, q.s1, q.t1, color);
         ui_push(g, q.x0, q.y0, q.s0, q.t0, color); ui_push(g, q.x1, q.y1, q.s1, q.t1, color); ui_push(g, q.x0, q.y1, q.s0, q.t1, color);
     }
+}
+void gfx_ui_text_px(Gfx *g, float x, float y, int px, Vec4 color, const char *text) {
+    if (g->ttf) { font_draw(g, x, y, px, color, text); return; }
+    gfx_ui_text(g, x, y, (float)px / 17.0f, color, text);
+}
+float gfx_ui_text_px_width(Gfx *g, int px, const char *text) {
+    if (g->ttf) return font_width(g, px, text);
+    return stb_easy_font_width((char *)text) * ((float)px / 17.0f);
 }
 float gfx_ui_line_h(float scale) { return font_mode ? (float)FONT_PX(scale) : 7.0f * scale + 2.0f; }
 void gfx_tool_screenshot_request(Gfx *g, int w, int h) { g->want_tool_shot = true; g->tool_shot_w = w; g->tool_shot_h = h; }

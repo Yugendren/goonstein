@@ -27,7 +27,8 @@ jobs:
           sudo apt-get install -y ninja-build pkg-config \
             libasound2-dev libpulse-dev libpipewire-0.3-dev libjack-dev libsndio-dev \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
-            libxss-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
+            libxss-dev libxtst-dev libxinerama-dev libxrender-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
             libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
             libudev-dev libdbus-1-dev libibus-1.0-dev libvulkan-dev
       - name: macOS deps
@@ -70,12 +71,15 @@ jobs:
 
   # ---------------------------------------------------------------- shaders in sync
   # Catches a shaders/*.frag edit committed without re-running tools/shaders.sh.
+  # The check hashes the GLSL sources against assets/shaders/sources.sha256 rather
+  # than recompiling and diffing bytes: two shaderc builds emit different (equally
+  # valid) SPIR-V for the same input, so a byte diff flagged every shader as stale
+  # on a clean tree. No shader toolchain needed here as a result.
   shaders-check:
     name: shaders up to date
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y glslc spirv-cross
       - run: ./tools/shaders.sh --check
 
   # ---------------------------------------------------------------- content gate

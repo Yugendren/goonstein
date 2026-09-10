@@ -1,0 +1,152 @@
+name: release
+
+# Every push to main republishes a rolling "latest" release holding one portable zip per
+# platform, so a tester can run get.sh / get.ps1 without a GitHub account or a build toolchain.
+# The tag and the release are deleted and recreated each run: `latest` always points at the head
+# of main and the download URLs never change.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Never let two pushes race on deleting/recreating the same tag. Queue instead of cancelling, so
+# a half-finished publish is not left without a release.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------- one portable zip per platform
+  # Same build steps as ci.yml, plus the packaging: `cmake --install` writes dist/bin/{goonstein,
+  # assets}, which is renamed to goonstein/ so the zip has exactly one top-level folder.
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macOS arm64
+            asset: goonstein-macos-arm64.zip
+          - os: ubuntu-latest
+            name: Linux x86-64
+            asset: goonstein-linux-x86_64.zip
+          - os: windows-latest
+            name: Windows x86-64
+            asset: goonstein-windows-x86_64.zip
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # SDL3 is built from source, so it needs the platform's dev headers.
+      - name: Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config zip \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libjack-dev libsndio-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
+            libxss-dev libxtst-dev libxinerama-dev libxrender-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
+            libudev-dev libdbus-1-dev libibus-1.0-dev libvulkan-dev
+      - name: macOS deps
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      # D3D12 only eats DXIL, and signed DXIL needs Microsoft's dxil.dll, so it cannot be produced
+      # on the macOS dev machine and is not committed. Without it a Windows package would boot only
+      # where the driver also offers Vulkan (src/gfx.c falls through SPIR-V to DXIL). Compile it
+      # here, before the install step copies assets/ into the layout.
+      - name: Compile DXIL shaders
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tools/shaders.ps1
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DHOLLOW_PORTABLE=ON
+      - name: Build
+        run: cmake --build build --config Release -j 4
+      - name: Install layout
+        run: cmake --install build --config Release --prefix dist
+
+      # SDL3 is linked statically and dlopens X11/Wayland/audio at runtime, so the binary should
+      # need nothing beyond glibc. Anything else here would fail on a tester's machine.
+      - name: Check shared library deps (ldd)
+        if: runner.os == 'Linux'
+        run: |
+          ldd dist/bin/goonstein
+          unexpected=$(ldd dist/bin/goonstein | awk '{print $1}' \
+            | grep -Ev '^(linux-vdso\.so\.1|libc\.so\.6|libm\.so\.6|libdl\.so\.2|libpthread\.so\.0|librt\.so\.1|libgcc_s\.so\.1|libatomic\.so\.1|/lib64/ld-linux-x86-64\.so\.2|ld-linux-x86-64\.so\.2)$' || true)
+          if [ -n "$unexpected" ]; then
+            echo "::error::goonstein links non-standard shared libraries: $unexpected"
+            exit 1
+          fi
+          echo "only standard system libraries -- portable"
+
+      - name: Zip (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mv dist/bin goonstein
+          zip -qry "${{ matrix.asset }}" goonstein
+          unzip -l "${{ matrix.asset }}" | head -8
+          du -h "${{ matrix.asset }}"
+      - name: Zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Move-Item dist/bin goonstein
+          # 7z keeps the top-level folder in the archive; Compress-Archive's handling of that
+          # differs between PowerShell versions.
+          7z a -tzip -bso0 "${{ matrix.asset }}" goonstein | Out-Null
+          7z l "${{ matrix.asset }}" | Select-Object -First 12
+          "{0:N1} MB" -f ((Get-Item "${{ matrix.asset }}").Length / 1MB)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+          compression-level: 0   # already a zip
+
+  # ---------------------------------------------------------------- rolling `latest` release
+  publish:
+    name: publish latest
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: zips
+          merge-multiple: true
+      - run: ls -lh zips
+
+      - name: Recreate the latest tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<EOF
+          Rolling build of \`main\` (\`${GITHUB_SHA:0:7}\`). Re-run the one-liner to update.
+
+          **macOS / Linux**
+
+          \`\`\`sh
+          curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/get.sh | sh && ./goonstein/goonstein
+          \`\`\`
+
+          **Windows (PowerShell)**
+
+          \`\`\`powershell
+          irm https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/get.ps1 | iex
+          \`\`\`
+          EOF
+          # Delete both, in this order: --cleanup-tag removes the tag along with the release, and
+          # the explicit push --delete covers a tag left behind by a previous failed run.
+          gh release delete latest --yes --cleanup-tag || true
+          git push --delete origin latest || true
+          gh release create latest --target "$GITHUB_SHA" --title latest --notes-file notes.md zips/*.zip
+          gh release view latest

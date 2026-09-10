@@ -44,8 +44,10 @@
 #endif
 #include <winsock2.h>   // must precede windows.h
 #include <ws2tcpip.h>
+#include <iphlpapi.h>
 #include <windows.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 typedef SOCKET   netsys_socket;
 typedef int      netsys_socklen;   // Windows takes int* where unix takes socklen_t*
@@ -65,6 +67,8 @@ typedef int      netsys_ssize;     // send/recv return int on Windows, ssize_t o
 #include <fcntl.h>
 #include <errno.h>
 #include <stdio.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 
 typedef int       netsys_socket;
 typedef socklen_t netsys_socklen;
@@ -269,4 +273,54 @@ static inline unsigned short netsys_local_port(netsys_socket s) {
     memset(&sa, 0, sizeof sa);
     if (getsockname(s, (struct sockaddr *)&sa, &len) == NETSYS_SOCKET_ERROR) return 0;
     return ntohs(sa.sin_port);
+}
+
+// ---------------------------------------------------------------- local addresses
+
+// This machine's IPv4 addresses on interfaces that are up and not loopback, as dotted strings
+// ("192.168.1.20"). Writes at most `max` of them into `out` and returns how many were written.
+// The order is whatever the OS reports. Used to show a host the address a friend has to type.
+static inline int netsys_local_ips(char out[][16], int max) {
+    int count = 0;
+    if (max <= 0) return 0;
+#if defined(_WIN32)
+    ULONG size = 15000;   // MSDN's suggested starting size
+    IP_ADAPTER_ADDRESSES *addrs = (IP_ADAPTER_ADDRESSES *)malloc(size);
+    if (!addrs) return 0;
+    ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+    ULONG rc = GetAdaptersAddresses(AF_INET, flags, NULL, addrs, &size);
+    if (rc == ERROR_BUFFER_OVERFLOW) {
+        free(addrs);
+        addrs = (IP_ADAPTER_ADDRESSES *)malloc(size);
+        if (!addrs) return 0;
+        rc = GetAdaptersAddresses(AF_INET, flags, NULL, addrs, &size);
+    }
+    if (rc != NO_ERROR) { free(addrs); return 0; }
+    for (IP_ADAPTER_ADDRESSES *a = addrs; a && count < max; a = a->Next) {
+        if (a->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
+        if (a->OperStatus != IfOperStatusUp) continue;
+        for (IP_ADAPTER_UNICAST_ADDRESS *u = a->FirstUnicastAddress; u && count < max;
+             u = u->Next) {
+            if (u->Address.lpSockaddr->sa_family != AF_INET) continue;
+            struct sockaddr_in *sa = (struct sockaddr_in *)u->Address.lpSockaddr;
+            if (!inet_ntop(AF_INET, &sa->sin_addr, out[count], 16)) continue;
+            count++;
+        }
+    }
+    free(addrs);
+#else
+    struct ifaddrs *ifaddr;
+    if (getifaddrs(&ifaddr) != 0) return 0;
+    for (struct ifaddrs *ifa = ifaddr; ifa && count < max; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr) continue;
+        if (ifa->ifa_addr->sa_family != AF_INET) continue;
+        if (ifa->ifa_flags & IFF_LOOPBACK) continue;
+        if (!(ifa->ifa_flags & IFF_UP)) continue;
+        struct sockaddr_in *sa = (struct sockaddr_in *)(void *)ifa->ifa_addr;
+        if (!inet_ntop(AF_INET, &sa->sin_addr, out[count], 16)) continue;
+        count++;
+    }
+    freeifaddrs(ifaddr);
+#endif
+    return count;
 }

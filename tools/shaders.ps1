@@ -144,9 +144,9 @@ foreach ($shader in $shaders) {
     if ($LASTEXITCODE -ne 0) { throw "dxc failed on $name" }
 
     if ($FullPipeline) {
-        Write-Host "  $name: spv msl hlsl dxil"
+        Write-Host "  ${name}: spv msl hlsl dxil"
     } else {
-        Write-Host "  $name: dxil"
+        Write-Host "  ${name}: dxil"
     }
     $count++
 }

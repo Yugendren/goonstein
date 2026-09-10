@@ -41,11 +41,32 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(SDL3)
 
+# --- libopus (BSD 3-clause), for proximity voice chat. Pinned like SDL so CI and all three
+# platforms build the same codec. Everything optional is off: no programs, no tests, no install
+# rules (they would land in our CPack payload), no DRED/OSCE (those are the only parts of opus
+# 1.5 that want a model download, i.e. an external tool at configure time), no custom modes.
+# Nothing here needs perl or any other external tool -- checked against opus/CMakeLists.txt.
+set(OPUS_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_PKG_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+set(OPUS_CUSTOM_MODES OFF CACHE BOOL "" FORCE)
+set(OPUS_DRED OFF CACHE BOOL "" FORCE)
+set(OPUS_OSCE OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  opus
+  GIT_REPOSITORY https://github.com/xiph/opus.git
+  GIT_TAG        v1.5.2
+  GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(opus)
+
 # --- Game
 file(GLOB GAME_SOURCES CONFIGURE_DEPENDS src/*.c)
 add_executable(${PROJECT_NAME} ${GAME_SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE src)
-target_link_libraries(${PROJECT_NAME} PRIVATE SDL3::SDL3)
+target_link_libraries(${PROJECT_NAME} PRIVATE SDL3::SDL3 Opus::opus)
 
 if(MSVC)
   # /fp:precise is MSVC's default; stated explicitly so it survives someone
@@ -53,7 +74,11 @@ if(MSVC)
   # UTF-8 regardless of the build machine's locale. _CRT_SECURE_NO_WARNINGS
   # silences the deprecation warnings on snprintf/sscanf/etc that MSVC's CRT
   # emits in favor of its own _s variants, which we don't use.
-  target_compile_options(${PROJECT_NAME} PRIVATE /W4 /fp:precise /utf-8)
+  # /wd4505 = "unreferenced local function has been removed": MSVC's version of the
+  # clang/GCC __attribute__((unused)) marker we put on deliberately-kept dead helpers.
+  # It is reported at end of translation unit, so a #pragma around the function cannot
+  # silence it and it has to be turned off here.
+  target_compile_options(${PROJECT_NAME} PRIVATE /W4 /wd4505 /fp:precise /utf-8)
   target_compile_definitions(${PROJECT_NAME} PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
   # -ffp-contract=off disables FMA contraction so float results match across
@@ -78,8 +103,9 @@ endif()
 
 # --- Platform link needs
 if(WIN32)
-  # ws2_32: netcode uses Winsock. winmm: used for timing.
-  target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 winmm)
+  # ws2_32: netcode uses Winsock. winmm: used for timing. iphlpapi: GetAdaptersAddresses
+  # (the LAN address list).
+  target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 winmm iphlpapi)
   # FALSE keeps a console attached so `--frames N` CI runs can print to
   # stdout. Flip to TRUE for a shipping/consumer build to drop the console
   # window.

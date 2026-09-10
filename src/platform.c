@@ -73,6 +73,7 @@ void platform_clear_edges(Platform *pf) {
     memset(in->key_down, 0, sizeof in->key_down);
     memset(in->tool_key_down, 0, sizeof in->tool_key_down);
     in->look_x = in->look_y = 0.0f;
+    in->text[0] = 0; in->ntext = 0;   // --- menu ---
 }
 
 // Tool panels run in the render step, which happens every frame, so their edges live for exactly
@@ -111,11 +112,23 @@ bool platform_poll(Platform *pf) {
                 if (!e.key.repeat) dbg_log("[in] tool key %s", SDL_GetScancodeName(e.key.scancode));
                 break;
             }
+            if (pf->text_input) {
+                // --- menu --- a text field owns the keyboard: only the editing keys reach the game
+                switch (e.key.scancode) {
+                case SDL_SCANCODE_ESCAPE: case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER:
+                case SDL_SCANCODE_BACKSPACE: case SDL_SCANCODE_DELETE: case SDL_SCANCODE_TAB:
+                case SDL_SCANCODE_LEFT: case SDL_SCANCODE_RIGHT: case SDL_SCANCODE_UP: case SDL_SCANCODE_DOWN:
+                    in->key_down[e.key.scancode] = true;
+                    break;
+                default: break;
+                }
+                break;
+            }
             if (e.key.scancode < 512) in->key_down[e.key.scancode] = true;   // repeats count for nudging
             if (e.key.repeat) break;
             dbg_log("[in] key %s", SDL_GetScancodeName(e.key.scancode));
             switch (e.key.scancode) {
-            case SDL_SCANCODE_ESCAPE: if (!pf->editing && !pf->console) pf->want_quit = true; break;
+            // --- menu --- Esc is an ordinary key now: the in-game menu owns quitting (src/menu.c)
             case SDL_SCANCODE_F1: in->debug_toggle = true; pf->debug = !pf->debug; break;
             case SDL_SCANCODE_F2: in->pause_toggle = true; break;
             case SDL_SCANCODE_F3: in->step = true; break;
@@ -130,6 +143,17 @@ bool platform_poll(Platform *pf) {
             default: break;
             }
             break;
+        // --- menu --- typed characters while a text field owns input (see platform_text_input)
+        case SDL_EVENT_TEXT_INPUT: {
+            if (pf->console_win && e.text.windowID == SDL_GetWindowID(pf->console_win)) break;   // tool window has its own key handling
+            size_t len = strlen(in->text);
+            size_t room = sizeof in->text - 1 - len;
+            size_t add = strlen(e.text.text);
+            if (add > room) add = room;
+            if (add > 0) { memcpy(in->text + len, e.text.text, add); in->text[len + add] = 0; }
+            in->ntext = (int)strlen(in->text);
+            break;
+        }
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             if (pf->console_win && e.button.windowID == SDL_GetWindowID(pf->console_win)) {
                 in->tool_mx = e.button.x; in->tool_my = e.button.y;
@@ -198,10 +222,10 @@ bool platform_poll(Platform *pf) {
     for (int i = 0; i < 512; i++) in->key_held[i] = keys[i];
     in->ctrl = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL] || keys[SDL_SCANCODE_LGUI] || keys[SDL_SCANCODE_RGUI];
     in->shift_held = in->sprint;
-    if (pf->tool_focus) { memset(in->key_held, 0, sizeof in->key_held); in->sprint = false; }   // held keys belong to the focused window
+    if (pf->tool_focus || pf->text_input) { memset(in->key_held, 0, sizeof in->key_held); in->sprint = false; }   // held keys belong to the focused window // --- menu --- or a text field
     if (pf->gamepad && SDL_GetGamepadButton(pf->gamepad, SDL_GAMEPAD_BUTTON_EAST)) in->sprint = true;
-    in->move_x = pf->tool_focus ? 0 : (float)(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]);
-    in->move_y = pf->tool_focus ? 0 : (float)(keys[SDL_SCANCODE_S] - keys[SDL_SCANCODE_W]);
+    in->move_x = (pf->tool_focus || pf->text_input) ? 0 : (float)(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]);
+    in->move_y = (pf->tool_focus || pf->text_input) ? 0 : (float)(keys[SDL_SCANCODE_S] - keys[SDL_SCANCODE_W]);
     if (pf->gamepad) {
         float sx = dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_LEFTX) / 32767.0f);
         float sy = dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_LEFTY) / 32767.0f);
@@ -306,6 +330,13 @@ void platform_shutdown(Platform *pf) {
 void platform_set_cursor(Platform *pf, bool free_cursor) {
     SDL_SetWindowRelativeMouseMode(pf->window, !free_cursor);
     if (free_cursor) SDL_ShowCursor(); else SDL_HideCursor();
+}
+
+// --- menu ---
+void platform_text_input(Platform *pf, bool on) {
+    if (pf->text_input == on) return;
+    pf->text_input = on;
+    if (on) SDL_StartTextInput(pf->window); else SDL_StopTextInput(pf->window);
 }
 
 void platform_mouse_ui(const Platform *pf, int iw, int ih, float *ux, float *uy) {

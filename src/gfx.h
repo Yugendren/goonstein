@@ -46,6 +46,7 @@ typedef struct PostParams {
 #define UI_MAX_VERTS 262144
 #define UI_MAX_BATCHES 2048   // text and rects alternate textures, so panels make many small batches
 #define P_MAX_VERTS  (4096 * 6)
+#define GFX_UI_FONTS 16   // baked VT323 sizes cached at once; the menu wants a few big ones the tool window never asks for
 
 typedef struct Gfx {
     SDL_GPUDevice *dev;
@@ -75,7 +76,7 @@ typedef struct Gfx {
     int ui_target;   // 0 = game screen, 1 = debugger window
     float ui2_scale, ui2_ox, ui2_oy;   // transform applied to tool-window UI coordinates (gfx_ui_set_transform)
     // tool window font: VT323 baked at a few pixel sizes on demand
-    struct UiFont { int px; Texture tex; void *cdata; float ascent; } fonts[8]; int nfonts;
+    struct UiFont { int px; Texture tex; void *cdata; float ascent; } fonts[GFX_UI_FONTS]; int nfonts;
     unsigned char *ttf;
     SDL_GPUTexture *tool_shot; int tool_shot_w, tool_shot_h; bool want_tool_shot;
     PVertex *p_add, *p_alpha; Uint32 p_add_count, p_alpha_count;
@@ -128,6 +129,11 @@ void gfx_ground_quad(Gfx *g, Vec3 center, float radius, Vec4 color, bool additiv
 void gfx_ui_rect(Gfx *g, float x, float y, float w, float h, Vec4 color);
 void gfx_ui_text(Gfx *g, float x, float y, float scale, Vec4 color, const char *text);
 float gfx_ui_text_width(float scale, const char *text);
+// VT323 at an explicit pixel height, in whichever UI target is current — including the game
+// window, where gfx_ui_text still draws the small debug font. Falls back to that debug font when
+// assets/fonts/VT323-Regular.ttf is missing.
+void  gfx_ui_text_px(Gfx *g, float x, float y, int px, Vec4 color, const char *text);
+float gfx_ui_text_px_width(Gfx *g, int px, const char *text);
 // Arbitrary quad (4 corners, clockwise or counter-clockwise) and transformed text / rings for card and rhythm UI.
 void gfx_ui_quad(Gfx *g, const float *xy8, Vec4 color);
 void gfx_ui_text_xf(Gfx *g, float cx, float cy, float scale, float angle, Vec4 color, const char *text);  // centred, rotated

@@ -30,6 +30,8 @@ typedef struct Input {
     // Mouse in the tool window (editor / debugger), in that window's points
     float tool_mx, tool_my; bool tool_down, tool_pressed, tool_released; float tool_wheel;
     bool tool_rdown, tool_rpressed;   // right button in the tool window (sprite editor colour pick / erase)
+    // --- menu --- text typed this tick (UTF-8, from SDL_EVENT_TEXT_INPUT); cleared per tick
+    char  text[32]; int ntext;
 } Input;
 
 typedef struct Platform {
@@ -51,6 +53,7 @@ typedef struct Platform {
     Uint64 next_frame_ns;
     Uint64 parry_ns, click_ns;
     bool tool_focus;      // the tool window has keyboard focus: held keys and movement do not reach the game
+    bool text_input;   // --- menu --- a text field owns the keyboard: no movement, no tool keys
 } Platform;
 
 // Packaged (HOLLOW_PORTABLE) builds: make the executable's own directory the working directory so
@@ -72,5 +75,9 @@ void platform_set_vsync(Platform *pf, bool on);   // applies immediately
 void platform_shutdown(Platform *pf);
 // Show a free cursor (menus, cards) or capture it for camera look.
 void platform_set_cursor(Platform *pf, bool free_cursor);
+// --- menu --- Start or stop SDL text input for the game window. While it is on, typed characters
+// arrive in Input.text and no key reaches gameplay except the editing keys (Esc, Return, Backspace,
+// Tab, arrows, Delete), so typing a name cannot walk the player or open a tool window.
+void platform_text_input(Platform *pf, bool on);
 // Mouse position in internal-resolution UI pixels, accounting for letterboxing.
 void platform_mouse_ui(const Platform *pf, int iw, int ih, float *ux, float *uy);
