@@ -527,6 +527,56 @@ def write_preview(h, col, path, annotate=True):
 
 # --------------------------------------------------------------------------- scatter
 
+# What gets sown. The palms are ours (assets/models/own/*.part, retextured with a real bark and
+# leaf map); everything else is a photoscanned Poly Haven variant split out of its set by
+# tools/gltf_split.py, so one prop line is one bush and not a whole shop display. Each entry is
+# (file, low scale, high scale) with the scale range chosen to land the scan on the metre size the
+# old stylised piece used to occupy -- a 1.4 m scan of a bush at 1.3 reads as a 1.8 m bush.
+PH = "models/polyhaven/"
+
+PALMS_TALL = [("models/own/palm_tall.part", 0.85, 1.22)]
+PALMS_BENT = [("models/own/palm_bent.part", 0.85, 1.22)]
+
+# Coastal thicket: sea-grape-scale bushes, 1.0 to 2.2 m as scanned.
+BUSHES = [(PH + "shrub_02/shrub_02_a.gltf", 1.05, 1.90),
+          (PH + "shrub_02/shrub_02_b.gltf", 1.15, 2.10),
+          (PH + "shrub_02/shrub_02_c.gltf", 0.95, 1.70),
+          (PH + "shrub_02/shrub_02_d.gltf", 1.20, 2.20),
+          (PH + "pachira_aquatica_01/pachira_aquatica_01_b.gltf", 1.60, 2.90),
+          (PH + "pachira_aquatica_01/pachira_aquatica_01_c.gltf", 1.30, 2.40)]
+
+# Agave-scale succulents on the dry high ground, where the stylised saguaro used to stand:
+# a 0.5 m scan at 3x is a 1.5 m rosette, which is what actually grows on a limestone cay.
+AGAVES = [(PH + "cheiridopsis_succulent/cheiridopsis_succulent_a.gltf", 2.2, 4.0),
+          (PH + "cheiridopsis_succulent/cheiridopsis_succulent_d.gltf", 2.0, 3.6),
+          (PH + "cheiridopsis_succulent/cheiridopsis_succulent_g.gltf", 1.8, 3.2),
+          (PH + "cheiridopsis_succulent/cheiridopsis_succulent_i.gltf", 1.8, 3.2),
+          (PH + "cheiridopsis_succulent/cheiridopsis_succulent_h.gltf", 2.0, 3.6)]
+
+# Shoreline boulders. The mossy set is tinted back toward bleached limestone: nothing on a
+# windward Caribbean shore is that green.
+ROCKS = [(PH + "rock_moss_set_02/rock_moss_set_02_a.gltf", 1.0, 2.0),
+         (PH + "rock_moss_set_02/rock_moss_set_02_c.gltf", 1.1, 2.2),
+         (PH + "rock_moss_set_02/rock_moss_set_02_e.gltf", 1.1, 2.2),
+         (PH + "rock_moss_set_02/rock_moss_set_02_g.gltf", 1.0, 1.9),
+         (PH + "rock_moss_set_01/rock_moss_set_01_a.gltf", 0.9, 1.7),
+         (PH + "rock_moss_set_01/rock_moss_set_01_d.gltf", 0.8, 1.5),
+         (PH + "rock_moss_set_01/rock_moss_set_01_f.gltf", 1.0, 2.0),
+         (PH + "boulder_01/boulder_01_1k.glb", 1.2, 2.6)]
+ROCK_TINT = " tint 0.92 0.88 0.78"
+
+# Ground cover, sown last and small: it exists to break the biome colour up under the player's
+# feet and is the first thing the size cull drops (src/props.c, PROP_CULL_SIZE).
+GROUND = [(PH + "grass_medium_02/grass_medium_02_b.gltf", 1.4, 2.6),
+          (PH + "grass_medium_02/grass_medium_02_d.gltf", 1.2, 2.2),
+          (PH + "grass_medium_02/grass_medium_02_e.gltf", 1.0, 1.9),
+          (PH + "weed_plant_02/weed_plant_02_a.gltf", 0.9, 1.5),
+          (PH + "crystalline_iceplant/crystalline_iceplant_a.gltf", 1.2, 2.2),
+          (PH + "crystalline_iceplant/crystalline_iceplant_e.gltf", 1.3, 2.4),
+          (PH + "fern_02/fern_02_a.gltf", 0.9, 1.7),
+          (PH + "fern_02/fern_02_c.gltf", 0.9, 1.7)]
+
+
 def sample(h, wx, wz):
     u = clamp((wx - ORIGIN[0]) / CELL, 0, N - 1.001)
     v = clamp((wz - ORIGIN[2]) / CELL, 0, N - 1.001)
@@ -593,10 +643,16 @@ def scatter(h, road_mask):
                 continue
             if not free(x, z, sep):
                 continue
-            model, scale = pick(rng, x, z, y)
-            put(model, x, z, rng.uniform(0, 360), scale, sep)
+            model, scale, extra = pick(rng, x, z, y)
+            put(model, x, z, rng.uniform(0, 360), scale, sep, extra)
             n += 1
         return n
+
+    def from_pool(pool, extra=""):
+        def pick(r, x, z, y):
+            f, lo, hi = pool[r.randrange(len(pool))]
+            return (f, r.uniform(lo, hi), extra)
+        return pick
 
     # --- coconut palms: the planted rows near the compound, wild stands behind the beaches ---
     def palm_w(x, z, y):
@@ -614,8 +670,9 @@ def scatter(h, road_mask):
 
     def palm_pick(rng, x, z, y):
         bent = y < 5.0 and rng.random() < 0.45
-        return ("models/own/palm_bent.part" if bent else "models/own/palm_tall.part",
-                rng.uniform(0.85, 1.22))
+        pool = PALMS_BENT if bent else PALMS_TALL
+        f, lo, hi = pool[0]
+        return (f, rng.uniform(lo, hi), "")
 
     n_palm = sow(104, 60000, 6.0, palm_pick, palm_w)
 
@@ -627,16 +684,16 @@ def scatter(h, road_mask):
         if sl > 1.05:
             return 0.0
         w = 0.85 * (1.0 - smoothstep(0.6, 1.05, sl))
+        # thickets, not lawn: a moisture field so the bushes clump and leave clearings between
+        w *= 0.20 + 1.15 * smoothstep(0.34, 0.72, fbm(SEED + 77, x / 26.0, z / 26.0, 3))
         if near_road(x, z, road_mask):
             w *= 0.10
         if near_pad(x, z, 0.5):
             w *= 0.18
         return w
 
-    SCRUB = None   # placed last, after the bigger things have taken their room
-
-    # --- cactus on the dry, steep, high ground ---
-    def cactus_w(x, z, y):
+    # --- agaves on the dry, steep, high ground (where the stylised cactus used to be) ---
+    def agave_w(x, z, y):
         if y < 7 or y > 32:
             return 0.0
         sl = slope_sample(h, x, z)
@@ -646,8 +703,7 @@ def scatter(h, road_mask):
             return 0.0
         return 0.55
 
-    n_cact = sow(38, 40000, 5.0,
-                 lambda r, x, z, y: ("models/own/cactus.part", r.uniform(0.8, 1.3)), cactus_w)
+    n_cact = sow(38, 40000, 5.0, from_pool(AGAVES), agave_w)
 
     # --- boulders on the shoreline and the cliff shoulders ---
     def rock_w(x, z, y):
@@ -661,13 +717,27 @@ def scatter(h, road_mask):
             return 0.0
         return w
 
-    n_rock = sow(70, 50000, 5.5,
-                 lambda r, x, z, y: ("models/own/sea_rock.part", r.uniform(0.7, 1.7)), rock_w)
+    n_rock = sow(70, 50000, 5.5, from_pool(ROCKS, ROCK_TINT), rock_w)
 
-    n_scrub = sow(255, 90000, 3.2,
-                  lambda r, x, z, y: ("models/own/scrub.part", r.uniform(0.7, 1.55)), scrub_w)
+    n_scrub = sow(480, 200000, 2.6, from_pool(BUSHES), scrub_w)
 
-    print("scatter: %d palms, %d scrub, %d cactus, %d rocks" % (n_palm, n_scrub, n_cact, n_rock))
+    # --- ground cover: tufts and weeds in the gaps the bushes left ---
+    def ground_w(x, z, y):
+        if y < 1.5 or y > 30:
+            return 0.0
+        if slope_sample(h, x, z) > 1.1:
+            return 0.0
+        w = 0.7
+        if near_road(x, z, road_mask):
+            w *= 0.25
+        if near_pad(x, z, 0.5):
+            w *= 0.15
+        return w
+
+    n_ground = sow(150, 90000, 1.9, from_pool(GROUND), ground_w)
+
+    print("scatter: %d palms, %d bushes, %d agaves, %d rocks, %d ground cover (%d props)"
+          % (n_palm, n_scrub, n_cact, n_rock, n_ground, len(out)))
     return out
 
 
