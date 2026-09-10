@@ -1,4 +1,5 @@
 #include "game.h"
+#include "voice.h"   // --- voice ---
 #include "audio.h"
 #include "debug.h"
 #include "daylight.h"
@@ -299,6 +300,7 @@ static void setup_level_content(Game *g) {
     if (gd >= 0) terrain_set_detail(&g->terrain, world_texture(&g->wt, gd), 0.45f, world_texture_gain(&g->wt, gd));
     resolve_ground(g, 0);
     items_load_level(g);   // the loot: bodies, models and the boat's hold volume
+    weapons_reset(g);      // --- weapons --- empty hands, full wind, nobody on the floor
     particles_clear(&g->particles);
     for (int i = 0; i < g->level.nemitters; i++) {
         const LevelEmitter *le = &g->level.emitters[i];
@@ -498,6 +500,7 @@ void game_start_at(Game *g, const char *where) {
 static void bot_input(Game *g, Input *in) {
     // M2: in the overworld the bot's whole job is the loot run. It falls through to the old wander
     // (and to the fight bot) whenever there is nothing left to carry.
+    if (g->state == GS_EXPLORE && weapons_bot_input(g, in)) return;   // --- weapons --- HOLLOW_BOT=shoot
     if (g->state == GS_EXPLORE && items_bot_input(g, in)) return;
     if (netgame_on(&g->net) || g->cam.mode == CAM_FIRST) { netgame_bot_wander(g, in); return; }
     const Boss *b = &g->boss; const Player *p = &PLAYER(g);
@@ -684,6 +687,9 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     // the same rule to every remote player (see netgame.c), so prediction and authority agree.
     Input carried_in = *in;
     if (items_two_handed(g, g->local)) { dir = v3_scale(dir, ITEM_SLOW_SPEED); carried_in.sprint = false; }
+    // --- weapons --- Flat on your back is flat on your back: the look still works, nothing else does.
+    if (weapons_frozen(g, g->local)) { dir = v3(0, 0, 0); carried_in.sprint = false;
+        carried_in.attack = carried_in.parry = carried_in.dodge = carried_in.interact = false; }
     player_update(&PLAYER(g), &carried_in, dir, &g->level, NULL, dt, &ev);
     resolve_ground(g, dt);
     apply_events(g, &ev);
@@ -693,9 +699,14 @@ static void tick_explore(Game *g, const Input *in, float dt) {
         // movement is relative to where you are looking. The eye follows the networked view position
         // (simulated plus the decaying correction), which is the one that does not jump on a snapshot.
         const Character *lc = &PLAYER(g).c;
-        camera_first(&g->cam, netgame_view_pos(&g->net, g->local, lc->pos), eye_height(g),
-                     in->look_x, in->look_y, bob_amount(g), lc->speed, lc->walk_phase, dt);
-        PLAYER(g).c.yaw = g->cam.yaw;
+        // --- weapons --- Knocked down: the eye drops to the floor and the horizon rolls over. The
+        // mouse still turns the head, which is the only thing left to do for six seconds.
+        float down_roll = 0, eye_h = eye_height(g);
+        bool down = weapons_camera(g, &down_roll, &eye_h);
+        camera_first(&g->cam, netgame_view_pos(&g->net, g->local, lc->pos), eye_h,
+                     in->look_x, in->look_y, down ? 0 : bob_amount(g), lc->speed, lc->walk_phase, dt);
+        g->cam.roll = down_roll * DEG2RAD;
+        if (!down) PLAYER(g).c.yaw = g->cam.yaw;
     } else if (g->level.view == VIEW_THIRD) { camera_orbit(&g->cam, PLAYER(g).c.pos, in->look_x, in->look_y, false, v3(0, 0, 0), &g->level, dt); camera_above_terrain(g); }   // view third: behind the hero, mouse look
     else camera_iso(&g->cam, PLAYER(g).c.pos, &g->level, dt);
     Trigger *t = level_trigger_at(&g->level, PLAYER(g).c.pos);   // marks the trigger fired even when scenes are skipped
@@ -715,9 +726,10 @@ static void tick_explore(Game *g, const Input *in, float dt) {
         if (d < np->radius && g->talk_npc < 0) g->talk_npc = i;
     }
     items_tick(g, in, dt);   // after the camera: the hold point hangs off this tick's view
+    weapons_tick(g, in, dt);   // --- weapons --- after the items: the thing just picked up is already in hand
     // Hands full, or loot in view: E belongs to the item, not to the conversation.
     if (g->talk_npc >= 0 && in->interact && g->state == GS_EXPLORE && !g->no_scenes
-        && g->items.carry[g->local].item < 0 && g->items.look_at < 0)
+        && g->items.carry[g->local].item < 0 && g->items.look_at < 0 && !g->weapons.prompt[0])
         { const Npc *np = &g->level.npcs[g->talk_npc]; dbg_log("talk to %s", np->name); play_scene(g, np->scene, GS_EXPLORE); }
     audio_set_drone(0.45f);
     audio_set_fight(0.0f);
@@ -1271,7 +1283,9 @@ static void draw_hud(Game *g, Platform *pf) {
     }
     if (g->msg_t > 0) gfx_ui_text(x, 12, H - 16, 1.0f, v4(0.9f, 0.8f, 0.4f, 1), g->msg);
     if (g->talk_npc >= 0 && g->state == GS_EXPLORE) { char s2[96]; snprintf(s2, sizeof s2, "E   talk to %s", g->level.npcs[g->talk_npc].name); text_center(x, W * 0.5f, H - 70, 1.3f, v4(1, 0.9f, 0.6f, 1), s2); }
+    voice_draw_hud(g);   // --- voice --- transmit dot and the name tags with a speaker icon
     if (g->state == GS_EXPLORE) items_draw_hud(g);
+    if (g->state == GS_EXPLORE) weapons_draw_hud(g);   // --- weapons --- ammo, wind, DOWN, the prompt
     if (g->hint_t > 0 && g->state == GS_EXPLORE) {
         float a = fminf(1, g->hint_t);
         text_center(x, W * 0.5f, 30, 1.0f, v4(0.85f, 0.85f, 0.8f, a), "WASD move   Shift sprint   E interact   walk the path");
@@ -1356,6 +1370,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
                                                 .color = bc->tell_color, .intensity = 2.5f * bc->tell * bc->tell };
     if (g->flash > 0 && fp.nlights < GFX_MAX_LIGHTS)
         fp.lights[fp.nlights++] = (PointLight){ .pos = v3(pc->pos.x, pc->pos.y + 1.2f, pc->pos.z), .radius = 7.0f, .color = g->flash_color, .intensity = 2.5f * g->flash };
+    fp.nlights += weapons_lights(g, fp.lights + fp.nlights, GFX_MAX_LIGHTS - fp.nlights);   // --- weapons --- muzzle flashes
 
     Gfx *x = &g->gfx;
     // First person: the local player's own model is drawn into the sun shadow map (so it still casts)
@@ -1403,6 +1418,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         terrain_draw_water(x, &g->terrain); }
     props_draw(x, &g->props, lv, &g->wt, t);
     items_draw(g);
+    weapons_draw(g);   // --- weapons --- viewmodel, held and holstered weapons, tracers and flashes
     {
         Vec4 pt = v4(lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), 1);
         Vec4 bt = v4(1, 1, 1, 1);

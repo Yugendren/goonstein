@@ -52,6 +52,10 @@ typedef struct Weapon {
     float flash;         // muzzle flash 0..1, decays over ~0.06 s: a light and a puff
     float wind;          // 0..WEAP_WIND; empty means down
     float wind_quiet;    // seconds since the last hit, for the regen delay
+    float pending;       // client: seconds a predicted equip, drop or shot is still in flight, during
+                         // which a snapshot older than the round trip must not walk it back
+    int   pose; float pose_t;   // the animation the weapon hand is asking for, and its own clock:
+                                // see weapons_pose. ANIM_COUNT means "leave the locomotion alone"
 } Weapon;
 
 // Knocked down. Not dead, never called death, and there is no gore anywhere near it.
@@ -107,6 +111,12 @@ int  weapons_lights(const struct Game *g, PointLight *out, int max);
 void weapons_draw_hud(struct Game *g);
 // Effects bookkeeping: tracers and muzzle flashes fading out. Called by weapons_tick.
 void weapons_fx_tick(struct Game *g, float dt);
+// Write the weapon hand's pose onto every character it owns. player_update decides idle / walk /
+// run from the movement every tick, which is the right answer for empty hands and the wrong one
+// for a goon lying on the floor or holding a pistol at the hip, so this runs after it -- both from
+// weapons_tick for the local player and from netgame.c for the remote ones the host simulates
+// later in the same tick. Idempotent: calling it twice in a tick costs nothing.
+void weapons_pose(struct Game *g);
 
 // ---- what the rest of the game needs to ask -------------------------------------------------
 WeaponKind weapon_kind_of(const struct Game *g, int item);       // WK_NONE for ordinary loot

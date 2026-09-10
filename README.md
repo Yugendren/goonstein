@@ -59,7 +59,11 @@ and what is verified versus untested.
 | Deflect / block | Right mouse tap / hold (or K) | LB           |
 | Step dodge / sprint | Shift tap / hold (or Space) | B          |
 | Lock-on       | Middle mouse, Q or Tab    | R3               |
-| Interact      | E                         | A                |
+| Interact / pick a mate up | E (hold to pick up) | A            |
+| Fire / swing  | Left mouse                | RB               |
+| Reload        | R                         | X                |
+| Draw / holster the weapon | Q or scroll wheel | Y            |
+| Put the weapon down | G                   |                  |
 | Push to talk  | V (hold)                  | LB (hold)        |
 | Skip cutscene | Enter                     | Start            |
 | Debug overlay | F1                        | Back / Select    |
@@ -210,6 +214,15 @@ logged for the latter). A file with no `model` fails to load and the item never 
 | `scale` | `1` (clamped to >= 0.01) | model scale |
 | `tint` | `1 1 1` (white) | model tint, and the colour of its debris |
 | `sound` | none | name of the `SoundId` played when it breaks; unset still plays the default smash |
+| `weapon` | none | `melee` or `gun`; absent means ordinary loot, and every key below is ignored |
+| `damage` | `0` | of a goon's 100-point wind pool; 100 in one go puts them straight on the floor |
+| `rate` | `1` (clamped to >= 0.05) | shots or swings per second |
+| `range` | `0` | metres a shot carries, capped at 60; a melee swing always reaches 1.6 m |
+| `ammo` | `0` | rounds in a full gun |
+| `knock` | `0` | metres per second of shove given to whatever is hit |
+| `pellets` | `1` (clamped to 1..24) | hitscan rays per shot: one for a pistol, a handful for a shotgun |
+| `fire_sound` | none | name of the `SoundId` played on firing (`shot`, `boom`, `whoosh`) |
+| `grip` | `0 0 0 0 0 0` | `x y z yaw pitch roll` that turns the model's own rest pose into "grip at the origin, business end down +Z" -- what the viewmodel and the hand attachment both assume. A model authored that way needs no line at all; the Kenney blasters point down -Z and so carry `grip 0 0.019 0.025 180 0 0` |
 
 `assets/items/vase.txt`, one of the eight starter items, as a worked example:
 
@@ -236,6 +249,74 @@ every contact, once a tick, of the physics body owned by item index `N`. `--test
 scripted headless check: a hundred ticks in it takes the first fragile item on the level, places it
 five metres off the nearest tall wall and throws it in at 16 m/s, then logs whether it broke --
 real evidence the fragile path still works, not just that the code compiled.
+
+## Weapons
+
+A weapon is an item with a `weapon melee|gun` line. Everything about carrying loot is unchanged;
+what changes is which hand it goes into. E on a weapon puts it in the **weapon hand**, which has no
+carry spring, no leash and no physics body -- it is a model on the end of an arm. The **loot hand**
+keeps working exactly as it did, so a pistol in one hand and a painting in the other is legal, and
+a very stupid way to travel.
+
+The island starts with a bat and a wrench by the bunkhouse and a pistol and a shotgun down by the
+boat. The goons land unarmed.
+
+**Controls.** Left mouse fires or swings; hold it for a gun, tap it for a bat. `R` reloads (1.2 s;
+an empty gun clicks at you first). `Q` or the scroll wheel draws and holsters, swapping the left
+mouse between firing and charging a throw -- with a gun drawn you cannot throw the loot, which is
+what `Q` is for. `G` puts the weapon down. Carrying something two-handed forces the weapon onto
+your back and keeps it there until your hands are free. A holstered weapon is drawn on the spine;
+a held one on `hand_r`, through the model's own pistol or sword hold clip.
+
+**Melee.** A swing lasts 0.35 s and lands at 0.45 of the way through it, on the first thing inside
+a 1.6 m arc: an item takes an impulse (and breaks if it is fragile enough to mind), a goon takes
+`damage` off their wind and a shove. The swing is animated by code in the viewmodel and by the
+`Sword_Attack` clip on everyone else's screen.
+
+**Guns.** Hitscan, with a tracer, a muzzle flash light and a puff of smoke, a recoil kick and an
+ammo counter. A shotgun fires its `pellets` on a fixed golden-angle fan rather than a random one,
+so the host and every client draw the same spread. Hits give items an impulse, goons a knockdown,
+and the scenery a small dust puff. There is no blood and no gore anywhere in the effect path; that
+is a hard rule from `DESIGN.md`, not a preference.
+
+**Knockdown, not death.** A goon has 100 points of *wind*, which regenerates 12 a second after two
+and a half seconds of nobody hitting them. Empty it and they collapse: controls off, camera still
+first person but lying on its side (rolled 70 degrees, eye at 0.30 m), a `DOWN` line on the HUD and
+a countdown. They get up after six seconds, or straight away if a mate stands within 2.2 m and
+holds E for 1.5 s -- the HUD offers `HOLD E   PICK UP <NAME>` and shows the progress. Friendly fire
+is always on, because that is the joke. Nothing in the game is ever called death; the lying pose is
+the held last frame of a clip whose name we do not repeat in the UI.
+
+**Authority.** The host owns every shot. A client presses the button, plays its own kick, sound,
+flash and tracer on that frame so the gun feels connected to the mouse, and sends a reliable
+`NRM_WEAP_FIRE` carrying the eye and aim it fired from. The host checks that slot has that weapon,
+has a round left and is off cooldown, snaps the origin to its own eye position if the client's is
+more than 2.5 m out, re-runs the hitscan against its own copy of the world, and applies the result.
+Knockdown, ammo and wind ride in the player snapshot as three extra bytes; tracers, flashes, thuds
+and clicks go out as `NPT_EVENT`, unreliable, because they describe one frame and a lost one is
+simply not seen. A shot a client predicted and the host refused costs one round for a tenth of a
+second and is then put back by the next snapshot.
+
+| Message | Direction | Payload |
+|---------|-----------|---------|
+| `NRM_WEAP_FIRE` (reliable) | client -> host | eye (3 x f32), aim (3 x i16, unit vector) |
+| `NRM_WEAP_RELOAD` (reliable) | client -> host | nothing |
+| `NRM_WEAP_SWAP` (reliable) | client -> host | nothing |
+| `NRM_WEAP_REVIVE` (reliable) | client -> host | target slot, holding flag; resent every 6 ticks while held |
+| `NRM_ITEM_GRAB` / `NRM_ITEM_RELEASE` | client -> host | unchanged: picking a weapon up and putting it down ride the item messages |
+| `NPT_EVENT` (unreliable) | host -> clients | count, then per event: slot, kind, what it hit, pellets, from and to in centimetres |
+
+Snapshots gain three bytes per player: a flag byte (down, getting up, drawn, weapon kind, reloading,
+swinging), the round count and the wind. A weapon in a hand is drawn off its owner's `hand_r` on
+every client, so its position on the wire says nothing and it is only replicated when it changes
+hands -- which is cheaper than the loot it sits next to.
+
+**Debugging.** `--test down` puts the local goon on the floor at tick 150, so the view from down
+there can be captured on purpose instead of waited for. `HOLLOW_BOT=shoot` turns the explore bot into a weapon bot: it walks to the nearest
+weapon, picks it up, and shoots the nearest other player or item every couple of seconds, which is
+how the whole path is exercised headlessly. `HOLLOW_GRIP="x y z yaw pitch roll scale"` (and
+`HOLLOW_GRIP_PISTOL`, `HOLLOW_GRIP_SHOTGUN`, ...) retunes how a weapon sits in the hand without a
+rebuild.
 
 ## Testing and debugging
 

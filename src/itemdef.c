@@ -43,6 +43,7 @@ static void itemdef_defaults(ItemDef *def, const char *name) {
     def->sound = -1;
     def->weapon = 0; def->damage = 0; def->rate = 1.0f; def->wrange = 0;
     def->ammo = 0; def->knock = 0; def->pellets = 1; def->fire_sound = -1;
+    def->grip = v3(0, 0, 0); def->grip_yaw = def->grip_pitch = def->grip_roll = 0;
     def->ok = false;
 }
 
@@ -175,6 +176,14 @@ static bool itemdef_parse(ItemDef *def, const char *path) {
             int n = (int)f; if (n < 0) n = 0;
             if (key[0] == 'a') { if (n > 255) n = 255; def->ammo = n; }
             else def->pellets = n < 1 ? 1 : (n > 24 ? 24 : n);
+
+        } else if (strcmp(key, "grip") == 0) {
+            char *tok[8];
+            int n = tokenize(value, tok, 8);
+            float f[6];
+            if (n != 6 || !parse_floats(tok, 6, f)) { SDL_Log("itemdef:%d: '%s' bad grip (want x y z yaw pitch roll)", line_no, path); continue; }
+            def->grip = v3(f[0], f[1], f[2]);
+            def->grip_yaw = f[3]; def->grip_pitch = f[4]; def->grip_roll = f[5];
 
         } else if (strcmp(key, "fire_sound") == 0) {
             if (*value == '\0') { SDL_Log("itemdef:%d: '%s' empty fire_sound name", line_no, path); continue; }

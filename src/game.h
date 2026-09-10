@@ -19,6 +19,7 @@
 #include "menu.h"   // --- menu --- the main menu, the Esc menu and the player list
 #include "phys.h"
 #include "items.h"
+#include "weapons.h"
 
 #define INTERNAL_W 1280
 #define INTERNAL_H 800
@@ -44,6 +45,7 @@ typedef struct Game {
     CharModel player_models[NET_MAX_PLAYERS], boss_model;
     PropCache props; Particles particles; Battle battle; Uifx fx; bool battle_loaded;
     PhysWorld phys; Items items;   // M2: rigid bodies and the loot that rides on them
+    Weapons  weapons;              // --- weapons --- what is in the other hand, and who is on the floor
     LevelEd leveled; bool leveled_ready;
     Builder builder; bool builder_ready;
     Terrain terrain; bool gen_done;

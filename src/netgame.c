@@ -7,15 +7,19 @@
 //             -> (game ticks the local player, predicted) -> send this tick's intent.
 #include "game.h"
 #include "netgame.h"
+#include "weapons.h"
 #include "debug.h"
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "voice.h"   // --- voice ---
 
 // Reliable message types (the first byte of a reliable body).
 enum { NRM_JOIN = 1, NRM_ACCEPT = 2, NRM_REJECT = 3, NRM_JOINED = 4, NRM_LEFT = 5, NRM_BYE = 6,
-       NRM_ITEM_GRAB = 7, NRM_ITEM_RELEASE = 8 };
+       NRM_ITEM_GRAB = 7, NRM_ITEM_RELEASE = 8,
+       // --- weapons ---
+       NRM_WEAP_FIRE = 9, NRM_WEAP_RELOAD = 10, NRM_WEAP_SWAP = 11, NRM_WEAP_REVIVE = 12 };
 enum { NET_ENT_PLAYER = 1, NET_ENT_ITEM = 2 };
 
 // Item entities: 14 bytes each (type, id, position in centimetres, orientation in four bytes, one
@@ -170,6 +174,9 @@ static void write_item(NetBuf *b, const Item *it) {
 // moving, and at 30 Hz that pile alone was three times the whole bandwidth budget.
 static bool item_live(const Game *g, const Item *it) {
     if (!it->used) return false;
+    // --- weapons --- A weapon in a hand is drawn off its owner's hand_r on every client, so its
+    // position on the wire says nothing. Only the fact that it changed hands is worth a slot.
+    if (it->weapon_hand) return it->dirty;
     if (it->dirty || it->held_by >= 0) return true;
     const PhysBody *pb = phys_body_c(&g->phys, it->body);
     if (!pb || pb->sleeping) return false;
@@ -203,6 +210,10 @@ static void write_snapshot(Game *g, int for_slot, uint8_t *out, int *out_len, in
         nb_u16(&b, (uint16_t)(clampf(c->anim_t, 0, 60.0f) * 1000.0f));
         nb_u16(&b, (uint16_t)clampf(c->hp, 0, 65535.0f));
         nb_u8(&b, (uint8_t)g->players[i].state);
+        // --- weapons --- three bytes: the weapon hand, what is in it, and how much wind is left
+        nb_u8(&b, weapons_pack_flags(g, i));
+        nb_u8(&b, (uint8_t)clampf((float)g->weapons.w[i].ammo, 0, 255));
+        nb_u8(&b, (uint8_t)clampf(g->weapons.w[i].wind, 0, 255));
     }
     // Pass one: everything that is moving, in someone's hands, or has just changed hands or broken.
     bool sent[ITEMS_MAX]; memset(sent, 0, sizeof sent);
@@ -326,6 +337,7 @@ static void read_snapshot(Game *g, const uint8_t *data, int len) {
         sp.anim_t = (float)rb_u16(&b) * 0.001f;
         sp.hp = (float)rb_u16(&b);
         sp.pstate = rb_u8(&b);
+        sp.wflags = rb_u8(&b); sp.wammo = rb_u8(&b); sp.wwind = rb_u8(&b);   // --- weapons ---
         if (b.err) return;
         seen[id] = true;
         if (!n->slots[id].active) {
@@ -333,6 +345,7 @@ static void read_snapshot(Game *g, const uint8_t *data, int len) {
             else seat(g, id, "player");
             dbg_log("net: slot %d appeared", id);
         }
+        weapons_apply_flags(g, id, sp.wflags, sp.wammo, sp.wwind);   // --- weapons ---
         if (id == (uint8_t)g->local) reconcile(g, &sp, ack);
         else push_hist(&n->slots[id], n->now, &sp);
     }
@@ -356,6 +369,9 @@ static int find_slot_by_addr(NetGame *n, const NetAddr *a) {
     for (int i = 0; i < NET_MAX_PLAYERS; i++) if (n->slots[i].has_peer && net_addr_eq(&n->slots[i].peer.addr, a)) return i;
     return -1;
 }
+
+static void host_send_events(Game *g);          // --- weapons --- defined with the other senders
+static void client_read_events(Game *g, const uint8_t *data, int len);
 
 static void host_broadcast(NetGame *n, int except, const void *body, uint16_t len) {
     for (int i = 0; i < NET_MAX_PLAYERS; i++)
@@ -393,6 +409,22 @@ static void host_reliable(Game *g, int slot, const uint8_t *body, int len) {
         Vec3 v; v.x = (float)rb_i16(&b) * 0.01f; v.y = (float)rb_i16(&b) * 0.01f; v.z = (float)rb_i16(&b) * 0.01f;
         if (b.err) return;
         items_net_release(g, slot, id, thrown != 0, v);
+    // --- weapons --- What a client says it did with the thing in its other hand. Every one of
+    // these is a request; weapons.c decides whether it happened.
+    } else if (type == NRM_WEAP_FIRE) {
+        Vec3 o, d;
+        o.x = rb_f32(&b); o.y = rb_f32(&b); o.z = rb_f32(&b);
+        d.x = (float)rb_i16(&b) / 32767.0f; d.y = (float)rb_i16(&b) / 32767.0f; d.z = (float)rb_i16(&b) / 32767.0f;
+        if (b.err) return;
+        weapons_net_fire(g, slot, o, d);
+    } else if (type == NRM_WEAP_RELOAD) {
+        weapons_net_reload(g, slot);
+    } else if (type == NRM_WEAP_SWAP) {
+        weapons_net_swap(g, slot);
+    } else if (type == NRM_WEAP_REVIVE) {
+        uint8_t target = rb_u8(&b), holding = rb_u8(&b);
+        if (b.err) return;
+        weapons_net_revive(g, slot, (int)target, holding != 0);
     } else if (type == NRM_BYE) {
         dbg_log("net: %s (slot %d) said goodbye", n->slots[slot].name, slot);
         uint8_t lb[2] = { NRM_LEFT, (uint8_t)slot };
@@ -427,6 +459,9 @@ static void host_receive(Game *g) {
                 if (s->qn == NET_INPUT_Q) { memmove(s->q, s->q + 1, sizeof s->q[0] * (NET_INPUT_Q - 1)); s->qn--; }
                 s->q[s->qn++] = ni; s->last_queued = ni.tick; s->have_queued = true;
             }
+            // --- voice --- anything past the 10 input bytes is voice: forwarded to the other
+            // clients without being decoded, and played here.
+            if (pk.payload_len > 10) voice_host_block(g, slot, pk.payload + 10, pk.payload_len - 10);
         }
     }
     for (int i = 1; i < NET_MAX_PLAYERS; i++) {
@@ -458,6 +493,8 @@ static void host_simulate(Game *g, float dt) {
         // Two hands on the painting is two hands off everything else: the host applies the same
         // cap the client predicts, so carrying does not fight the reconciliation.
         if (items_two_handed(g, i)) { dir = v3_scale(dir, ITEM_SLOW_SPEED); in.sprint = false; }
+        // --- weapons --- A goon on the floor stays on the floor whatever its client keeps sending.
+        if (weapons_frozen(g, i)) { dir = v3(0, 0, 0); in.sprint = false; in.attack = in.parry = in.dodge = in.interact = false; }
         CombatEvents ev = {0};
         player_update(&g->players[i], &in, dir, &g->level, NULL, dt, &ev);
         Character *c = &g->players[i].c;
@@ -470,6 +507,10 @@ static void host_simulate(Game *g, float dt) {
     for (int i = 0; i < NET_MAX_PLAYERS; i++)
         for (int j = i + 1; j < NET_MAX_PLAYERS; j++)
             if (n->slots[i].active && n->slots[j].active) character_separate(&g->players[i].c, &g->players[j].c, &g->level);
+    // --- weapons --- player_update has just decided idle / walk / run for every remote player from
+    // the movement it replayed. A goon lying on the floor, or holding a pistol at the hip, wants
+    // something else, and this is the last word before the snapshot goes out.
+    weapons_pose(g);
 }
 
 static void host_send_snapshots(Game *g) {
@@ -551,15 +592,97 @@ static void client_receive(Game *g) {
         n->s_pkt_in++; n->s_bytes_in += (uint64_t)pk.size;
         for (int i = 0; i < pk.nrel; i++) client_reliable(g, pk.rel[i].body, pk.rel[i].len);
         if (pk.ptype == NPT_SNAPSHOT && pk.payload_len > 0) read_snapshot(g, pk.payload, pk.payload_len);
+        else if (pk.ptype == NPT_EVENT && pk.payload_len > 0) client_read_events(g, pk.payload, pk.payload_len);   // --- weapons ---
+        else if (pk.ptype == NPT_VOICE && pk.payload_len > 0) voice_client_packet(g, pk.payload, pk.payload_len);   // --- voice ---
     }
 }
 
 static void client_send_input(Game *g) {
     NetGame *n = &g->net;
-    uint8_t buf[16]; NetBuf b; nb_init_write(&b, buf, sizeof buf);
+    uint8_t buf[16 + VOICE_MAX_BLOCK * 2]; NetBuf b; nb_init_write(&b, buf, 16);
     nb_u32(&b, n->cur.tick); nb_i8(&b, n->cur.mx); nb_i8(&b, n->cur.mz); nb_i16(&b, n->cur.yaw); nb_u16(&b, n->cur.buttons);
-    int sent = net_send(&n->sock, &n->server, NPT_INPUT, buf, (int)b.len, n->now);
+    int len = (int)b.len;
+    // --- voice --- talking rides on the packet the client already sends every tick, so it costs
+    // its own bytes and not a second datagram. The host reads the input from the first 10 and
+    // hands whatever follows to voice.c.
+    len += voice_pack_client(g, buf + len, (int)sizeof buf - len);
+    int sent = net_send(&n->sock, &n->server, NPT_INPUT, buf, len, n->now);
     if (sent > 0) { n->s_pkt_out++; n->s_bytes_out += (uint64_t)sent; }
+}
+
+// --- weapons --- Tracers, flashes and thuds, host -> every client, unreliable. A lost event is
+// simply not seen: it describes one frame and there is no state to fall out of step.
+static void host_send_events(Game *g) {
+    NetGame *n = &g->net;
+    FireEvent ev[WEAP_EVENTS];
+    int nev = weapons_events_take(g, ev, WEAP_EVENTS);
+    if (nev <= 0) return;
+    uint8_t buf[NET_MAX_PACKET - NET_HEADER]; NetBuf b; nb_init_write(&b, buf, sizeof buf);
+    nb_u8(&b, (uint8_t)nev);
+    for (int i = 0; i < nev; i++) {
+        nb_u8(&b, ev[i].slot); nb_u8(&b, ev[i].kind); nb_u8(&b, ev[i].hit); nb_u8(&b, ev[i].pellets);
+        nb_i16(&b, q_pos(ev[i].from.x)); nb_i16(&b, q_pos(ev[i].from.y)); nb_i16(&b, q_pos(ev[i].from.z));
+        nb_i16(&b, q_pos(ev[i].to.x));   nb_i16(&b, q_pos(ev[i].to.y));   nb_i16(&b, q_pos(ev[i].to.z));
+    }
+    if (b.err) return;
+    for (int i = 1; i < NET_MAX_PLAYERS; i++) {
+        NetSlot *s = &n->slots[i];
+        if (!s->has_peer || !s->active) continue;
+        int sent = net_send(&n->sock, &s->peer, NPT_EVENT, buf, (int)b.len, n->now);
+        if (sent > 0) { n->s_pkt_out++; n->s_bytes_out += (uint64_t)sent; }
+    }
+}
+
+// Client side of the same: play what the host says happened.
+static void client_read_events(Game *g, const uint8_t *data, int len) {
+    NetBuf b; nb_init_read(&b, data, (size_t)len);
+    int nev = rb_u8(&b);
+    for (int i = 0; i < nev; i++) {
+        FireEvent e;
+        e.slot = rb_u8(&b); e.kind = rb_u8(&b); e.hit = rb_u8(&b); e.pellets = rb_u8(&b);
+        e.from.x = dq_pos(rb_i16(&b)); e.from.y = dq_pos(rb_i16(&b)); e.from.z = dq_pos(rb_i16(&b));
+        e.to.x   = dq_pos(rb_i16(&b)); e.to.y   = dq_pos(rb_i16(&b)); e.to.z   = dq_pos(rb_i16(&b));
+        if (b.err) return;
+        // Our own shots were played the moment we fired them; hearing them again would double up.
+        if (e.slot == (uint8_t)g->local && (e.kind == FE_SHOT || e.kind == FE_SWING || e.kind == FE_CLICK)) continue;
+        weapons_event_apply(g, &e);
+    }
+}
+
+void netgame_send_weapon_fire(Game *g, Vec3 origin, Vec3 dir) {
+    NetGame *n = &g->net;
+    if (n->mode != NM_CLIENT || !n->connected) return;
+    uint8_t body[24]; NetBuf b; nb_init_write(&b, body, sizeof body);
+    nb_u8(&b, NRM_WEAP_FIRE);
+    nb_f32(&b, origin.x); nb_f32(&b, origin.y); nb_f32(&b, origin.z);
+    nb_i16(&b, (int16_t)lrintf(clampf(dir.x, -1, 1) * 32767.0f));
+    nb_i16(&b, (int16_t)lrintf(clampf(dir.y, -1, 1) * 32767.0f));
+    nb_i16(&b, (int16_t)lrintf(clampf(dir.z, -1, 1) * 32767.0f));
+    if (!b.err) net_reliable_send(&n->server, body, (uint16_t)b.len);
+}
+void netgame_send_weapon_reload(Game *g) {
+    NetGame *n = &g->net;
+    if (n->mode != NM_CLIENT || !n->connected) return;
+    uint8_t body[1] = { NRM_WEAP_RELOAD };
+    net_reliable_send(&n->server, body, 1);
+}
+void netgame_send_weapon_swap(Game *g) {
+    NetGame *n = &g->net;
+    if (n->mode != NM_CLIENT || !n->connected) return;
+    uint8_t body[1] = { NRM_WEAP_SWAP };
+    net_reliable_send(&n->server, body, 1);
+}
+void netgame_send_weapon_revive(Game *g, int target, bool holding) {
+    NetGame *n = &g->net;
+    if (n->mode != NM_CLIENT || !n->connected) return;
+    // Held, not tapped: this goes out once every few ticks while the button is down, which is
+    // cheap enough on a reliable channel and means letting go is noticed within a frame or two.
+    static uint32_t last = 0;
+    if (holding && g->net.net_tick - last < 6) return;
+    last = g->net.net_tick;
+    uint8_t body[4]; NetBuf b; nb_init_write(&b, body, sizeof body);
+    nb_u8(&b, NRM_WEAP_REVIVE); nb_u8(&b, (uint8_t)target); nb_u8(&b, holding ? 1 : 0);
+    if (!b.err) net_reliable_send(&n->server, body, (uint16_t)b.len);
 }
 
 void netgame_send_item_grab(Game *g, uint16_t id) {
@@ -631,6 +754,7 @@ void netgame_post_tick(Game *g, float dt) {
     if (n->mode == NM_HOST) {
         host_simulate(g, dt);
         if (--n->snap_countdown <= 0) { n->snap_countdown = 60 / NET_SNAP_HZ; host_send_snapshots(g); }
+        host_send_events(g);   // --- weapons --- every tick, not every snapshot: a tracer is worth a packet
     } else {
         int k = (int)(n->net_tick % NET_HIST);
         n->hist_pos[k] = g->players[g->local].c.pos; n->hist_tick[k] = n->net_tick;

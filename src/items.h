@@ -39,6 +39,10 @@ typedef struct ItemDef {
     float knock;           // metres per second of shove given to whatever it hits
     int   pellets;         // hitscan rays per shot: 1 for a pistol, a handful for a shotgun
     int   fire_sound;      // SoundId played on firing, -1 = none
+    // How the model sits in a hand: the offset and rotation that turn the file's own rest pose
+    // into "grip at the origin, business end down +Z", which is what the viewmodel and the hand
+    // attachment both assume. A model authored that way needs no `grip` line at all.
+    Vec3  grip; float grip_yaw, grip_pitch, grip_roll;
     bool  ok;
 } ItemDef;
 

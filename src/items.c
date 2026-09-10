@@ -408,6 +408,8 @@ static void local_carry_input(Game *g, const Input *in, float dt) {
     if (c->item < 0) {
         its->look_at = items_look_target(g, slot);
         c->charge = 0; c->charging = false;
+        // --- weapons --- A mate face down at your feet outranks the vase next to them.
+        if (g->weapons.prompt[0]) { its->look_at = -1; return; }
         if (in->interact && its->look_at >= 0) {
             int idx = its->look_at;
             if (client) { netgame_send_item_grab(g, g->items.it[idx].id); c->pending = 0.6f; }

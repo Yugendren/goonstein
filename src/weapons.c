@@ -104,6 +104,7 @@ bool weapons_equip(Game *g, int slot, int item) {
     w->cool = 0.25f; w->reload = 0; w->swing = 0; w->swing_hit = false; w->kick = 0;
     // Two hands on the painting is no hands for the gun: it comes out already holstered.
     w->drawn = !items_two_handed(g, slot);
+    if (g->net.mode == NM_CLIENT && slot == g->local) w->pending = 0.6f;
     W(g)->swap_t = 0.25f;
     audio_play(SND_GRAB, 0.6f, 0.85f);
     dbg_log("weapon: slot %d picked up %s (%s, %d rounds)", slot, d->display, d->weapon == 2 ? "gun" : "melee", w->ammo);
@@ -116,7 +117,8 @@ void weapons_drop(Game *g, int slot) {
     int item = w->item;
     if (item < 0) return;
     Items *its = &g->items;
-    *w = (Weapon){ .item = -1, .wind = w->wind, .wind_quiet = w->wind_quiet };
+    *w = (Weapon){ .item = -1, .wind = w->wind, .wind_quiet = w->wind_quiet,
+                   .pending = (g->net.mode == NM_CLIENT && slot == g->local) ? 0.6f : 0.0f, .pose = ANIM_COUNT };
     if (item >= its->n || !its->it[item].used) return;
     Item *it = &its->it[item];
     // Put it down where the hand is, not where the last snapshot left the body, or a dropped gun
@@ -213,11 +215,13 @@ static RayHit weapons_ray(Game *g, int shooter, Vec3 from, Vec3 dir, float range
         float d = ray_capsule(from, dir, c->pos, c->radius * 1.15f, height, &p);
         if (d >= 0 && d < h.dist) { h.kind = FH_PLAYER; h.idx = i; h.dist = d; h.point = p; h.normal = v3_scale(dir, -1); }
     }
-    // Items. A weapon in somebody's hand is part of them, not a target of its own.
+    // Items. A weapon in somebody's hand is part of them, not a target of its own -- and neither is
+    // whatever the shooter is carrying, which hangs 1.2 m in front of their own eye and would
+    // otherwise stop every shot they ever fired.
     const Items *its = &g->items;
     for (int i = 0; i < its->n; i++) {
         const Item *it = &its->it[i];
-        if (!it->used || it->broken || it->weapon_hand) continue;
+        if (!it->used || it->broken || it->weapon_hand || it->held_by == shooter) continue;
         const ItemDef *d = &its->defs[it->def];
         float r = d->radius > 0 ? d->radius : fmaxf(d->half.x, fmaxf(d->half.y, d->half.z));
         Vec3 rel = v3_sub(it->pos, from);
@@ -240,7 +244,6 @@ static void knock_down(Game *g, int slot) {
     ws->w[slot].wind = 0; ws->w[slot].reload = 0; ws->w[slot].swing = 0; ws->w[slot].drawn = false;
     // Whatever was in the loot hand is now on the floor, which is most of the point.
     if (g->items.carry[slot].item >= 0) items_release(g, slot, false, v3(0, 0, 0));
-    character_set_anim(&g->players[slot].c, ANIM_KNOCKED);
     ws->knockdowns++;
     FireEvent e = { .slot = (uint8_t)slot, .kind = FE_DOWN, .hit = FH_NONE, .pellets = 1,
                     .from = g->players[slot].c.pos, .to = g->players[slot].c.pos };
@@ -255,7 +258,6 @@ static void get_up(Game *g, int slot, const char *why) {
     d->down = false; d->getup = 0.9f; d->revive = 0; d->reviver = -1;
     ws->w[slot].wind = WEAP_WIND; ws->w[slot].wind_quiet = 0;
     ws->w[slot].drawn = ws->w[slot].item >= 0 && !items_two_handed(g, slot);
-    character_set_anim(&g->players[slot].c, ANIM_GETUP);
     FireEvent e = { .slot = (uint8_t)slot, .kind = FE_UP, .hit = FH_NONE, .pellets = 1,
                     .from = g->players[slot].c.pos, .to = g->players[slot].c.pos };
     weapons_event(g, &e);
@@ -310,9 +312,20 @@ static void resolve_fire(Game *g, int slot, Vec3 origin, Vec3 dir) {
     int pellets = gun ? (d->pellets < 1 ? 1 : d->pellets) : 1;
     float per = d->damage / (float)pellets;
 
-    if (gun) { w->ammo--; ws->shots++; } else { ws->swings++; }
     w->cool = 1.0f / fmaxf(d->rate, 0.05f);
     w->kick = 1.0f; w->flash = gun ? 1.0f : 0.0f;
+    // A swing is not instant. Start it here and let melee_contact land it on the frame the bat is
+    // actually out in front, which is the only reason a swing reads as a swing rather than a hitscan.
+    if (!gun) {
+        ws->swings++;
+        w->swing = WEAP_SWING_TIME; w->swing_hit = false;
+        FireEvent sw = { .slot = (uint8_t)slot, .kind = FE_SWING, .hit = FH_NONE, .pellets = 1,
+                         .from = origin, .to = v3_add(origin, v3_scale(dir, range)) };
+        weapons_event(g, &sw);
+        dbg_log("weapon: slot %d swung the %s", slot, d->display);
+        return;
+    }
+    w->ammo--; ws->shots++;
 
     // Pellets spread on a fixed pattern rather than a random one: the host and every client have to
     // draw the same fan of tracers, and a shared seed is one more thing to get out of step.
@@ -374,7 +387,11 @@ static void start_reload(Game *g, int slot) {
 
 void weapons_net_fire(Game *g, int slot, Vec3 origin, Vec3 dir) {
     if (g->net.mode != NM_HOST || slot < 0 || slot >= NET_MAX_PLAYERS) return;
-    if (!can_fire(g, slot, 0.03f)) { dbg_log("weapon: slot %d's shot refused (cooling, empty or unarmed)", slot); return; }
+    if (!can_fire(g, slot, 0.03f)) {
+        const Weapon *w = &g->weapons.w[slot];
+        dbg_log("weapon: slot %d's shot refused (cool %.2f reload %.2f ammo %d drawn %d)", slot, (double)w->cool, (double)w->reload, w->ammo, w->drawn);
+        return;
+    }
     // The client shoots from where it thinks its eye is. Accept that within a couple of metres of
     // where the host has it standing, and shoot from the host's eye height so nobody can fire from
     // the ceiling; the aim direction is theirs, because that is what they were looking at.
@@ -445,7 +462,7 @@ static void local_input(Game *g, const Input *in) {
             if (ws->prompt[i] >= 'a' && ws->prompt[i] <= 'z') ws->prompt[i] = (char)(ws->prompt[i] - 32);
         if (client) netgame_send_weapon_revive(g, downed, holding);
         else weapons_net_revive_local(g, slot, downed, holding);
-        return;   // E is spoken for; no picking things up off a friend's chest
+        // E is spoken for -- no picking things up off a friend's chest -- but the trigger is not.
     }
 
     if (w->item < 0) return;
@@ -456,6 +473,14 @@ static void local_input(Game *g, const Input *in) {
     if (in->key_down[SDL_SCANCODE_Q] || fabsf(in->wheel) > 0.3f) {
         weapons_swap(g, slot);
         if (client) netgame_send_weapon_swap(g);
+    }
+    // G puts it down, drawn or holstered. E is for picking things up, and with a gun in one hand
+    // and a bust in the other there has to be a key that means "this one, not that one".
+    if (in->key_down[SDL_SCANCODE_G]) {
+        uint16_t id = g->items.it[w->item].id;
+        if (client) { netgame_send_item_release(g, id, false, v3(0, 0, 0)); w->pending = 0.6f; }
+        weapons_drop(g, slot);
+        return;
     }
     if (!w->drawn) return;
 
@@ -478,13 +503,14 @@ static void local_input(Game *g, const Input *in) {
     if (!can_fire(g, slot, 0)) return;
 
     Vec3 origin = weapons_eye(g, slot), dir = weapons_aim(g, slot);
-    if (d->weapon == 1) { w->swing = WEAP_SWING_TIME; w->swing_hit = false; }
     if (client) {
+        if (d->weapon == 1) { w->swing = WEAP_SWING_TIME; w->swing_hit = false; }
         // Predict the feel of it -- kick, sound, flash, the round leaving the magazine -- and let
         // the host decide what it actually hit. A shot that the host refuses costs one round on the
         // client for a tenth of a second and then the snapshot puts it back.
         netgame_send_weapon_fire(g, origin, dir);
         if (d->weapon == 2) w->ammo--;
+        w->pending = 0.4f;
         w->cool = 1.0f / fmaxf(d->rate, 0.05f);
         w->kick = 1.0f; w->flash = d->weapon == 2 ? 1.0f : 0;
         FireEvent e = { .slot = (uint8_t)slot, .kind = (uint8_t)(d->weapon == 2 ? FE_SHOT : FE_SWING), .hit = FH_NONE,
@@ -513,12 +539,47 @@ void weapons_reset(Game *g) {
     for (int i = 0; i < NET_MAX_PLAYERS; i++) {
         ws->w[i].item = -1;
         ws->w[i].wind = WEAP_WIND;
+        ws->w[i].pose = ANIM_COUNT;
         ws->dn[i].reviver = -1;
     }
 }
 
 // A melee swing lands on the first thing inside the arc, once, at the moment the bat is out in
-// front. Guns are instant; only the swing has a contact frame worth waiting for.
+// front. An arc and not a ray: a bat is a metre of wood swung through a wedge of air, so anything
+// inside 1.6 m of the chest and roughly in front of you is fair game. Measuring it from the eye
+// down a single line, as a gun does, means you cannot hit a gnome standing at your feet, which is
+// not a game anybody wants to play.
+static bool melee_arc(Game *g, int slot, int *kind, int *idx, Vec3 *at) {
+    const Character *c = &g->players[slot].c;
+    Vec3 chest = v3(c->pos.x, c->pos.y + c->height * 0.62f, c->pos.z);
+    Vec3 aim = weapons_aim(g, slot);
+    float best = 1e9f;
+    *kind = FH_NONE; *idx = -1; *at = chest;
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) {
+        if (i == slot || !g->net.slots[i].active) continue;
+        const Character *t = &g->players[i].c;
+        Vec3 p = v3(t->pos.x, t->pos.y + t->height * 0.5f, t->pos.z);
+        Vec3 d = v3_sub(p, chest);
+        float dist = v3_len(d) - t->radius;
+        if (dist > WEAP_SWING_ARC || dist >= best) continue;
+        if (v3_len(d) > 1e-4f && v3_dot(v3_scale(d, 1.0f / v3_len(d)), aim) < 0.64f) continue;   // a 50 degree half-arc
+        best = dist; *kind = FH_PLAYER; *idx = i; *at = p;
+    }
+    const Items *its = &g->items;
+    for (int i = 0; i < its->n; i++) {
+        const Item *it = &its->it[i];
+        if (!it->used || it->broken || it->weapon_hand || it->held_by == slot) continue;
+        const ItemDef *d = &its->defs[it->def];
+        float r = d->radius > 0 ? d->radius : fmaxf(d->half.x, fmaxf(d->half.y, d->half.z));
+        Vec3 v = v3_sub(it->pos, chest);
+        float dist = v3_len(v) - r;
+        if (dist > WEAP_SWING_ARC || dist >= best) continue;
+        if (v3_len(v) > 1e-4f && v3_dot(v3_scale(v, 1.0f / v3_len(v)), aim) < 0.64f) continue;
+        best = dist; *kind = FH_ITEM; *idx = i; *at = it->pos;
+    }
+    return *kind != FH_NONE;
+}
+
 static void melee_contact(Game *g, int slot) {
     Weapon *w = &W(g)->w[slot];
     if (w->swing <= 0 || w->swing_hit) return;
@@ -527,10 +588,29 @@ static void melee_contact(Game *g, int slot) {
     if (g->net.mode == NM_CLIENT) return;              // the host owns what a swing hits
     const ItemDef *d = wdef(g, w->item);
     if (!d) return;
-    Vec3 origin = weapons_eye(g, slot), dir = weapons_aim(g, slot);
-    RayHit h = weapons_ray(g, slot, origin, dir, WEAP_SWING_ARC);
-    if (h.kind == FH_PLAYER) hurt_player(g, h.idx, d->damage, dir, d->knock);
-    else if (h.kind == FH_ITEM) hurt_item(g, h.idx, dir, d->knock, h.point);
+    int kind, idx; Vec3 at;
+    if (!melee_arc(g, slot, &kind, &idx, &at)) { W(g)->misses++; return; }
+    Vec3 dir = weapons_aim(g, slot);
+    if (kind == FH_PLAYER) hurt_player(g, idx, d->damage, dir, d->knock);
+    else hurt_item(g, idx, dir, d->knock, at);
+    W(g)->hits++;
+    // The swing event has already gone out; this one carries what it found, so every client draws
+    // the sparks and plays the thud in the right place.
+    FireEvent e = { .slot = (uint8_t)slot, .kind = FE_SWING, .hit = (uint8_t)kind, .pellets = 1, .from = at, .to = at };
+    weapons_event(g, &e);
+    dbg_log("weapon: slot %d's swing connected with %s", slot, kind == FH_PLAYER ? "a goon" : "loot");
+}
+
+void weapons_pose(Game *g) {
+    Weapons *ws = &g->weapons;
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) {
+        if (!g->net.slots[i].active) continue;
+        if (g->net.mode == NM_CLIENT && i != g->local) continue;
+        const Weapon *w = &ws->w[i];
+        if (w->pose == ANIM_COUNT || w->pose < 0) continue;
+        Character *c = &g->players[i].c;
+        c->anim = (Anim)w->pose; c->anim_t = w->pose_t;
+    }
 }
 
 void weapons_tick(Game *g, const Input *in, float dt) {
@@ -541,7 +621,12 @@ void weapons_tick(Game *g, const Input *in, float dt) {
         Weapon *w = &ws->w[i];
         Downed *d = &ws->dn[i];
         // A weapon whose item went away (a level change, a break) leaves an empty hand behind.
-        if (w->item >= 0 && (w->item >= g->items.n || !g->items.it[w->item].used || g->items.it[w->item].broken)) *w = (Weapon){ .item = -1, .wind = w->wind };
+        if (w->pending > 0) w->pending -= dt;
+        if (w->item >= 0 && (w->item >= g->items.n || !g->items.it[w->item].used || g->items.it[w->item].broken)) *w = (Weapon){ .item = -1, .wind = w->wind, .pose = ANIM_COUNT };
+        // A client's weapon hand is whatever the host says it is, once our own prediction has had
+        // time to reach it. Held by somebody else, or by nobody: it is not ours any more.
+        if (g->net.mode == NM_CLIENT && w->item >= 0 && w->pending <= 0 && g->items.it[w->item].held_by != i)
+            *w = (Weapon){ .item = -1, .wind = w->wind, .pose = ANIM_COUNT };
         if (w->cool > 0)   w->cool = fmaxf(0, w->cool - dt);
         if (w->kick > 0)   w->kick = fmaxf(0, w->kick - dt * 4.5f);
         if (w->flash > 0)  w->flash = fmaxf(0, w->flash - dt * 16.0f);
@@ -576,26 +661,36 @@ void weapons_tick(Game *g, const Input *in, float dt) {
         else if (d->t >= WEAP_DOWN_TIME) get_up(g, i, "six seconds of lying there");
     }
 
-    // Animation: the host drives everyone's, a client only predicts its own; the rest arrive in
-    // the snapshot. Nothing here is ever called death, in code or on screen.
+    // Which pose the weapon hand wants. Advancing its own clock here, rather than leaning on
+    // character_set_anim, is what stops player_update and this loop restarting the clip at each
+    // other every tick. Nothing here is ever called death, in code or on screen.
     for (int i = 0; i < NET_MAX_PLAYERS; i++) {
         if (!g->net.slots[i].active) continue;
-        if (g->net.mode == NM_CLIENT && i != g->local) continue;
-        Character *c = &g->players[i].c;
+        if (g->net.mode == NM_CLIENT && i != g->local) continue;   // remote poses arrive in the snapshot
         const Downed *d = &ws->dn[i];
-        const Weapon *w = &ws->w[i];
-        if (d->down) { if (d->t > 0.75f && c->anim != ANIM_DOWN) character_set_anim(c, ANIM_DOWN); }
-        else if (d->getup > 0) { if (c->anim != ANIM_GETUP) character_set_anim(c, ANIM_GETUP); }
-        else if (w->item >= 0 && w->drawn && c->speed < 0.12f && g->players[i].state == PS_FREE) {
-            const ItemDef *def = wdef(g, w->item);
-            Anim want = w->reload > 0 ? ANIM_GUN_RELOAD
-                      : w->swing > 0 ? ANIM_MELEE_SWING
-                      : w->kick > 0.7f && def && def->weapon == 2 ? ANIM_GUN_FIRE
-                      : def && def->weapon == 2 ? ANIM_GUN_IDLE : ANIM_MELEE_IDLE;
-            if (c->anim != want) character_set_anim(c, want);
+        Weapon *w = &ws->w[i];
+        const ItemDef *def = wdef(g, w->item);
+        bool gun = def && def->weapon == 2;
+        int want = ANIM_COUNT;
+        if (d->down)              want = d->t > 0.75f ? ANIM_DOWN : ANIM_KNOCKED;
+        else if (d->getup > 0)    want = ANIM_GETUP;
+        else if (w->item >= 0 && w->drawn) {
+            if (w->reload > 0)                       want = ANIM_GUN_RELOAD;
+            else if (w->swing > 0)                   want = ANIM_MELEE_SWING;
+            else if (gun && w->kick > 0.7f)          want = ANIM_GUN_FIRE;
+            else if (g->players[i].c.speed < 0.12f && g->players[i].state == PS_FREE)
+                                                     want = gun ? ANIM_GUN_IDLE : ANIM_MELEE_IDLE;
         }
+        if (w->pose != want) { w->pose = want; w->pose_t = 0; } else w->pose_t += dt;
     }
+    weapons_pose(g);
 
+    // --test down: put the local goon on the floor once, so a screenshot of the view from down
+    // there is a thing that can be captured on purpose rather than waited for.
+    if (!strcmp(g->test_mode, "down") && g->tick == 150 && !ws->dn[g->local].down) {
+        dbg_log("test down: knocking the local goon over at tick %u", g->tick);
+        knock_down(g, g->local);
+    }
     if (g->net.slots[g->local].active) local_input(g, in);
     weapons_fx_tick(g, dt);
 }
@@ -622,7 +717,7 @@ void weapons_apply_flags(Game *g, int slot, uint8_t flags, uint8_t ammo, uint8_t
     if (slot == g->local) {
         // Our own ammo and wind are the host's to say; everything else we predicted ourselves and
         // a snapshot older than the round trip must not walk it back.
-        w->ammo = ammo;
+        if (w->pending <= 0) w->ammo = ammo;
         w->wind = (float)wind;
         if ((flags & 32u) && w->reload <= 0) w->reload = WEAP_RELOAD_TIME * 0.5f;
         if (!(flags & 32u)) w->reload = 0;

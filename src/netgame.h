@@ -41,6 +41,9 @@ typedef struct NetSnapPlayer {
     Vec3    pos; float yaw;
     uint8_t anim, pstate;
     float   anim_t, hp;
+    // --- weapons --- three bytes: what the weapon hand is doing, what is left in it, and how much
+    // wind its owner has before they end up on the floor. See weapons_pack_flags.
+    uint8_t wflags, wammo, wwind;
 } NetSnapPlayer;
 
 typedef struct NetSlot {
@@ -118,5 +121,11 @@ Vec3 netgame_view_pos(const NetGame *n, int slot, Vec3 sim_pos);
 // predicts the result immediately and lets the next snapshot correct it.
 void netgame_send_item_grab(struct Game *g, uint16_t id);
 void netgame_send_item_release(struct Game *g, uint16_t id, bool thrown, Vec3 vel);
+// --- weapons --- Reliable weapon commands, client -> host. The host re-runs the hitscan from its
+// own copy of the world; the client only says where it was looking and when.
+void netgame_send_weapon_fire(struct Game *g, Vec3 origin, Vec3 dir);
+void netgame_send_weapon_reload(struct Game *g);
+void netgame_send_weapon_swap(struct Game *g);
+void netgame_send_weapon_revive(struct Game *g, int target, bool holding);
 // Bot client: wander so a screenshot shows movement.
 void netgame_bot_wander(struct Game *g, Input *in);
