@@ -55,9 +55,11 @@ and what is verified versus untested.
 |---------------|---------------------------|------------------|
 | Move          | WASD                      | Left stick       |
 | Camera        | Mouse                     | Right stick      |
+| Jump          | Space                     | --               |
+| Crouch        | Ctrl (hold)               | --               |
 | Attack        | Left mouse (or J)         | RB               |
 | Deflect / block | Right mouse tap / hold (or K) | LB           |
-| Step dodge / sprint | Shift tap / hold (or Space) | B          |
+| Step dodge / sprint | Shift tap / hold          | B          |
 | Lock-on       | Middle mouse, Q or Tab    | R3               |
 | Interact / pick a mate up | E (hold to pick up) | A            |
 | Fire / swing  | Left mouse                | RB               |
@@ -89,6 +91,38 @@ sway per stride, fading out with speed; `HOLLOW_BOB=N` overrides it for a captur
 captured for `view third` and `view first` alike while the game window is played (it is released
 for tool windows, pause, scenes and the bot). The same holds for the boss: `combat realtime` is
 the third-person fight, `combat cards` the card battle.
+
+### Movement
+
+Half-Life's shape, at whatever rate your screen runs.
+
+**Look.** Mouse look is applied on every rendered *frame*, not on the 60 Hz tick: the delta the
+mouse reported this frame turns the view this frame, and the simulation reads whatever yaw the view
+has when its tick comes round. Before this the view turned 60 times a second and the picture was
+drawn interpolating between the last two of those turns, so at 144 Hz the pan rate stepped between
+two values 30 times a second (measured: alternating 0.0122 and 0.0183 radians a tick under a steady
+hand) and the whole view lagged a tick behind the mouse. There is no smoothing and no acceleration
+anywhere in the path -- the pointer delta *is* the rotation. `mouse_sens` in `assets/settings.txt`
+multiplies it (1.0 is the default 0.0022 radians per mouse pixel). The body turns with the view.
+
+**Ground.** Acceleration and friction, Quake-shaped, in `assets/player.txt`: walk `speed 3.2`,
+`sprint_mult 1.56` for a 5.0 m/s jog on Shift, `accel 10`, `friction 8`, `stop_speed 1.4`. In the
+air `air_accel 10` chases a wish speed capped at 0.9 m/s, which is the classic small air control:
+steer a little, never run on. Gravity is 20 m/s^2 and `jump_height 1.0` metres is what Space buys
+(the impulse is derived from the height, so changing one number changes the jump). Ctrl crouches:
+half speed, and the eye drops half a metre.
+
+**Stairs and edges.** The feet are glued to the ground they are standing on through a step up *or*
+down of up to 0.5 m, so walking off the edge of a deck is a step rather than the start of a fall,
+and the old bounce along a deck edge (fall, catch, fall) cannot happen. What the feet do instantly
+the eye does over about 80 ms -- the Quake step-smoothing trick -- so a stair reads as a stair and
+not as a pop. Ground steeper than 50 degrees is a slide, not a floor. Landing from a fall dips the
+eye about 0.1 m per metre-per-second of impact and springs back inside 0.4 s.
+
+**The head.** The walk bob is one cycle per 2.2 m of ground covered, +-18 mm vertical and +-14 mm
+lateral, advanced on the frame clock. It used to be +-35 mm at 3.8 Hz driven off the tick, which
+measured as a vibration rather than a walk; the viewmodel's own bob was a 10 Hz jackhammer and now
+shares the head's phase. `view first 0` in the level turns the bob off, `HOLLOW_BOB=N` overrides it.
 
 ## Combat
 
@@ -320,7 +354,7 @@ rebuild.
 
 ## Testing and debugging
 
-`assets/settings.txt` holds personal defaults (volume, debug overlay, hero); flags override it.
+`assets/settings.txt` holds personal defaults (volume, debug overlay, hero, `mouse_sens`); flags override it.
 `--quiet` sets volume to 0.15 and `--volume 0` mutes. `\` (or the backtick) opens the debugger:
 a side panel with the state summary and a live stream of raw inputs (every key, mouse and pad
 press with position) interleaved with the actions the game took. F1 toggles the wireframe overlay: state
@@ -404,13 +438,36 @@ Poly Haven scans: `--start level:showcase`, `HOLLOW_NOSHADOW=1` to compare.
 ### Frame rate
 
 The simulation is a fixed 60 ticks per second (parry windows, card timings and animations are
-counted in ticks, so play is identical everywhere). Rendering runs at the display's rate with
-vsync and draws characters and the camera interpolated between the last two ticks, so 90, 120,
-144 or 240 Hz screens show motion every frame. Parry presses are dated to the moment of the press,
-not to the tick that saw them, so the rhythm judgement is exact at any frame rate. The debugger
+counted in ticks, so play is identical everywhere). Rendering runs at the display's rate and draws
+characters, items and the camera between the last two ticks, so 90, 120, 144 or 240 Hz screens show
+motion every frame.
+
+What is interpolated and what is not matters. Positions -- players, the boss, every item's body --
+are lerped by the frame's alpha (the fraction of a tick left in the accumulator, always in [0, 1),
+and monotonic even when one frame swallows two ticks). The first-person eye is *not*: it is rebuilt
+every frame from the interpolated feet plus the current view angles, because the view has already
+turned this frame and lerping the last two ticks' eye positions would drag it back a whole tick.
+Cameras nobody is driving -- a cutscene, the fixed overworld view -- are still interpolated.
+Measured walking a straight line at 144 Hz, the rendered eye's ground speed varies by 0.03% of its
+mean across frames; what is left of the frame-to-frame *distance* variation is the frame pacing
+itself, not the camera.
+
+Parry presses are dated to the moment of the press, not to the tick that saw them, so the rhythm
+judgement is exact at any frame rate. The debugger
 (`\`) has a FRAME RATE row: display, 30, 60, 90, 120, 144, 240 and a vsync toggle, saved to
 `assets/settings.txt` (`fps N`, `vsync 0|1`; `HOLLOW_FPS=N`, `HOLLOW_NOVSYNC=1` override).
 `HOLLOW_NOINTERP=1` draws the raw tick state.
+
+Three hooks measure this without a hand on the keyboard. `HOLLOW_TRACE=FILE` writes one CSV line
+per rendered frame (time, alpha, eye, view angles, feet, speed, grounded) and dumps it at exit;
+`HOLLOW_AUTOWALK=DEGREES` holds W with the view aimed along that compass yaw, and
+`HOLLOW_AUTOINPUT=sprint|crouch|jump` holds those with it; `HOLLOW_AUTOLOOK=PIXELS_PER_SECOND`
+injects a steady pan where a real mouse's motion arrives. A shake is a sign-alternating delta in
+that file. `assets/levels/feel.txt` is the bench they run on: flat ground, four 0.25 m steps, a deck
+with an edge to walk off and a 2 m ledge to fall from.
+
+    HOLLOW_SILENT=1 HOLLOW_FPS=144 HOLLOW_NOVSYNC=1 HOLLOW_AUTOWALK=90 HOLLOW_TRACE=/tmp/walk.csv \
+      ./build/bin/goonstein --level feel --first --no-scenes --start explore --volume 0 --frames 900
 
 ### Hot reload
 
@@ -489,6 +546,9 @@ Three environment variables exist only so that two captures of the same shot can
 side. `HOLLOW_FIXED_DT=1` advances exactly one tick per rendered frame and ignores the wall clock,
 so a given `--frames N` always lands on the same moment of the simulation -- without it a heavier
 render setting reaches a different point in a bot's walk and the two frames are not the same shot.
+`HOLLOW_FIXED_FPS=N` is the finer version of it -- 1/N of a second per frame rather than a whole
+tick -- which is what a strip of genuinely consecutive 144 Hz frames needs, since writing a PNG
+takes a third of a second and would otherwise put a third of a second between them.
 `HOLLOW_NOHUD=1` drops the HUD. `HOLLOW_CAM="PITCH DIST FOV YAW [free]"` overrides the level's
 `camera` line and now also frames the third-person orbit; the trailing `free` leaves the yaw to the
 game, which matters whenever something still has to walk somewhere, because movement is
