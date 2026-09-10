@@ -69,6 +69,7 @@ and what is verified versus untested.
 | Push to talk  | V (hold)                  | LB (hold)        |
 | Skip cutscene | Enter                     | Start            |
 | Debug overlay | F1                        | Back / Select    |
+| Art-style preview | F7 cycles plain / camcorder / flat / ink |          |
 | Pause / step  | F2 / F3                   |                  |
 | Reload data   | F5                        |                  |
 | Menu (pause)  | Esc                       |                  |

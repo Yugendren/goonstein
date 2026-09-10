@@ -439,6 +439,7 @@ static bool load_defs(Game *g) {
     ok &= level_load(&g->level, g->level_path[0] ? g->level_path : ASSET("levels/glade.txt"));
     // HOLLOW_LOOK=NAME applies assets/looks/NAME.txt on top of whatever the level authored, which
     // is the only way to shoot the same view under two art styles without editing the level.
+    g->look_authored = g->level.look;   // what the level asked for; F7 cycles the candidate looks over it
     if (SDL_getenv("HOLLOW_LOOK")) level_look_include(&g->level, SDL_getenv("HOLLOW_LOOK"));
     // Two look values are not per-frame state but engine configuration, so they are applied here,
     // before anything the level owns is loaded: the texture cap has to be in place before the first
@@ -973,6 +974,15 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     g->cam.view_far = g->level.look.view_far > 1 ? g->level.look.view_far : CAMERA_FAR_DEFAULT;   // the level's `look far`
     dbg_set_time(g->time);
     if (in->key_down[SDL_SCANCODE_F8]) debug_snapshot(g);
+    if (in->key_down[SDL_SCANCODE_F7]) {   // cycle the art-style candidates live: plain -> camcorder -> flat -> ink
+        static const char *LOOKS[] = { "plain", "camcorder", "flat", "ink" };
+        g->look_cycle = (g->look_cycle + 1) % 4;
+        g->level.look = g->look_authored; g->level.fog_color = g->level.look.fog_color;
+        if (g->look_cycle) level_look_include(&g->level, LOOKS[g->look_cycle]);
+        gfx_set_texture_cap(&g->gfx, (int)g->level.look.tex_cap);
+        gfx_set_render_scale(&g->gfx, g->level.look.render_scale, g->level.look.render_nearest > 0.5f);
+        char m[64]; snprintf(m, sizeof m, "look: %s  (F7 cycles)", LOOKS[g->look_cycle]); say(g, m);
+    }
     // Keys typed into the game window open the tools: [ world editor, ] character builder,
     // \ debugger. Keys typed into a tool window belong to that tool (tool_key_down), except \ and
     // Esc which close it. Inside the environment editor the brackets scale the piece instead.

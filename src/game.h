@@ -76,6 +76,7 @@ typedef struct Game {
     // feedback
     Vec3  flash_color; float flash;
     float hint_t;
+    Look look_authored; int look_cycle;   // F7 art-style preview over the level's own look
     bool     bot;                 // test harness: plays the fight by itself
     char     level_path[512];     // override (harness --level)
     Platform *pf;
