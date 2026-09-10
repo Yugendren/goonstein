@@ -41,7 +41,10 @@ typedef struct Character {
     // so a character can stand on a block, a pier or a boat deck and fall off the edge of it.
     float vy;                       // metres per second, negative is falling
     bool  grounded;                 // standing on something this tick
+    float step_dy;                  // metres the feet were snapped this tick by a step up or down; the
+                                    // render interpolation and the eye's ease both have to know about it
     int   ground_block;             // which level block is holding them up, -1 = the terrain itself
+    Vec3  hvel;                     // ground velocity in XZ, m/s (y unused): Quake-style accel/friction now owns this instead of stepping position directly
     // Scripted motion (cutscenes)
     bool  scripted_moving; Vec3 move_from, move_to; float move_t, move_dur;
 } Character;
@@ -73,6 +76,11 @@ typedef struct BossDef {
 
 typedef struct PlayerDef {
     float hp, speed, sprint_mult, turn_speed;
+    // Ground movement (Half-Life / Quake shaped): accel/air_accel/friction are the coefficients from
+    // sv_accelerate/sv_friction, not m/s^2 -- see the accel/friction math in player_update.
+    float accel, air_accel, friction, stop_speed;
+    float jump_height;               // metres, converted to a launch vy against PLAYER_JUMP_GRAVITY
+    float crouch_mult;                // speed multiplier while crouch is held
     float attack_windup, attack_active, attack_recovery, attack_damage, attack_range, attack_posture;
     float parry_window, parry_recovery, parry_hitstop;
     float dodge_time, dodge_iframes, dodge_dist;

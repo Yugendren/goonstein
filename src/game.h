@@ -63,9 +63,13 @@ typedef struct Game {
     GState   state, after_scene; float state_t;
     float    hitstop, letterbox, fade, fight_intensity;
     bool     paused, step_once;
+    bool     look_capture;   // the game window owns the mouse: the frame-rate view may turn
+    float    crouch_k;       // 0..1 eased crouch, which is an eye height rather than a body height
     char     msg[128]; float msg_t;
     // stats
-    float    fps; unsigned frames, frames_total; double fps_t; float frame_ms;   // frame_ms: smoothed render+present time
+    float    fps; unsigned frames, frames_total; double fps_t; float frame_ms;
+    double   frame_wall;   // seconds, stamped at the top of the frame loop: the clock the trace measures pacing against
+    float    render_alpha, render_frame_dt;   // where this frame sits between the last two ticks, and how long the last frame took   // frame_ms: smoothed render+present time
     Vec3 prev_players[NET_MAX_PLAYERS], prev_boss, prev_eye, prev_target; bool prev_valid;   // previous tick, for render interpolation
     float    last_hit_text_t; char hit_text[32];
     unsigned parries, hits_taken, deaths;
@@ -87,7 +91,16 @@ typedef struct Game {
 void game_init(Game *g);
 bool game_init_gfx(Game *g, Platform *pf);
 void game_tick(Game *g, const Input *in, double dt);
+// Once per RENDERED FRAME, before the ticks: applies this frame's mouse delta to the view and
+// advances everything that hangs off the head at the frame rate (bob, step-up ease, landing dip).
+void game_view_look(Game *g, Platform *pf, float dt);
 void game_render(Game *g, Platform *pf, float alpha);
+// Render-rate helpers for anything drawn between two simulation ticks (a held item, the viewmodel).
+// The alpha is the same one game_render interpolates the players with, so everything drawn against
+// it moves together; the frame dt is the wall time of the frame being drawn, which is what a
+// frame-rate spring or bob has to integrate against.
+float game_render_alpha(const Game *g);
+float game_frame_dt(const Game *g);
 void game_shutdown(Game *g);
 // Loads the hero character model into player_models[slot] if not already loaded.
 void game_ensure_player_model(Game *g, int slot);

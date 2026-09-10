@@ -1,0 +1,41 @@
+# feel.txt -- the movement test bench.
+#
+# Flat ground, a flight of four 0.25 m steps, a raised deck with an edge to walk off, and a 2 m
+# ledge to fall from: everything the first-person camera has to survive without popping. Nothing
+# here is art. It exists so the step-up ease, the ground hysteresis at an edge and the landing dip
+# can be measured instead of argued about:
+#
+#     HOLLOW_SILENT=1 HOLLOW_FPS=144 HOLLOW_NOVSYNC=1 HOLLOW_AUTOWALK=90 HOLLOW_TRACE=out.csv \
+#         ./build/bin/goonstein --level feel --first --no-scenes --start explore --volume 0 --frames 900
+#
+# walks +X from the spawn: flat, up the steps, along the deck, off its edge, across the gap, and off
+# the ledge at the end.
+
+sun      0.35 -0.80 0.45   1.05   1.00 0.96 0.90
+ambient  0.40 0.44 0.52   0.18 0.17 0.15
+fogv     0.60 0.62 0.68   0.0025   0.0  0.03  0.4  60
+sky      0.16 0.30 0.60   0.85 0.70 0.55   0.16 0.17 0.20   0.70  0.2  0.55
+shadow   1
+view     first
+spawn    -14 0 0 90
+
+# no fight on the bench: park the boss out of the world
+boss     0 -60 -400 0
+
+# ground, top face at y = 0
+block    0 -0.5 0    120 1 40    flat   0.34 0.36 0.33   1   solid
+
+# a flight of four steps, each 0.25 m: tops at 0.25, 0.5, 0.75, 1.0
+block    0.5 0.125 0    1 0.25 14   flat   0.62 0.58 0.52   1   solid
+block    1.5 0.250 0    1 0.50 14   flat   0.58 0.54 0.48   1   solid
+block    2.5 0.375 0    1 0.75 14   flat   0.62 0.58 0.52   1   solid
+block    3.5 0.500 0    1 1.00 14   flat   0.58 0.54 0.48   1   solid
+
+# the deck: 1 m up, running to x = 10, where it ends in a clean edge
+block    7.0 0.500 0    6 1.00 14   flat   0.66 0.62 0.55   1   solid
+
+# a 2 m ledge to fall off at the far end, reached across 6 m of flat ground
+block    16.0 1.000 0   6 2.00 14   flat   0.60 0.56 0.50   1   solid
+
+light    2 3 0     1.0 0.92 0.80   14 1.2
+light    16 4 0    1.0 0.92 0.80   16 1.2

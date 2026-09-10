@@ -69,10 +69,12 @@ void platform_clear_edges(Platform *pf) {
     Input *in = &pf->input;
     in->attack = in->parry = in->dodge = in->interact = in->debug_toggle = false;
     in->pause_toggle = in->step = in->reload = in->skip = in->lockon = false;
+    in->jump = false;
     in->click = in->rclick = false; in->wheel = 0;
     memset(in->key_down, 0, sizeof in->key_down);
     memset(in->tool_key_down, 0, sizeof in->tool_key_down);
-    in->look_x = in->look_y = 0.0f;
+    // look_x/look_y are NOT cleared here any more: the camera consumes them once per frame, which
+    // is the whole point of frame-rate mouse look. See platform_clear_frame_edges.
     in->text[0] = 0; in->ntext = 0;   // --- menu ---
 }
 
@@ -82,6 +84,7 @@ void platform_clear_edges(Platform *pf) {
 void platform_clear_frame_edges(Platform *pf) {
     Input *in = &pf->input;
     in->tool_pressed = in->tool_released = in->tool_rpressed = false; in->tool_wheel = 0;
+    in->look_x = in->look_y = 0.0f;   // the view already turned by this much: one frame, one delta
     memset(in->tool_key_frame, 0, sizeof in->tool_key_frame);
 }
 
@@ -135,7 +138,8 @@ bool platform_poll(Platform *pf) {
             case SDL_SCANCODE_F5: in->reload = true; break;
             case SDL_SCANCODE_RETURN: in->skip = true; break;
             // Sekiro PC layout: LMB attack, RMB deflect, Shift step/sprint, MMB or Q lock-on, E interact.
-            case SDL_SCANCODE_LSHIFT: case SDL_SCANCODE_RSHIFT: case SDL_SCANCODE_SPACE: in->dodge = true; break;
+            case SDL_SCANCODE_LSHIFT: case SDL_SCANCODE_RSHIFT: in->dodge = true; break;
+            case SDL_SCANCODE_SPACE: in->jump = true; break;
             case SDL_SCANCODE_E: in->interact = true; break;
             case SDL_SCANCODE_Q: case SDL_SCANCODE_TAB: in->lockon = true; break;
             case SDL_SCANCODE_J: in->attack = true; break;   // keyboard-only fallbacks
@@ -221,6 +225,9 @@ bool platform_poll(Platform *pf) {
     in->sprint = keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT];
     for (int i = 0; i < 512; i++) in->key_held[i] = keys[i];
     in->ctrl = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL] || keys[SDL_SCANCODE_LGUI] || keys[SDL_SCANCODE_RGUI];
+    // Crouch is Ctrl alone: the tool shortcuts all take Ctrl WITH a letter, and Command is left out
+    // of it so cmd-tabbing away from the game does not leave you squatting.
+    in->crouch = (pf->tool_focus || pf->text_input) ? false : (keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL]);
     in->shift_held = in->sprint;
     if (pf->tool_focus || pf->text_input) { memset(in->key_held, 0, sizeof in->key_held); in->sprint = false; }   // held keys belong to the focused window // --- menu --- or a text field
     if (pf->gamepad && SDL_GetGamepadButton(pf->gamepad, SDL_GAMEPAD_BUTTON_EAST)) in->sprint = true;
@@ -234,8 +241,17 @@ bool platform_poll(Platform *pf) {
         float sx = dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_LEFTX) / 32767.0f);
         float sy = dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_LEFTY) / 32767.0f);
         if (sx != 0.0f || sy != 0.0f) { in->move_x = sx; in->move_y = sy; }
-        in->look_x += dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_RIGHTX) / 32767.0f) * 6.0f;
-        in->look_y += dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_RIGHTY) / 32767.0f) * 6.0f;
+        in->look_stick_x = dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_RIGHTX) / 32767.0f);
+        in->look_stick_y = dead(SDL_GetGamepadAxis(pf->gamepad, SDL_GAMEPAD_AXIS_RIGHTY) / 32767.0f);
+    }
+    if (pf->tool_focus || pf->text_input) in->look_stick_x = in->look_stick_y = 0;   // the look stick belongs to the focused window too
+    // HOLLOW_AUTOLOOK=PIXELS_PER_SECOND: a steady pan injected where a real mouse's motion arrives,
+    // so a headless run can measure how evenly the view turns. Nothing in a played game touches it.
+    if (SDL_getenv("HOLLOW_AUTOLOOK")) {
+        static Uint64 last = 0; Uint64 now = SDL_GetTicksNS();
+        float dt = last ? (float)((now - last) * 1e-9) : 0; last = now;
+        if (dt > 0.5f) dt = 0;
+        in->look_x += (float)SDL_atof(SDL_getenv("HOLLOW_AUTOLOOK")) * dt;
     }
     return true;
 }

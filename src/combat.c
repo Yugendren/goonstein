@@ -4,6 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Quake's air-control trick: the wishspeed fed to the mid-air accel step is capped to this, so a
+// jump can be steered a little but never run on, without needing a separate "no air movement" case.
+#define AIR_WISH 0.9f
+
 static const char *ANIM_NAMES[ANIM_COUNT] = {
     "idle", "walk", "attack", "parry", "parry_hit", "dodge", "hurt", "kneel", "dead", "roar", "stagger", "windup", "strike", "run", "attack2", "attack3",
     "sprint", "block", "hurt_head", "hurt_heavy", "attack_run",
@@ -137,7 +141,9 @@ bool boss_def_load(BossDef *d, const char *path) {
 bool player_def_load(PlayerDef *d, const char *path) {
     size_t n; char *text = SDL_LoadFile(path, &n);
     if (!text) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "player def missing: %s", path); return false; }
-    PlayerDef o = { .hp = 100, .speed = 3.2f, .sprint_mult = 1.6f, .turn_speed = 14, .attack_windup = 0.18f, .attack_active = 0.12f,
+    PlayerDef o = { .hp = 100, .speed = 3.2f, .sprint_mult = 1.6f, .turn_speed = 14,
+                    .accel = 10, .air_accel = 10, .friction = 8, .stop_speed = 1.4f, .jump_height = 1.0f, .crouch_mult = 0.5f,
+                    .attack_windup = 0.18f, .attack_active = 0.12f,
                     .attack_recovery = 0.35f, .attack_damage = 8, .attack_range = 1.9f, .attack_posture = 6,
                     .parry_window = 0.15f, .parry_recovery = 0.35f, .parry_hitstop = 0.12f,
                     .dodge_time = 0.45f, .dodge_iframes = 0.3f, .dodge_dist = 3.0f, .hurt_time = 0.45f,
@@ -150,6 +156,8 @@ bool player_def_load(PlayerDef *d, const char *path) {
         char *key = strtok(line, " \t"); if (!key) continue;
         if (0) {}
         KEYF("hp", o.hp) KEYF("speed", o.speed) KEYF("sprint_mult", o.sprint_mult) KEYF("turn_speed", o.turn_speed)
+        KEYF("accel", o.accel) KEYF("air_accel", o.air_accel) KEYF("friction", o.friction) KEYF("stop_speed", o.stop_speed)
+        KEYF("jump_height", o.jump_height) KEYF("crouch_mult", o.crouch_mult)
         KEYF("attack_windup", o.attack_windup) KEYF("attack_active", o.attack_active) KEYF("attack_recovery", o.attack_recovery)
         KEYF("attack_damage", o.attack_damage) KEYF("attack_range", o.attack_range) KEYF("attack_posture", o.attack_posture)
         KEYF("parry_window", o.parry_window) KEYF("parry_recovery", o.parry_recovery) KEYF("parry_hitstop", o.parry_hitstop)
@@ -247,6 +255,7 @@ static void player_posture_hit(Player *p, float amount, CombatEvents *ev) {
 
 void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, Boss *boss, float dt, CombatEvents *ev) {
     Character *c = &p->c; const PlayerDef *d = &p->def;
+    if (p->state != PS_FREE) c->hvel = v3(0, 0, 0);   // another state's root motion owns c->pos this tick; do not fight it with stale ground velocity, and land back in PS_FREE from a stand
     c->anim_t += dt; p->t += dt;
     if (c->flash > 0) c->flash = fmaxf(0, c->flash - dt * 6);
 
@@ -287,22 +296,49 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, B
         if (p->buf_attack > 0) { player_swing(p, sprinting ? 3 : 0, boss, mlen, ev); break; }
         if (p->buf_dodge > 0) { player_dodge(p, move_dir, mlen); break; }
         if (in->rmouse_held) { player_guard(p, 0, dt); p->t = d->parry_window; break; }   // held from before: straight to block
-        if (mlen > 0.05f) {
-            float target_yaw = atan2f(move_dir.x, move_dir.z);
-            c->yaw = angle_damp(c->yaw, target_yaw, d->turn_speed, dt);
-            Vec3 delta = v3_scale(move_dir, d->speed * (sprinting ? d->sprint_mult : 1.0f) * dt);
-            Vec3 prev = c->pos;
-            c->pos = level_move(lv, c->pos, c->radius, c->height, delta);
-            float moved = v3_len(v3_sub(c->pos, prev));
-            c->walk_phase += moved * 5.0f;
-            p->step_timer += moved;
-            if (p->step_timer > (sprinting ? 1.1f : 0.85f)) { p->step_timer = 0; ev->footstep = true; }
-            want_speed = moved / fmaxf(dt, 1e-5f);
-            character_set_anim(c, sprinting ? ANIM_RUN : ANIM_WALK);
-        } else {
-            character_set_anim(c, ANIM_IDLE);
-            p->step_timer = 0.5f;
+
+        // Half-Life/Quake ground movement: friction bleeds hvel toward zero every tick you are
+        // grounded, whether or not there is input, so stopping is a slide rather than a snap; then
+        // wishdir/wishspeed gets accelerated toward. accel/air_accel are Quake's sv_accelerate-shaped
+        // coefficients, not m/s^2 -- what actually limits air control is AIR_WISH capping the
+        // wishspeed the accel step chases while airborne.
+        float wishspeed = d->speed * mlen * (sprinting ? d->sprint_mult : 1.0f) * (in->crouch ? d->crouch_mult : 1.0f);
+        if (c->grounded) {
+            float speed = v3_len(c->hvel);
+            if (speed > 0.01f) {
+                float control = fmaxf(speed, d->stop_speed);
+                float drop = control * d->friction * dt;
+                c->hvel = v3_scale(c->hvel, fmaxf(0, speed - drop) / speed);
+            } else c->hvel = v3(0, 0, 0);
         }
+        float accel_used = c->grounded ? d->accel : d->air_accel;
+        float wishspeed_used = c->grounded ? wishspeed : fminf(wishspeed, AIR_WISH);
+        float cur = v3_dot(c->hvel, move_dir);
+        float add = wishspeed_used - cur;
+        if (add > 0) {
+            float accelspeed = fminf(accel_used * wishspeed_used * dt, add);
+            c->hvel = v3_add(c->hvel, v3_scale(move_dir, accelspeed));
+        }
+
+        // Move, then take the velocity back off what actually happened: walking into a wall must
+        // not build up a charge that fires the player sideways the moment the wall ends.
+        Vec3 prev = c->pos;
+        c->pos = level_move(lv, c->pos, c->radius, c->height, v3_scale(c->hvel, dt));
+        if (dt > 1e-5f) { c->hvel.x = (c->pos.x - prev.x) / dt; c->hvel.z = (c->pos.z - prev.z) / dt; }
+        float moved = v3_len(v3_sub(c->pos, prev));
+        c->walk_phase += moved * 5.0f;
+        p->step_timer += moved;
+        if (p->step_timer > (sprinting ? 1.1f : 0.85f)) { p->step_timer = 0; ev->footstep = true; }
+        want_speed = hypotf(c->hvel.x, c->hvel.z);   // horizontal speed actually achieved, not the input
+
+        if (mlen > 0.05f) c->yaw = angle_damp(c->yaw, atan2f(move_dir.x, move_dir.z), d->turn_speed, dt);
+        if (want_speed > 0.2f) character_set_anim(c, sprinting ? ANIM_RUN : ANIM_WALK);
+        else { character_set_anim(c, ANIM_IDLE); p->step_timer = 0.5f; }
+
+        // Jump: gravity and ground contact are game.c's (game_ground_character runs right after
+        // player_update), so all this does is hand back an upward vy sized to clear jump_height.
+        #define PLAYER_JUMP_GRAVITY 20.0f   // must match GAME_GRAVITY in game.c -- jump_height is what's authored, this impulse is derived from it
+        if (in->jump && c->grounded) { c->vy = sqrtf(2.0f * PLAYER_JUMP_GRAVITY * d->jump_height); c->grounded = false; }
     } break;
 
     case PS_ATTACK: {

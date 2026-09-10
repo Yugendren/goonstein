@@ -10,6 +10,7 @@
 
 #include "platform.h"
 #include "game.h"
+#include "camera.h"   // camera_set_mouse_sens: settings.txt owns the sensitivity
 #include "audio.h"
 #include "voice.h"   // --- voice ---
 
@@ -45,13 +46,14 @@ int main(int argc, char **argv) {
     const char *menu_test = NULL; bool menu_boot = true;
     int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *shot_every_dir = NULL; int shot_every = 0; bool spawn_set = false; float spawn_x = 0, spawn_z = 0; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
     bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1; bool log_set = false;
+    float mouse_sens = 1.0f;   // settings.txt `mouse_sens`: a multiplier on the default radians per mouse pixel
     const char *voice_mode = "ptt"; float voice_vol = 1.0f; int voice_mon = 0;   // --- voice ---
     static Game game;   // large; static keeps it off the stack (and zeroed)
     // settings.txt next to the assets folder: volume V, debug 0|1, hero NAME, fps N (0 = display rate), vsync 0|1, level NAME. Command-line flags override it.
     { char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR); size_t sn; char *st = SDL_LoadFile(sp, &sn);
       if (st) { char *cur = st; while (*cur) { char *line = cur; char *nl = strchr(cur, '\n'); if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
           char *hash = strchr(line, '#'); if (hash) *hash = 0; char key[32], val[128];
-          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); else if (!strcmp(key, "fps")) fps_cap = atoi(val); else if (!strcmp(key, "vsync")) vsync = atoi(val); else if (!strcmp(key, "voice")) voice_mode = SDL_strdup(val);                       /* --- voice --- */ else if (!strcmp(key, "voice_volume")) voice_vol = (float)atof(val); else if (!strcmp(key, "voice_monitor")) voice_mon = atoi(val); else if (!strcmp(key, "level") && !game.level_path[0]) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, val); } }
+          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); else if (!strcmp(key, "fps")) fps_cap = atoi(val); else if (!strcmp(key, "vsync")) vsync = atoi(val); else if (!strcmp(key, "mouse_sens")) mouse_sens = (float)atof(val); else if (!strcmp(key, "voice")) voice_mode = SDL_strdup(val);                       /* --- voice --- */ else if (!strcmp(key, "voice_volume")) voice_vol = (float)atof(val); else if (!strcmp(key, "voice_monitor")) voice_mon = atoi(val); else if (!strcmp(key, "level") && !game.level_path[0]) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, val); } }
       if (SDL_getenv("HOLLOW_FPS")) fps_cap = atoi(SDL_getenv("HOLLOW_FPS"));
       if (SDL_getenv("HOLLOW_NOVSYNC")) vsync = 0;
         SDL_free(st); } }
@@ -116,6 +118,7 @@ int main(int argc, char **argv) {
     voice_set_mode_name(voice_mode); voice_set_volume(voice_vol); voice_set_monitor(voice_mon != 0);
     voice_init(&game);
     pf.fps_cap = fps_cap; if (!vsync) platform_set_vsync(&pf, false); else pf.vsync = true;
+    camera_set_mouse_sens(mouse_sens);
     if (spawn_set) { PLAYER(&game).c.pos.x = spawn_x; PLAYER(&game).c.pos.z = spawn_z; }
     if (tool_mode) game_set_tool(&game, tool_mode);
     // --- menu --- nothing was asked for: open the main menu over the island
@@ -124,14 +127,35 @@ int main(int argc, char **argv) {
     game.bot = bot;
     audio_set_master(volume * 0.8f);
 
+    // HOLLOW_FIXED_FPS=N is HOLLOW_FIXED_DT's finer sibling: the clock advances 1/N of a second per
+    // rendered frame instead of a whole tick, which is the only way to capture a strip of genuinely
+    // CONSECUTIVE 144 Hz frames -- writing a PNG takes a third of a second, so on the wall clock
+    // eight "consecutive" screenshots are a third of a second apart and show nothing about
+    // smoothness. Never set in a played game.
+    double fixed_frame = SDL_getenv("HOLLOW_FIXED_FPS") && atof(SDL_getenv("HOLLOW_FIXED_FPS")) > 0
+                       ? 1.0 / atof(SDL_getenv("HOLLOW_FIXED_FPS")) : 0.0;
     Uint64 freq = SDL_GetPerformanceFrequency();
     Uint64 prev = SDL_GetPerformanceCounter();
     double accumulator = 0.0;
     bool running = true;
+    // HOLLOW_FIXED_DT: advance exactly one tick per rendered frame and ignore the wall clock, so
+    // a given --frames count always lands on the same moment of the simulation. Without it two
+    // captures of the same scene under two different render settings run at different speeds,
+    // reach different points in a bot's walk, and cannot be compared. Frame timing is still
+    // measured from the real clock, so this does not lie about performance.
+    const bool fixed_step = SDL_getenv("HOLLOW_FIXED_DT") != NULL;
+    // Frame times for the perf line. The smoothed game.frame_ms is the right thing on screen but
+    // useless for comparing two runs: it is whatever the last twenty frames happened to cost, and
+    // on a machine with anything else on it that lands anywhere. The median over a whole run,
+    // with the first second thrown away, is the number worth quoting.
+    enum { PERF_MAX = 30000, PERF_WARMUP = 60 };
+    static float perf_ms[PERF_MAX];
+    int perf_n = 0;
+    Uint64 real_prev = prev;
 
     while (running) {
         Uint64 now = SDL_GetPerformanceCounter();
-        double frame_dt = (double)(now - prev) / (double)freq;
+        double frame_dt = fixed_frame > 0 ? fixed_frame : fixed_step ? TICK_DT : (double)(now - prev) / (double)freq;
         prev = now;
         if (frame_dt > MAX_FRAME_DT) frame_dt = MAX_FRAME_DT;
         accumulator += frame_dt;
@@ -139,6 +163,11 @@ int main(int argc, char **argv) {
         // Input is polled once per frame; the sim consumes the latest state each tick.
         running = platform_poll(&pf);
         if (pf.want_quit) running = false;
+
+        // Mouse look happens HERE: at the frame rate, before the ticks that read the view yaw, so a
+        // 144 Hz screen turns 144 times a second and the movement direction the sim uses is the one
+        // the mouse asked for this frame rather than up to 16.7 ms ago (Half-Life does the same).
+        game_view_look(&game, &pf, (float)frame_dt);
 
         while (accumulator >= TICK_DT) {
             voice_update(&game, &pf.input, (float)TICK_DT);   // --- voice --- before the tick, so a
@@ -148,7 +177,12 @@ int main(int argc, char **argv) {
             accumulator -= TICK_DT;
         }
 
+        { Uint64 rn = SDL_GetPerformanceCounter();
+          if (perf_n < PERF_MAX) perf_ms[perf_n++] = (float)((double)(rn - real_prev) * 1000.0 / (double)freq);
+          real_prev = rn; }
         double alpha = accumulator / TICK_DT;  // for render interpolation
+        game.frame_wall = (double)now / (double)freq;
+        game.render_frame_dt = (float)frame_dt;   // the pacing clock: stamped where frame_dt is measured, not after the GPU has been waited on
         platform_begin_frame(&pf);
         if (tool_shot) gfx_tool_screenshot_request(&game.gfx, pf.tool_w > 0 ? pf.tool_w : 720, pf.tool_h > 0 ? pf.tool_h : 820);
         game_render(&game, &pf, (float)alpha);
@@ -162,6 +196,16 @@ int main(int argc, char **argv) {
     if (shot) game_screenshot(&game, shot);
     if (tool_shot) game_tool_screenshot(&game, tool_shot);
     SDL_Log("perf: %.1f ms/frame (%.0f fps) draws %u props %d\n", game.frame_ms, game.frame_ms > 0 ? 1000.0f / game.frame_ms : 0, game.gfx.draw_calls, game.level.nprops);
+    if (perf_n > PERF_WARMUP + 8) {
+        int n = perf_n - PERF_WARMUP;
+        float *v = (float *)malloc((size_t)n * sizeof *v);
+        if (v) {
+            memcpy(v, perf_ms + PERF_WARMUP, (size_t)n * sizeof *v);
+            for (int i = 1; i < n; i++) { float k = v[i]; int j = i - 1; while (j >= 0 && v[j] > k) { v[j + 1] = v[j]; j--; } v[j + 1] = k; }
+            SDL_Log("perftime: median %.3f ms  p10 %.3f  p90 %.3f  min %.3f  frames %d", v[n / 2], v[n / 10], v[n - 1 - n / 10], v[0], n);
+            free(v);
+        }
+    }
     SDL_Log("stats: battle=%d enemy_hp=%d round=%d | state=%d parries=%u hits_taken=%u deaths=%u boss_hp=%.0f player_hp=%.0f player_yaw=%.0f flash=%.2f t=%.3f player=(%.1f %.1f %.1f) boss=(%.1f %.1f %.1f) cam=(%.1f %.1f %.1f) dist=%.1f",
             game.battle.state, game.battle.enemy_hp, game.battle.round, game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, PLAYER(&game).c.hp, PLAYER(&game).c.yaw / DEG2RAD, game.flash, game.time,
             PLAYER(&game).c.pos.x, PLAYER(&game).c.pos.y, PLAYER(&game).c.pos.z, game.boss.c.pos.x, game.boss.c.pos.y, game.boss.c.pos.z, game.cam.eye.x, game.cam.eye.y, game.cam.eye.z, game.cam.cur_dist);

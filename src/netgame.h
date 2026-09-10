@@ -25,7 +25,8 @@ struct Game;
 typedef enum NetMode { NM_OFF, NM_HOST, NM_CLIENT } NetMode;
 
 // Buttons in a NetInput.
-enum { NB_ATTACK = 1, NB_PARRY = 2, NB_DODGE = 4, NB_INTERACT = 8, NB_SPRINT = 16, NB_GUARD = 32 };
+enum { NB_ATTACK = 1, NB_PARRY = 2, NB_DODGE = 4, NB_INTERACT = 8, NB_SPRINT = 16, NB_GUARD = 32,
+       NB_JUMP = 64, NB_CROUCH = 128 };   // a remote goon has to be able to jump and duck like a local one
 
 // One tick of intent. The move direction is world space and quantised on the client before it is
 // used locally, so the host's replay of it is bit-identical to the client's prediction.

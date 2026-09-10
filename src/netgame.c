@@ -137,6 +137,8 @@ Vec3 netgame_local_input(Game *g, Vec3 dir, const Input *in) {
     if (in->interact) b |= NB_INTERACT;
     if (in->sprint) b |= NB_SPRINT;
     if (in->rmouse_held) b |= NB_GUARD;
+    if (in->jump) b |= NB_JUMP;
+    if (in->crouch) b |= NB_CROUCH;
     n->cur.buttons = b;
     return v3(dq_dir(n->cur.mx), 0, dq_dir(n->cur.mz));   // the host replays exactly this
 }
@@ -149,6 +151,8 @@ static Vec3 unpack_input(const NetInput *ni, Input *in) {
     in->dodge = (ni->buttons & NB_DODGE) != 0;
     in->interact = (ni->buttons & NB_INTERACT) != 0;
     in->sprint = (ni->buttons & NB_SPRINT) != 0;
+    in->jump = (ni->buttons & NB_JUMP) != 0;
+    in->crouch = (ni->buttons & NB_CROUCH) != 0;
     in->rmouse_held = (ni->buttons & NB_GUARD) != 0;
     return v3(dq_dir(ni->mx), 0, dq_dir(ni->mz));
 }

@@ -11,11 +11,17 @@ typedef struct Input {
     bool debug_toggle, pause_toggle, step, reload, skip;
     // Movement stick / WASD, in [-1, 1]
     float move_x, move_y;
-    // Camera stick / mouse delta
+    // Mouse look delta for THIS RENDERED FRAME, in mouse pixels, and the gamepad's look stick as a
+    // rate in -1..1. look_x/look_y are cleared per frame (platform_clear_frame_edges), not per tick:
+    // the view turns at the frame rate, so a delta that waited for a tick would arrive late and in
+    // clumps of two or three frames, which is what a stepping view is made of.
     float look_x, look_y;
+    float look_stick_x, look_stick_y;
     // Actions, edge-triggered this frame
     bool attack, parry, dodge, interact, lockon;
+    bool jump;     // edge: Space. The dodge stayed on Shift; a co-op game needs the jump more.
     bool sprint;   // held
+    bool crouch;   // held: Ctrl. Lowers the eye and halves the speed.
     // --- voice --- push to talk: V on the keyboard, left bumper on a pad. Held, not edge
     // triggered, and cleared while a tool window has focus so typing a `v` never opens the mic.
     bool voice_ptt;

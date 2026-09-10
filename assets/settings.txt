@@ -10,3 +10,5 @@ level island    # the level to start in (assets/levels/NAME.txt)
 name goon                  # your name in the player list and in join messages
 port 7777                  # the UDP port HOST GAME listens on
 last_join 127.0.0.1:7777   # the address JOIN GAME offers first
+
+mouse_sens 1.0             # mouse look sensitivity: multiplies the default 0.0022 radians per mouse pixel

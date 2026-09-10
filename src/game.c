@@ -178,11 +178,33 @@ static const char *slot_character(const Game *g, int slot, bool *tinted) {
 
 // First person sits the eye just under the top of the head, so the view is the character's own and
 // the model's neck never crosses the near plane.
-static float eye_height(const Game *g) { return fmaxf(0.6f, PLAYER(g).c.height * 0.92f); }
+#define GAME_CROUCH_DROP 0.5f   // metres the eye loses when you crouch (combat.c halves the speed)
+static float eye_height(const Game *g) { return fmaxf(0.6f, PLAYER(g).c.height * 0.92f) - GAME_CROUCH_DROP * g->crouch_k; }
 // Head bob amount: the level's `view first BOB` (1 = the default subtle bob, 0 = off), env-overridable.
 static float bob_amount(const Game *g) {
     const char *e = SDL_getenv("HOLLOW_BOB");
     return e ? (float)atof(e) : g->level.view_bob;
+}
+
+// ---------------------------------------------------------------- the view, once per frame
+// Mouse look is not part of the simulation. The view turns the moment the mouse moves, on every
+// rendered frame, and the tick reads whatever yaw the view has when its turn comes round -- so the
+// direction you walk is the one you were looking in at that instant rather than up to 16.7 ms ago.
+// Half-Life and everything descended from it work this way, and it is most of the difference
+// between a view that tracks your hand and one that shuffles after it in 60 Hz steps.
+//
+// The head's own frame-rate motion is advanced here too -- the walk bob, the step-up ease, the
+// landing dip -- because a 60 Hz bob under a 144 Hz picture is a rattle, which is what it was.
+void game_view_look(Game *g, Platform *pf, float dt) {
+    const Input *in = &pf->input;
+    dt = clampf(dt, 0.0f, 0.1f);   // a stall must not fling the view across the room
+    bool look = g->look_capture && (g->cam.mode == CAM_FIRST || g->cam.mode == CAM_ORBIT);
+    if (look) camera_look(&g->cam, in->look_x, in->look_y, in->look_stick_x, in->look_stick_y, dt);
+    const Character *lc = &PLAYER(g).c;
+    camera_view_advance(&g->cam, (look && !g->paused) ? lc->speed : 0.0f,
+                        g->cam.mode == CAM_FIRST ? bob_amount(g) : 0.0f, dt);
+    // Crouching drops the eye rather than the body: half a metre, eased, so it reads as ducking.
+    g->crouch_k = damp(g->crouch_k, (look && in->crouch) ? 1.0f : 0.0f, 14, dt);
 }
 
 // The local player's character file and its model reload when they change on disk (checked once a second).
@@ -208,11 +230,35 @@ static void hero_hot_reload(Game *g) {
 }
 
 // Characters stand on whatever is under them: the terrain where the level has one, or the top of a
-// block, a prop collider or a boat deck within a step of their feet. Walking off the edge of one
-// drops them at 1 g until the ground catches them again. There is no jump yet, so vy is only ever
-// spent falling.
-#define GAME_GRAVITY   18.0f    // m/s^2: heavier than real gravity, which is how a game falls
+// block, a prop collider or a boat deck within a step of their feet.
+//
+// The feet are glued to that surface while you are standing on it -- up a kerb, and DOWN one too,
+// as long as the drop is no deeper than a step. That is what stops the walk along the edge of a
+// deck turning into a bounce: before, stepping a centimetre past the edge started a fall, the next
+// tick caught the deck again, and the eye rang up and down at the tick rate. Only a drop deeper
+// than a step lets go of the ground. What the feet do instantly, the eye does over about 80 ms
+// (camera_view_step), which is the Quake trick that makes stairs read as stairs and not as pops.
+#define GAME_GRAVITY   20.0f    // m/s^2: heavier than real gravity, which is how a game falls
 #define GAME_FALL_MAX  40.0f    // terminal speed, so a long drop cannot tunnel through the floor
+#define GAME_STEP_DOWN 0.5f     // how far the feet reach down for ground before they are in the air
+#define GAME_SLOPE_COS 0.64f    // cos 50 degrees: steeper than this is a slide, not a floor
+// Below this a change in ground height is not a step but a hillside, and is left to the ordinary
+// render interpolation: smoothing it would leave the eye permanently lagging behind the feet on
+// every slope in the game. Above it, it is a stair or a kerb and the eye eases over it.
+#define GAME_STEP_MIN  0.04f
+
+// Nothing stands on a 50 degree hillside. Gravity gets its component along the slope and the
+// character slides down it; the ground friction in combat.c is what settles the slide to a walking
+// pace rather than a luge run. Only the terrain is asked: blocks and decks are flat by construction.
+static void slope_slide(Game *g, Character *c, bool terrain, int block, float dt) {
+    if (!terrain || block >= 0) return;
+    Vec3 n = terrain_normal(&g->terrain, c->pos.x, c->pos.z);
+    if (n.y >= GAME_SLOPE_COS || n.y <= 0.01f) return;
+    Vec3 down = v3(n.x, 0, n.z);                       // the normal's horizontal part points downhill
+    float l = hypotf(down.x, down.z); if (l < 1e-4f) return;
+    down = v3_scale(down, 1.0f / l);
+    c->hvel = v3_add(c->hvel, v3_scale(down, GAME_GRAVITY * sqrtf(fmaxf(0.0f, 1.0f - n.y * n.y)) * dt));
+}
 
 void game_ground_character(Game *g, Character *c, float dt) {
     bool terrain = g->terrain.present;
@@ -232,14 +278,26 @@ void game_ground_character(Game *g, Character *c, float dt) {
         else { c->grounded = false; c->ground_block = -1; }
         return;
     }
-    if (dt <= 0 || c->pos.y <= ground) {   // dt <= 0: a spawn or a teleport, put them down now
+    if (dt <= 0) {   // a spawn, a teleport or a level load: put them down now
         c->pos.y = ground; c->vy = 0; c->grounded = true; c->ground_block = block;
         return;
     }
+    c->step_dy = 0;
+    // Standing: stay stood. Up to a step in either direction is a step, not a fall.
+    if (c->grounded && c->vy <= 0.0f && ground >= c->pos.y - GAME_STEP_DOWN) {
+        c->step_dy = ground - c->pos.y;   // resolve_ground turns this into an eased eye and an unsmeared step
+        c->pos.y = ground; c->vy = 0; c->grounded = true; c->ground_block = block;
+        slope_slide(g, c, terrain, block, dt);
+        return;
+    }
+    c->grounded = false; c->ground_block = -1;
     c->vy = fmaxf(c->vy - GAME_GRAVITY * dt, -GAME_FALL_MAX);
     c->pos.y += c->vy * dt;
-    if (c->pos.y <= ground) { c->pos.y = ground; c->vy = 0; c->grounded = true; c->ground_block = block; }
-    else { c->grounded = false; c->ground_block = -1; }
+    if (c->vy <= 0.0f && c->pos.y <= ground) {
+        float fall = -c->vy;
+        c->pos.y = ground; c->vy = 0; c->grounded = true; c->ground_block = block;
+        if (c == &PLAYER(g).c) camera_view_land(&g->cam, fall);   // the knees give a little when you land
+    }
 }
 
 // Every character the game owns, once a tick. NPCs are done separately, after their scripts run.
@@ -247,8 +305,18 @@ static void resolve_ground(Game *g, float dt) {
     for (int i = 0; i < NET_MAX_PLAYERS; i++) {
         if (!g->net.slots[i].active) continue;
         game_ground_character(g, &g->players[i].c, dt);
+        // A step is instant: by the end of this tick the feet are ON the step, not a fraction of the
+        // way up it. Move the interpolation's starting point up with them, or the render spreads the
+        // step over the next two frames while the eye's ease has already started -- which reads as
+        // the eye ducking into the stair instead of rising over it.
+        float dy = g->players[i].c.step_dy;
+        if (fabsf(dy) > GAME_STEP_MIN) {
+            g->prev_players[i].y += dy;
+            if (i == g->local) camera_view_step(&g->cam, dy);
+        }
     }
     game_ground_character(g, &g->boss.c, dt);
+    if (fabsf(g->boss.c.step_dy) > GAME_STEP_MIN) g->prev_boss.y += g->boss.c.step_dy;
 }
 
 static void setup_npcs(Game *g) {
@@ -369,6 +437,14 @@ static int emote_number(const char *e) {
 static bool load_defs(Game *g) {
     bool ok = true;
     ok &= level_load(&g->level, g->level_path[0] ? g->level_path : ASSET("levels/glade.txt"));
+    // HOLLOW_LOOK=NAME applies assets/looks/NAME.txt on top of whatever the level authored, which
+    // is the only way to shoot the same view under two art styles without editing the level.
+    if (SDL_getenv("HOLLOW_LOOK")) level_look_include(&g->level, SDL_getenv("HOLLOW_LOOK"));
+    // Two look values are not per-frame state but engine configuration, so they are applied here,
+    // before anything the level owns is loaded: the texture cap has to be in place before the first
+    // albedo is read, and the render scale rebuilds every target and must not happen mid-frame.
+    gfx_set_texture_cap(&g->gfx, (int)g->level.look.tex_cap);
+    gfx_set_render_scale(&g->gfx, g->level.look.render_scale, g->level.look.render_nearest > 0.5f);
     ok &= player_def_load(&g->player_def, ASSET("player.txt"));
     ok &= boss_def_load(&g->boss_def, ASSET("enemies/warden.txt"));
     return ok;
@@ -449,8 +525,8 @@ bool game_init_gfx(Game *g, Platform *pf) {
     g->pf = pf;
     platform_set_cursor(pf, true);
     if (!gfx_init(&g->gfx, pf, INTERNAL_W, INTERNAL_H)) return false;
-    world_textures_create(&g->gfx, &g->wt);
     if (!load_defs(g)) return false;
+    world_textures_create(&g->gfx, &g->wt);   // after load_defs: the level's `look texcap` applies to these too
     g->net.slots[g->local].active = true;   // the local player is always seated; netgame_start seats the rest
     // Skinned models are optional: without them the box figures draw.
     game_ensure_player_model(g, g->local);
@@ -698,7 +774,10 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     player_update(&PLAYER(g), &carried_in, dir, &g->level, NULL, dt, &ev);
     resolve_ground(g, dt);
     apply_events(g, &ev);
-    { const Look *ck = &g->level.look; camera_iso_set(ck->cam_pitch, ck->cam_dist, ck->cam_fov, ck->cam_yaw); if (SDL_getenv("HOLLOW_CAM")) { float a = ck->cam_pitch, b = ck->cam_dist, c = ck->cam_fov, d = ck->cam_yaw; sscanf(SDL_getenv("HOLLOW_CAM"), "%f %f %f %f", &a, &b, &c, &d); camera_iso_set(a, b, c, d); } }
+    { const Look *ck = &g->level.look; camera_iso_set(ck->cam_pitch, ck->cam_dist, ck->cam_fov, ck->cam_yaw); if (SDL_getenv("HOLLOW_CAM")) { float a = ck->cam_pitch, b = ck->cam_dist, c = ck->cam_fov, d = ck->cam_yaw; char w[16] = ""; sscanf(SDL_getenv("HOLLOW_CAM"), "%f %f %f %f %15s", &a, &b, &c, &d, w); camera_iso_set(a, b, c, d); camera_orbit_pin(a, b, c, d, strcmp(w, "free") != 0); } }
+    // HOLLOW_CAM="PITCH DIST FOV YAW [free]" also frames the third-person orbit, which is what
+    // makes two captures of one view under two looks comparable; the trailing `free` leaves the
+    // yaw to the game, for a capture where something still has to walk somewhere.
     if (g->level.view == VIEW_FIRST) {
         // view first: the eye rides the head and the body turns with the view, so the next tick's
         // movement is relative to where you are looking. The eye follows the networked view position
@@ -708,11 +787,10 @@ static void tick_explore(Game *g, const Input *in, float dt) {
         // mouse still turns the head, which is the only thing left to do for six seconds.
         float down_roll = 0, eye_h = eye_height(g);
         bool down = weapons_camera(g, &down_roll, &eye_h);
-        camera_first(&g->cam, netgame_view_pos(&g->net, g->local, lc->pos), eye_h,
-                     in->look_x, in->look_y, down ? 0 : bob_amount(g), lc->speed, lc->walk_phase, dt);
+        camera_first(&g->cam, netgame_view_pos(&g->net, g->local, lc->pos), eye_h, down ? 0 : bob_amount(g), dt);
         g->cam.roll = down_roll * DEG2RAD;
         if (!down) PLAYER(g).c.yaw = g->cam.yaw;
-    } else if (g->level.view == VIEW_THIRD) { camera_orbit(&g->cam, PLAYER(g).c.pos, in->look_x, in->look_y, false, v3(0, 0, 0), &g->level, dt); camera_above_terrain(g); }   // view third: behind the hero, mouse look
+    } else if (g->level.view == VIEW_THIRD) { camera_orbit(&g->cam, PLAYER(g).c.pos, false, v3(0, 0, 0), &g->level, dt); camera_above_terrain(g); }   // view third: behind the hero, mouse look
     else camera_iso(&g->cam, PLAYER(g).c.pos, &g->level, dt);
     Trigger *t = level_trigger_at(&g->level, PLAYER(g).c.pos);   // marks the trigger fired even when scenes are skipped
     if (t && !g->no_scenes) {
@@ -797,7 +875,7 @@ static void tick_fight(Game *g, const Input *in, float dt) {
     resolve_ground(g, dt);
     apply_events(g, &ev);
     if (in->lockon) camera_toggle_lock(&g->cam);
-    camera_orbit(&g->cam, PLAYER(g).c.pos, in->look_x, in->look_y, g->boss.state != BS_DEAD, g->boss.c.pos, &g->level, dt);
+    camera_orbit(&g->cam, PLAYER(g).c.pos, g->boss.state != BS_DEAD, g->boss.c.pos, &g->level, dt);
     camera_above_terrain(g);
     g->fight_intensity = damp(g->fight_intensity, g->boss.phase2 ? 1.0f : 0.7f, 2, dt);
     audio_set_drone(0.35f);
@@ -816,7 +894,7 @@ static void tick_dead(Game *g, const Input *in, float dt) {
     g->state_t += dt;
     character_script_update(&PLAYER(g).c, dt);
     g->boss.c.anim_t += dt;
-    camera_orbit(&g->cam, PLAYER(g).c.pos, 0, 0, false, v3(0, 0, 0), &g->level, dt);
+    camera_orbit(&g->cam, PLAYER(g).c.pos, false, v3(0, 0, 0), &g->level, dt);
     bool boss_dead = g->boss.state == BS_DEAD;
     if (boss_dead) {
         audio_set_fight(fmaxf(0, 1.0f - g->state_t));
@@ -830,6 +908,7 @@ static void tick_dead(Game *g, const Input *in, float dt) {
 
 static void tick_battle(Game *g, const Input *in_real, Platform *pf, float dt) {
     Input in = *in_real;
+    if (in.jump) in.parry = true;   // Space is the jump now; on the rhythm beat it is still a press
     float mx, my; platform_mouse_ui(pf, INTERNAL_W, INTERNAL_H, &mx, &my);
     if (g->bot) battle_bot(&g->battle, &g->boss_model, &in, &mx, &my, g->tick);
     CombatEvents ev = {0};
@@ -867,6 +946,26 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     g->prev_boss = g->boss.c.pos; g->prev_eye = g->cam.eye; g->prev_target = g->cam.target; g->prev_valid = true;
     Input bot_in; const Input *in = in_real;
     if (g->bot) { bot_in = *in_real; bot_input(g, &bot_in); in = &bot_in; }
+    // HOLLOW_AUTOWALK=1: hold W for the whole run. A smoothness measurement has to be the same walk
+    // every time, and a human hand is not.
+    if (SDL_getenv("HOLLOW_AUTOWALK")) {
+        if (in != &bot_in) bot_in = *in_real;
+        bot_in.move_x = 0; bot_in.move_y = -1; in = &bot_in;
+        // HOLLOW_AUTOWALK=DEGREES aims the walk (and the view) once, so a run can be pinned to a
+        // known flat stretch; any value below 2 just walks wherever the spawn faces.
+        static bool aimed = false;
+        if (!aimed) { aimed = true; float y = (float)SDL_atof(SDL_getenv("HOLLOW_AUTOWALK"));
+            if (fabsf(y) >= 2.0f) { g->cam.yaw = y * DEG2RAD; PLAYER(g).c.yaw = g->cam.yaw; game_snap_camera(g); } }
+        // HOLLOW_AUTOINPUT=sprint|crouch|jump (any combination) holds those keys down with it, which
+        // is how the jump height and the walk/jog/crouch speeds get measured rather than asserted.
+        const char *ai = SDL_getenv("HOLLOW_AUTOINPUT");
+        if (ai) { if (strstr(ai, "sprint")) bot_in.sprint = true;
+                  if (strstr(ai, "crouch")) bot_in.crouch = true;
+                  if (strstr(ai, "jump") && g->tick % 60 == 0) bot_in.jump = true; }
+    }
+    // A bot writes its look into its own copy of the input, which the frame-rate view update never
+    // sees. Apply it here instead, at the tick rate: a bot has no hand and no monitor.
+    if (in != in_real && (in->look_x != 0.0f || in->look_y != 0.0f)) camera_look(&g->cam, in->look_x, in->look_y, 0, 0, dt);
     g->time += ddt; g->tick++;
     if (g->msg_t > 0) g->msg_t -= dt;
     if (g->last_hit_text_t > 0) g->last_hit_text_t -= dt;
@@ -899,7 +998,8 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     { bool play = ((g->state == GS_EXPLORE && g->level.view != VIEW_TOP) || g->state == GS_FIGHT) && !menu_up;
       bool capture = play && g->tool_mode == 0 && !g->pf->tool_focus && !g->paused && !g->bot;
       static int captured = -1;
-      if (captured != (int)capture) { captured = capture; platform_set_cursor(g->pf, !capture); } }
+      if (captured != (int)capture) { captured = capture; platform_set_cursor(g->pf, !capture); }
+      g->look_capture = capture; }   // the same gate the cursor uses, read once a frame by game_view_look
     if (g->tool_mode == 4) { charmodel_drive_player(&PLAYER_MODEL(g), &PLAYER(g), dt); }
     if (g->tool_mode == 2 && g->leveled.open && g->state != GS_BATTLE && g->state != GS_SCENE) {
         float mx, my; platform_mouse_ui(g->pf, INTERNAL_W, INTERNAL_H, &mx, &my);
@@ -1314,6 +1414,39 @@ static void draw_hud(Game *g, Platform *pf) {
     menu_draw(g);   // --- menu --- the menu, the host's address and the Tab player list sit on top
 }
 
+// ---------------------------------------------------------------- frame trace
+// HOLLOW_TRACE=FILE writes one CSV line per RENDERED FRAME (not per tick): the eye, the view
+// angles, the feet and the interpolation alpha. A shake is a sign-alternating delta in that file,
+// which is the only honest way to tell a 144 Hz stutter from a 60 Hz one. Rows are kept in memory
+// and written at exit so the file I/O never lands in the frame loop and skews what it measures.
+// HOLLOW_AUTOWALK=1 walks the hero forward with nobody at the keyboard, so the trace is repeatable.
+#define TRACE_MAX 60000
+typedef struct TraceRow { unsigned frame, tick; float t, alpha; Vec3 eye; float yaw, pitch; Vec3 pos; float speed; int grounded; } TraceRow;
+// The path is copied, not borrowed: SDL frees its environment at SDL_Quit, which happens before
+// the atexit handler that writes the file.
+static TraceRow *trace_rows; static int trace_n; static char trace_path[512]; static bool trace_ready;
+static void trace_dump(void) {
+    if (!trace_rows || !trace_path[0]) return;
+    FILE *f = fopen(trace_path, "w"); if (!f) return;
+    fprintf(f, "frame,t,alpha,tick,eye_x,eye_y,eye_z,yaw,pitch,px,py,pz,speed,grounded\n");
+    for (int i = 0; i < trace_n; i++) { const TraceRow *r = &trace_rows[i];
+        fprintf(f, "%u,%.6f,%.5f,%u,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.4f,%d\n",
+                r->frame, (double)r->t, (double)r->alpha, r->tick, (double)r->eye.x, (double)r->eye.y, (double)r->eye.z,
+                (double)r->yaw, (double)r->pitch, (double)r->pos.x, (double)r->pos.y, (double)r->pos.z, (double)r->speed, r->grounded); }
+    fclose(f);
+}
+static void trace_frame(const Game *g, float alpha) {
+    if (!trace_ready) { trace_ready = true; const char *p = SDL_getenv("HOLLOW_TRACE"); if (!p) return;
+        snprintf(trace_path, sizeof trace_path, "%s", p);
+        trace_rows = (TraceRow *)calloc(TRACE_MAX, sizeof(TraceRow)); atexit(trace_dump); }
+    if (!trace_path[0] || !trace_rows || trace_n >= TRACE_MAX) return;
+    static double t0 = 0; double now = g->frame_wall; if (t0 == 0) t0 = now;
+    const Character *c = &PLAYER(g).c;
+    trace_rows[trace_n++] = (TraceRow){ .frame = g->frames_total, .tick = g->tick, .t = (float)(now - t0),
+        .alpha = alpha, .eye = g->cam.eye, .yaw = g->cam.yaw, .pitch = g->cam.pitch,
+        .pos = c->pos, .speed = c->speed, .grounded = c->grounded };
+}
+
 // Draw between the last two ticks so 90/120/144 Hz screens show motion every frame. Big jumps
 // (teleports, camera cuts) are not interpolated. Sim state is put back afterwards.
 static Vec3 lerp_or_cut(Vec3 a, Vec3 b, float t) { return v3_len(v3_sub(b, a)) > 4.0f ? b : v3_lerp(a, b, t); }
@@ -1324,19 +1457,40 @@ static Vec4 slot_draw_tint(const Game *g, int slot, Vec4 flash) {
     Vec4 t = g->net.slots[slot].tint;
     return v4(flash.x * t.x, flash.y * t.y, flash.z * t.z, 1);
 }
+float game_render_alpha(const Game *g) { return g->render_alpha; }
+float game_frame_dt(const Game *g) { return g->render_frame_dt; }
+
 void game_render_at(Game *g, Platform *pf, float alpha);
 void game_render(Game *g, Platform *pf, float alpha) {
-    if (!g->prev_valid || alpha <= 0 || alpha >= 1 || SDL_getenv("HOLLOW_NOINTERP")) { game_render_at(g, pf, alpha); return; }
+    // Two ticks in one frame still leave a fraction of a tick in the accumulator, so alpha is always
+    // in [0, 1); clamping it here is only insurance against a caller that measured time differently.
+    alpha = clampf(alpha, 0.0f, 1.0f);
+    g->render_alpha = alpha;
+    if (!g->prev_valid || SDL_getenv("HOLLOW_NOINTERP")) { g->render_alpha = 1.0f; game_render_at(g, pf, alpha); return; }
     Vec3 sp[NET_MAX_PLAYERS]; Vec3 sb = g->boss.c.pos, se = g->cam.eye, st = g->cam.target;
     for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) { sp[i] = g->players[i].c.pos; g->players[i].c.pos = lerp_or_cut(g->prev_players[i], sp[i], alpha); }
     g->boss.c.pos = lerp_or_cut(g->prev_boss, sb, alpha);
-    g->cam.eye = lerp_or_cut(g->prev_eye, se, alpha); g->cam.target = lerp_or_cut(g->prev_target, st, alpha);
+    // The eye is REBUILT here, not interpolated. Mouse look has already turned the view this frame,
+    // and lerping the last two ticks' eye positions would drag it back to where the tick left it: a
+    // whole tick of lag with a 60 Hz staircase on top. What it is rebuilt from is the interpolated
+    // feet, so the eye rides the same smooth body as everything else in the frame. Views that are
+    // not driven by the player (a cutscene, the fixed overworld camera) are still interpolated.
+    if (g->cam.mode == CAM_FIRST) {
+        float down_roll = 0, eye_h = eye_height(g);
+        bool down = weapons_camera(g, &down_roll, &eye_h);
+        camera_first(&g->cam, netgame_view_pos(&g->net, g->local, PLAYER(g).c.pos), eye_h, down ? 0 : bob_amount(g), 0);
+    } else if (g->cam.mode == CAM_ORBIT) {
+        camera_orbit(&g->cam, PLAYER(g).c.pos, g->cam.has_lock, g->cam.lock_pos, &g->level, 0);
+        camera_above_terrain(g);
+    } else {
+        g->cam.eye = lerp_or_cut(g->prev_eye, se, alpha); g->cam.target = lerp_or_cut(g->prev_target, st, alpha);
+    }
     game_render_at(g, pf, alpha);
     for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) g->players[i].c.pos = sp[i];
     g->boss.c.pos = sb; g->cam.eye = se; g->cam.target = st;
 }
 void game_render_at(Game *g, Platform *pf, float alpha) {
-    (void)alpha;
+    trace_frame(g, alpha);
     g->frames++;
     if (g->time - g->fps_t >= 0.5) { g->fps = (float)(g->frames / (g->time - g->fps_t)); g->frames = 0; g->fps_t = g->time; }
     { static Uint64 last = 0; Uint64 now = SDL_GetPerformanceCounter(); if (last) { float ms = (float)((now - last) * 1000.0 / (double)SDL_GetPerformanceFrequency()); g->frame_ms = g->frame_ms > 0 ? g->frame_ms * 0.95f + ms * 0.05f : ms; } last = now; }
@@ -1417,6 +1571,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         }
     }
     render_portrait(g, pf, &fp);
+    gfx_set_flat(x, lk->flat);   // `look flat`: every material blends toward its texture's mean colour
     gfx_begin(x, pf, &fp);
     draw_level(x, lv, &g->wt);
     if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain);
@@ -1516,11 +1671,13 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         for (int i = 0; i < lv->nblocks; i++) if (lv->blocks[i].tex < 0) gfx_draw_box_wire(x, lv->blocks[i].center, lv->blocks[i].size, v4(0.6f, 0.4f, 1, 1));
         for (int i = 0; i < lv->nlights; i++) gfx_draw_box_wire(x, lv->lights[i].pos, v3(0.2f, 0.2f, 0.2f), v4(lv->lights[i].color.x, lv->lights[i].color.y, lv->lights[i].color.z, 1));
     }
-    draw_hud(g, pf);
-    PostParams pp = { .grain = 0, .vignette = 0.45f, .fade = g->fade, .flash_color = g->flash_color, .flash = g->flash,
+    if (!SDL_getenv("HOLLOW_NOHUD")) draw_hud(g, pf);   // capture aid: the style sheets want the frame, not the prompts
+    PostParams pp = { .grain = lk->grain, .vignette = lk->vignette, .fade = g->fade, .flash_color = g->flash_color, .flash = g->flash,
                       .exposure = lk->exposure, .saturation = lk->saturation, .contrast = lk->contrast, .bloom = lk->bloom,
                       .lift = lk->lift, .gain = lk->gain, .bloom_threshold = lk->bloom_threshold, .bloom_knee = 0.5f,
-                      .style_snap = lk->style_snap, .style_outline = lk->style_outline, .style_levels = lk->style_levels, .style_pixel = lk->style_pixel };
+                      .style_snap = lk->style_snap, .style_outline = lk->style_outline, .style_levels = lk->style_levels, .style_pixel = lk->style_pixel,
+                      .ink_width = lk->ink_width, .ink_wobble = lk->ink_wobble, .ink_luma = lk->ink_luma, .paper = lk->paper,
+                      .chroma = lk->chroma, .dither = lk->dither, .hatch = lk->hatch };
     if (SDL_getenv("HOLLOW_STYLE")) sscanf(SDL_getenv("HOLLOW_STYLE"), "%f %f %f %f", &pp.style_snap, &pp.style_outline, &pp.style_levels, &pp.style_pixel);   // tuning override
     gfx_end(x, pf, &pp, g->time);
 }

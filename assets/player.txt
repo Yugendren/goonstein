@@ -1,8 +1,20 @@
 # Player tuning. Times in seconds (60 Hz sim: 0.15 s = 9 frames).
 hp 100
 speed 3.2
-sprint_mult 1.7
+sprint_mult 1.56
 turn_speed 16
+
+# Ground movement (Half-Life/Quake shaped): walk 3.2 -> jog 5.0 on sprint (speed * sprint_mult).
+# accel/air_accel/friction are Quake's sv_accelerate/sv_friction-shaped coefficients, not m/s^2 --
+# see the friction/accel math in player_update (combat.c). jump_height is metres, converted to a
+# launch vy against game.c's gravity. crouch_mult only scales speed here; the eye height and stance
+# drop are game.c's job.
+accel 10
+air_accel 10
+friction 8
+stop_speed 1.4
+jump_height 1.0
+crouch_mult 0.5
 
 # Swings: the windup here is only a fallback. When the hero model's attack clips carry a contact
 # mark the fight takes the windup off the animation instead, so the hit lands with the blade.
