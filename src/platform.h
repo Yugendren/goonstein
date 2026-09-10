@@ -16,6 +16,9 @@ typedef struct Input {
     // Actions, edge-triggered this frame
     bool attack, parry, dodge, interact, lockon;
     bool sprint;   // held
+    // --- voice --- push to talk: V on the keyboard, left bumper on a pad. Held, not edge
+    // triggered, and cleared while a tool window has focus so typing a `v` never opens the mic.
+    bool voice_ptt;
     // Mouse, for menus and cards
     float mouse_x, mouse_y;          // window points
     bool  click, rclick;             // edge-triggered this frame

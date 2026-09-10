@@ -31,7 +31,8 @@ them with `get.sh` / `get.ps1` (see the top of README.md) rather than a build to
 
 ## Build
 
-The first configure fetches and builds SDL3 from source (pinned to `release-3.4.16`), which takes a
+The first configure fetches and builds SDL3 from source (pinned to `release-3.4.16`) and libopus
+(pinned to `v1.5.2`, for voice chat), which takes a
 couple of minutes. After that, incremental builds are sub-second.
 
 ### macOS
@@ -227,6 +228,33 @@ snapshots they are sent. That single decision removes almost every cross-platfor
 * **Sockets.** `src/net_sys.h` is the only file that knows Winsock from BSD sockets. See below.
 * **Version gate.** `NET_PROTO` in `src/net.h` should be bumped on any wire change, and a client
   with a different value must be refused with a clear message rather than desyncing.
+
+## Voice chat (libopus)
+
+`FetchContent` builds libopus from source alongside SDL3, so voice needs no system package on any
+of the three platforms. The options `CMakeLists.txt` forces off matter for portability:
+
+* `OPUS_BUILD_PROGRAMS`, `OPUS_BUILD_TESTING` -- opus_demo and the test suite are dead weight, and
+  the tests want a `RunTest.cmake` path that assumes adb on Android.
+* `OPUS_INSTALL_PKG_CONFIG_MODULE`, `OPUS_INSTALL_CMAKE_CONFIG_MODULE` -- opus adds its own
+  `install()` rules, which would otherwise land a `.pc` file and a CMake package config inside our
+  CPack payload.
+* `OPUS_DRED`, `OPUS_OSCE` -- the two opus 1.5 features that pull neural model weights. These are
+  the only parts of opus that want anything external at configure time, and they are off by
+  default; we force them anyway so a future default flip cannot break an offline build.
+* `OPUS_CUSTOM_MODES` -- unused, and it enlarges the API surface.
+
+Nothing in the opus build needs perl, python, nasm or any other external tool: the ARM assembly
+that would need `arm2gnu.pl` is only reached on MSVC ARM targets with intrinsics disabled, and we
+never disable them. On Apple Silicon the configure log prints
+`Runtime cpu capability detection needed for MAY_HAVE_NEON` -- that is opus reporting it will not
+compile a runtime-dispatched NEON path (arm64 always has NEON, so the plain intrinsics path is
+used); it is a message, not an error, and configure succeeds.
+
+The microphone goes through SDL3's recording API (`SDL_AUDIO_DEVICE_DEFAULT_RECORDING`), so it is
+CoreAudio on macOS, WASAPI on Windows and PulseAudio/PipeWire on Linux with no code of ours in
+between. macOS will show the microphone permission prompt the first time a build opens a recording
+device; `HOLLOW_VOICE_WAV=FILE` opens none at all, which is why the headless tests use it.
 
 ## net_sys.h
 

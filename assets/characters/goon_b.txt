@@ -3,6 +3,8 @@ model models/quaternius/ranger_male.glb
 scale 1.15
 texture_size 512
 yaw_offset 0
+# voice chat: straight pitch, but everything he says sounds like a walkie-talkie
+voice 1.00 1.00 radio
 recolor 45 72 27  168 140 35
 recolor 10 31 15  45 36 12
 anim idle       Idle_Loop loop

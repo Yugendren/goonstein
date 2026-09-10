@@ -224,6 +224,10 @@ bool platform_poll(Platform *pf) {
     in->shift_held = in->sprint;
     if (pf->tool_focus || pf->text_input) { memset(in->key_held, 0, sizeof in->key_held); in->sprint = false; }   // held keys belong to the focused window // --- menu --- or a text field
     if (pf->gamepad && SDL_GetGamepadButton(pf->gamepad, SDL_GAMEPAD_BUTTON_EAST)) in->sprint = true;
+    // --- voice --- push to talk. On a pad the left bumper is also the old fight's deflect; the
+    // co-op game has no deflect, so they can share the button.
+    in->voice_ptt = in->key_held[SDL_SCANCODE_V] ||
+                    (pf->gamepad && SDL_GetGamepadButton(pf->gamepad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER));
     in->move_x = (pf->tool_focus || pf->text_input) ? 0 : (float)(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]);
     in->move_y = (pf->tool_focus || pf->text_input) ? 0 : (float)(keys[SDL_SCANCODE_S] - keys[SDL_SCANCODE_W]);
     if (pf->gamepad) {

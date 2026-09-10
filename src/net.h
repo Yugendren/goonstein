@@ -34,7 +34,13 @@
 #define NET_REL_PER_PKT  4      // reliable blocks resent per outgoing packet
 
 // Payload types (the unreliable part of a packet).
-enum { NPT_NONE = 0, NPT_INPUT = 1, NPT_SNAPSHOT = 2 };
+// NPT_VOICE carries one speaker's 20 ms Opus frame, host -> client (see src/voice.h). The
+// client -> host direction rides on NPT_INPUT instead, appended after the 10 input bytes,
+// so talking costs a client no extra datagram.
+// NPT_EVENT carries weapon events (tracers, muzzle flashes, thuds), host -> client, unreliable:
+// they are worth seeing on the frame they happen and worthless a moment later, so a lost one is
+// simply not resent. See src/weapons.h.
+enum { NPT_NONE = 0, NPT_INPUT = 1, NPT_SNAPSHOT = 2, NPT_VOICE = 3, NPT_EVENT = 4 };
 
 typedef struct NetAddr { uint32_t ip; uint16_t port; } NetAddr;   // IPv4, host byte order
 

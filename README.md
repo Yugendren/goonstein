@@ -57,6 +57,7 @@ and what is verified versus untested.
 | Step dodge / sprint | Shift tap / hold (or Space) | B          |
 | Lock-on       | Middle mouse, Q or Tab    | R3               |
 | Interact      | E                         | A                |
+| Push to talk  | V (hold)                  | LB (hold)        |
 | Skip cutscene | Enter                     | Start            |
 | Debug overlay | F1                        | Back / Select    |
 | Pause / step  | F2 / F3                   |                  |
@@ -594,6 +595,140 @@ own predicted position matches the host's to 0.02 m.
 With `HOLLOW_NET_LOSS=0.2` on all four processes (about 1500 packets thrown away), nothing
 changes: everyone still joins, the numbers above are the same to within noise, and all four
 processes exit cleanly.
+
+## Voice
+
+Proximity voice chat. Everyone talks over the same UDP link the game already uses, everyone hears
+everyone else positioned in the world, and every goon has a different voice.
+
+### Keys and settings
+
+| | Keyboard / mouse | Gamepad |
+|---|---|---|
+| Push to talk | **V** (hold) | **LB** (hold) |
+
+A red dot and the word `talking` appear bottom-left while your microphone is live. Name tags float
+over the other three goons; whoever is speaking gets a brighter tag and a small speaker icon whose
+arcs grow with how loud they are in *your* mix, so the icon is also a distance readout.
+
+`assets/settings.txt`, or the matching command-line flags, which win:
+
+| Setting | Flag | Default | What it does |
+|---|---|---|---|
+| `voice ptt\|open\|off` | `--voice MODE` | `ptt` | `ptt` transmits while V / LB is held. `open` is an energy gate: it opens above an RMS of 0.010 and stays open for 350 ms after you stop, so the ends of words survive. `off` never transmits **and never opens a recording device**, so the OS microphone indicator stays dark. Receiving is always on -- `voice_volume 0` is how you mute other people. |
+| `voice_volume V` | `--voice-volume V` | `1.0` | Voice level, 0 to 2. Completely independent of the game's `volume`: the voice bus is added *after* the master gain, so `--volume 0` still talks and still listens. |
+| `voice_monitor 0\|1` | `--voice-monitor` | `0` | Hear your own changed voice locally, at 0.7 gain and dead centre. The only way to audition a character's `voice` line without a second machine. |
+
+### A voice per character
+
+Each character file carries one line (see `src/charmodel.h`):
+
+    voice PITCH FORMANT EFFECT
+
+`PITCH` multiplies the fundamental (clamped to 0.5..2.0), `FORMANT` moves the vocal tract
+(0.7..1.5, bigger = brighter/smaller body) and `EFFECT` is `none`, `radio` or `ring`. Missing line
+means `1.0 1.0 none`. The Goon Squad:
+
+| | Line | Reads as |
+|---|---|---|
+| `goon_a` | `voice 0.85 1.00 none` | big and slow |
+| `goon_b` | `voice 1.00 1.00 radio` | everything he says sounds like a walkie-talkie |
+| `goon_c` | `voice 1.35 1.15 none` | small and high |
+| `goon_d` | `voice 1.00 0.90 ring` | faintly robotic |
+
+The line is re-read once a second, so editing a character file re-voices you without a restart.
+
+**It is applied at the sender, before Opus.** That is the whole design decision: the host and all
+three listeners hear exactly the same voice, the shifter runs once per speaker instead of once per
+listener per speaker, and the codec never sees the unprocessed microphone.
+
+**How the shifter works** (`src/voice_dsp.c`, no external library):
+
+* *Pitch* is SOLA plus resampling. Grains of 960 samples with 50% overlap are laid down at an
+  output hop of 480 and an input hop of `480 * pitch`, each grain's read position refined by a
+  normalised cross-correlation search of +/-128 samples so the overlap lands on a matching phase.
+  That time-scales by `1/pitch` without touching the spectrum; resampling the result by `pitch`
+  then multiplies every frequency by `pitch` and puts the duration back. 960 samples in, 960 out,
+  constant latency.
+* *Formant* is a grain-resample, and it is an approximation, deliberately. Hann windows of 512
+  samples are overlap-added at a fixed hop of 256, but each window is filled by reading the
+  pitch-shifted signal at step `formant`, which scales every frequency inside the grain while the
+  unchanged hop keeps the duration. It is not an LPC or cepstral envelope warp -- over the +/-15%
+  the presets use it reads as a change of body size and costs one multiply-add per sample, which
+  is the trade we wanted. Skipped entirely when `formant` is 1.0.
+* *Effects* are last: `radio` is a 300 Hz Butterworth high-pass into a 3 kHz low-pass, a `tanh`
+  soft clip and a little hiss scaled by the frame's own level (so it only hisses while you talk);
+  `ring` is a 55 Hz sine ring-modulator at 60% depth with phase continuous across frames.
+
+### On the wire
+
+48 kHz mono, cut into 20 ms frames, Opus at 24 kbps constrained VBR with in-band FEC on and the
+expected loss set to 20%. One frame is one block:
+
+    u8  slot     who is talking (a client sends its own; the host overwrites it)
+    u8  flags    bit 0: the speaker is dead
+    u16 seq      per-speaker frame counter, wraps
+    u16 t_ms     wall-clock milliseconds at capture, low 16 bits -- the latency readout
+    u8  len      Opus bytes that follow
+    u8  data[len]
+
+Seven bytes of header on ~61 bytes of Opus.
+
+**Client to host, the block rides on the input packet the client already sends every tick.** The
+host reads the intent from the first 10 payload bytes and hands whatever follows to `voice.c`, so
+talking costs a client its own bytes and not a second datagram. **Host to client it is an
+`NPT_VOICE` packet, forwarded the instant it arrives**, with one byte rewritten. The host never
+decodes anything it forwards.
+
+Receiving is a jitter buffer and an Opus decoder per speaker (`src/voice_jitter.c`): 80 ms of
+target depth, u16 sequence arithmetic so wrapping is a non-event, duplicates and late packets
+counted and dropped. A gap whose *next* packet has arrived is recovered from that packet's in-band
+FEC; a gap with nothing after it is concealed by Opus PLC for at most three frames before the
+buffer admits the speaker has stopped.
+
+### How it is heard
+
+The mixer pulls the voice bus once per audio block, after the game mix and after the master
+volume. Per speaker, per block:
+
+* **Distance.** Smoothstep between 4 m (full) and 25 m (silent).
+* **Occlusion.** `level_ray_solid` from your camera to their mouth: a solid block in the way costs
+  a one-pole low-pass at 700 Hz and 30% of the level. That is the whole "he is behind the wall" cue.
+* **Pan.** Their direction against the camera's right vector, equal-power, capped at 0.85 so a
+  voice at your shoulder still has a body.
+* **Dead players** are heard by everyone within range at half volume (`VOICE_DEAD_GAIN`). Nothing
+  sets a co-op player's hp to zero yet; the hook is in and reads `flags` bit 0 and the local `hp`.
+
+Left/right gains are ramped linearly across the block rather than stepped, which is what stops a
+player sprinting past you from clicking.
+
+### Testing without microphones
+
+    HOLLOW_VOICE_WAV=FILE     read FILE instead of opening a recording device
+    HOLLOW_VOICE_DUMP=FILE    write the local voice bus to FILE (stereo), and one
+                              FILE.slotN.wav per speaker (mono, after distance/occlusion/pan)
+
+`assets/audio/voice_test.wav` is 7.8 s of `say(1)` converted with
+`afconvert -f WAVE -d LEI16@48000 -c 1`. With `HOLLOW_VOICE_WAV` set, no recording device is opened
+at all, so a headless run never trips the macOS microphone prompt.
+
+    tools/voice_test.sh near        four processes, host at the spawn, ~2 m from the talker
+    tools/voice_test.sh far         same, host parked 20 m away
+    tools/voice_test.sh loss        near, with HOLLOW_NET_LOSS=0.2 on all four processes
+
+and the dumps are measured with
+
+    tools/voice_check.py pitch FILE...    fundamental (harmonic product spectrum) and centroid
+    tools/voice_check.py level FILE       RMS envelope in dBFS, to line up against the log
+    tools/voice_check.py gaps  FILE       longest silent run: the packet-loss continuity check
+
+Every process logs a `voice:` line once a second with the mode, bytes up and down, and per speaker
+the distance, the applied gain, whether they are muffled, the decode/FEC/conceal/late counts and
+both latencies (`transit` is capture to arrival, `lat` is capture to entering the playback ring).
+
+### What it costs, measured
+
+MEASUREMENTS_GO_HERE
 
 ## Layout
 

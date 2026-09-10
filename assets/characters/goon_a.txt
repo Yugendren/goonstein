@@ -3,6 +3,8 @@ model models/quaternius/ranger_male.glb
 scale 1.05
 texture_size 512
 yaw_offset 0
+# voice chat: a big slow voice: pitched down, tract left alone
+voice 0.85 1.00 none
 recolor 45 72 27  190 90 40
 recolor 10 31 15  60 22 14
 anim idle       Idle_Loop loop
