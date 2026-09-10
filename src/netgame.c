@@ -14,8 +14,16 @@
 #include <stdlib.h>
 
 // Reliable message types (the first byte of a reliable body).
-enum { NRM_JOIN = 1, NRM_ACCEPT = 2, NRM_REJECT = 3, NRM_JOINED = 4, NRM_LEFT = 5, NRM_BYE = 6 };
-enum { NET_ENT_PLAYER = 1 };
+enum { NRM_JOIN = 1, NRM_ACCEPT = 2, NRM_REJECT = 3, NRM_JOINED = 4, NRM_LEFT = 5, NRM_BYE = 6,
+       NRM_ITEM_GRAB = 7, NRM_ITEM_RELEASE = 8 };
+enum { NET_ENT_PLAYER = 1, NET_ENT_ITEM = 2 };
+
+// Item entities: 14 bytes each (type, id, position in centimetres, orientation in four bytes, one
+// flag byte). Everything held, changed or actually moving goes out at the full snapshot rate; the
+// still majority is swept round robin so every item lands at least twice a second. With 64 items
+// that is about 2 kB/s of item traffic on top of ~2.6 kB/s of players: inside the 8 kB/s budget.
+#define NET_ITEM_SLEEP_SPAN (NET_SNAP_HZ / 2)   // snapshots one full sweep of the sleepers takes
+#define NET_ITEM_BYTES      14
 
 static const Vec4 SLOT_TINT[NET_MAX_PLAYERS] = {
     { 1.00f, 1.00f, 1.00f, 1 },   // host: as authored
@@ -30,6 +38,9 @@ static int16_t  q_yaw(float y)   { return (int16_t)lrintf(clampf(wrap_pi(y), -PI
 static float    dq_yaw(int16_t y){ return (float)y * (PI / 32767.0f); }
 static int8_t   q_dir(float v)   { return (int8_t)lrintf(clampf(v, -1, 1) * 127.0f); }
 static float    dq_dir(int8_t v) { return (float)v * (1.0f / 127.0f); }
+// A unit quaternion in four bytes. One degree of error, which nobody can see on a tumbling crate.
+static int8_t   q_quat(float v)  { return (int8_t)lrintf(clampf(v, -1, 1) * 127.0f); }
+static float    dq_quat(int8_t v){ return (float)v * (1.0f / 127.0f); }
 
 // ---------------------------------------------------------------- setup
 
@@ -140,14 +151,48 @@ static Vec3 unpack_input(const NetInput *ni, Input *in) {
 
 // ---------------------------------------------------------------- snapshots
 
+// A position in centimetres: 0.01 m over +-327 m, which is a good deal more island than there is.
+static int16_t q_pos(float v)  { return (int16_t)lrintf(clampf(v, -327.0f, 327.0f) * 100.0f); }
+static float   dq_pos(int16_t v) { return (float)v * 0.01f; }
+
+static void write_item(NetBuf *b, const Item *it) {
+    nb_u8(b, NET_ENT_ITEM); nb_u16(b, it->id);
+    nb_i16(b, q_pos(it->pos.x)); nb_i16(b, q_pos(it->pos.y)); nb_i16(b, q_pos(it->pos.z));
+    Quat q = quat_norm(it->rot);
+    nb_i8(b, q_quat(q.x)); nb_i8(b, q_quat(q.y)); nb_i8(b, q_quat(q.z)); nb_i8(b, q_quat(q.w));
+    // bit 0 broken, bits 1..3 the slot holding it plus one (0 = nobody), bit 4 in the hold
+    uint8_t flags = (uint8_t)((it->broken ? 1u : 0u) | ((unsigned)(it->held_by + 1) & 7u) << 1 | (it->in_hold ? 16u : 0u));
+    nb_u8(b, flags);
+}
+
+// Worth a slot in this snapshot? Held and changed things always are. "Awake" on its own is not
+// enough: a pile of crates settling against each other stays awake for a while without visibly
+// moving, and at 30 Hz that pile alone was three times the whole bandwidth budget.
+static bool item_live(const Game *g, const Item *it) {
+    if (!it->used) return false;
+    if (it->dirty || it->held_by >= 0) return true;
+    const PhysBody *pb = phys_body_c(&g->phys, it->body);
+    if (!pb || pb->sleeping) return false;
+    if (v3_len(v3_sub(it->pos, it->net_pos)) > 0.02f) return true;
+    float d = it->rot.x * it->net_rot.x + it->rot.y * it->net_rot.y + it->rot.z * it->net_rot.z + it->rot.w * it->net_rot.w;
+    return fabsf(d) < 0.9995f;   // about three and a half degrees
+}
+
 static void write_snapshot(Game *g, int for_slot, uint8_t *out, int *out_len, int cap) {
     NetGame *n = &g->net;
+    Items *its = &g->items;
     NetBuf b; nb_init_write(&b, out, (size_t)cap);
     nb_u32(&b, g->tick);
     nb_u32(&b, n->slots[for_slot].input_tick);
     int count = 0;
     for (int i = 0; i < NET_MAX_PLAYERS; i++) if (n->slots[i].active) count++;
     nb_u8(&b, (uint8_t)count);
+    // The run's takings ride in the header: a client would otherwise have to know which items are
+    // inside a volume it only sees interpolated, and the two answers would disagree at the edges.
+    nb_u16(&b, (uint16_t)(its->hold_count < 0 ? 0 : its->hold_count));
+    nb_u32(&b, (uint32_t)(its->hold_value < 0 ? 0 : its->hold_value));
+    size_t item_count_at = b.len;
+    nb_u8(&b, 0);                       // patched once we know how many items fitted
     for (int i = 0; i < NET_MAX_PLAYERS; i++) {
         if (!n->slots[i].active) continue;
         const Character *c = &g->players[i].c;
@@ -159,6 +204,28 @@ static void write_snapshot(Game *g, int for_slot, uint8_t *out, int *out_len, in
         nb_u16(&b, (uint16_t)clampf(c->hp, 0, 65535.0f));
         nb_u8(&b, (uint8_t)g->players[i].state);
     }
+    // Pass one: everything that is moving, in someone's hands, or has just changed hands or broken.
+    bool sent[ITEMS_MAX]; memset(sent, 0, sizeof sent);
+    int nitems = 0;
+    for (int i = 0; i < its->n && i < ITEMS_MAX; i++) {
+        const Item *it = &its->it[i];
+        if (!it->used) continue;
+        if (!item_live(g, it)) continue;
+        if (b.len + NET_ITEM_BYTES > b.cap) break;
+        write_item(&b, it); sent[i] = true; nitems++;
+    }
+    // Pass two: a slice of the sleepers, so a client that joined late or missed a packet still ends
+    // up with the whole island's furniture inside half a second.
+    if (its->n > 0) {
+        int slice = (its->n + NET_ITEM_SLEEP_SPAN - 1) / NET_ITEM_SLEEP_SPAN;
+        for (int k = 0; k < slice; k++) {
+            int i = (int)((n->item_cursor + (unsigned)k) % (unsigned)its->n);
+            if (i >= ITEMS_MAX || sent[i] || !its->it[i].used) continue;
+            if (b.len + NET_ITEM_BYTES > b.cap) break;
+            write_item(&b, &its->it[i]); sent[i] = true; nitems++;
+        }
+    }
+    if (!b.err) out[item_count_at] = (uint8_t)(nitems > 255 ? 255 : nitems);
     *out_len = b.err ? 0 : (int)b.len;
 }
 
@@ -240,10 +307,13 @@ static void read_snapshot(Game *g, const uint8_t *data, int len) {
     NetBuf b; nb_init_read(&b, data, (size_t)len);
     uint32_t stick = rb_u32(&b), ack = rb_u32(&b);
     int count = rb_u8(&b);
+    int hold_count = rb_u16(&b); uint32_t hold_value = rb_u32(&b);
+    int nitems = rb_u8(&b);
     if (b.err || count > NET_MAX_PLAYERS) return;
     if (stick < n->server_tick && n->server_tick - stick < 1000) return;   // stale, a newer one already landed
     n->server_tick = stick; n->server_tick_at = n->now;
     if (ack > n->last_ack) n->last_ack = ack;
+    items_set_hold_totals(g, hold_count, (int)hold_value);
     bool seen[NET_MAX_PLAYERS] = { false, false, false, false };
     for (int e = 0; e < count; e++) {
         uint8_t type = rb_u8(&b), id = rb_u8(&b);
@@ -265,6 +335,16 @@ static void read_snapshot(Game *g, const uint8_t *data, int len) {
         }
         if (id == (uint8_t)g->local) reconcile(g, &sp, ack);
         else push_hist(&n->slots[id], n->now, &sp);
+    }
+    for (int e = 0; e < nitems; e++) {
+        uint8_t type = rb_u8(&b);
+        uint16_t id = rb_u16(&b);
+        Vec3 pos; pos.x = dq_pos(rb_i16(&b)); pos.y = dq_pos(rb_i16(&b)); pos.z = dq_pos(rb_i16(&b));
+        Quat rot; rot.x = dq_quat(rb_i8(&b)); rot.y = dq_quat(rb_i8(&b)); rot.z = dq_quat(rb_i8(&b)); rot.w = dq_quat(rb_i8(&b));
+        uint8_t flags = rb_u8(&b);
+        if (b.err || type != NET_ENT_ITEM) return;
+        int held = (int)((flags >> 1) & 7u) - 1;
+        items_net_sample(g, id, pos, quat_norm(rot), held, (flags & 1u) != 0, (flags & 16u) != 0, n->now);
     }
     for (int i = 0; i < NET_MAX_PLAYERS; i++)
         if (i != g->local && n->slots[i].active && !seen[i]) { dbg_log("net: slot %d (%s) left", i, n->slots[i].name); unseat(g, i); }
@@ -303,6 +383,16 @@ static void host_reliable(Game *g, int slot, const uint8_t *body, int len) {
         char as[32]; net_addr_str(&n->slots[slot].peer.addr, as, sizeof as);
         dbg_log("net: %s joined as slot %d from %s", n->slots[slot].name, slot, as);
         SDL_Log("net: %s joined as slot %d", n->slots[slot].name, slot);
+    } else if (type == NRM_ITEM_GRAB) {
+        uint16_t id = rb_u16(&b);
+        if (b.err) return;
+        if (!items_net_grab(g, slot, id)) dbg_log("net: slot %d asked for item %u and was refused", slot, id);
+    } else if (type == NRM_ITEM_RELEASE) {
+        uint16_t id = rb_u16(&b);
+        uint8_t thrown = rb_u8(&b);
+        Vec3 v; v.x = (float)rb_i16(&b) * 0.01f; v.y = (float)rb_i16(&b) * 0.01f; v.z = (float)rb_i16(&b) * 0.01f;
+        if (b.err) return;
+        items_net_release(g, slot, id, thrown != 0, v);
     } else if (type == NRM_BYE) {
         dbg_log("net: %s (slot %d) said goodbye", n->slots[slot].name, slot);
         uint8_t lb[2] = { NRM_LEFT, (uint8_t)slot };
@@ -365,6 +455,9 @@ static void host_simulate(Game *g, float dt) {
         } else s->input.buttons &= (uint16_t)(NB_SPRINT | NB_GUARD);
         Input in; Vec3 dir = unpack_input(&s->input, &in);
         if (!s->have_input) { memset(&in, 0, sizeof in); dir = v3(0, 0, 0); }
+        // Two hands on the painting is two hands off everything else: the host applies the same
+        // cap the client predicts, so carrying does not fight the reconciliation.
+        if (items_two_handed(g, i)) { dir = v3_scale(dir, ITEM_SLOW_SPEED); in.sprint = false; }
         CombatEvents ev = {0};
         player_update(&g->players[i], &in, dir, &g->level, NULL, dt, &ev);
         Character *c = &g->players[i].c;
@@ -389,6 +482,22 @@ static void host_send_snapshots(Game *g) {
         if (len <= 0) continue;
         int sent = net_send(&n->sock, &s->peer, NPT_SNAPSHOT, buf, len, n->now);
         if (sent > 0) { n->s_pkt_out++; n->s_bytes_out += (uint64_t)sent; }
+    }
+    // Every client has now been told, so the change flags can go and the sleeper sweep can move on.
+    Items *its = &g->items;
+    for (int i = 0; i < its->n; i++) {
+        Item *it = &its->it[i];
+        // Whatever went out is now what the clients believe, which is what item_live compares to.
+        if (item_live(g, it)) { it->net_pos = it->pos; it->net_rot = it->rot; }
+        it->dirty = false;
+    }
+    if (its->n > 0) {
+        int slice = (its->n + NET_ITEM_SLEEP_SPAN - 1) / NET_ITEM_SLEEP_SPAN;
+        for (int k = 0; k < slice; k++) {
+            int i = (int)((n->item_cursor + (unsigned)k) % (unsigned)its->n);
+            if (i < ITEMS_MAX) { its->it[i].net_pos = its->it[i].pos; its->it[i].net_rot = its->it[i].rot; }
+        }
+        n->item_cursor = (n->item_cursor + (unsigned)slice) % (unsigned)its->n;
     }
 }
 
@@ -450,6 +559,24 @@ static void client_send_input(Game *g) {
     nb_u32(&b, n->cur.tick); nb_i8(&b, n->cur.mx); nb_i8(&b, n->cur.mz); nb_i16(&b, n->cur.yaw); nb_u16(&b, n->cur.buttons);
     int sent = net_send(&n->sock, &n->server, NPT_INPUT, buf, (int)b.len, n->now);
     if (sent > 0) { n->s_pkt_out++; n->s_bytes_out += (uint64_t)sent; }
+}
+
+void netgame_send_item_grab(Game *g, uint16_t id) {
+    NetGame *n = &g->net;
+    if (n->mode != NM_CLIENT || !n->connected) return;
+    uint8_t body[8]; NetBuf b; nb_init_write(&b, body, sizeof body);
+    nb_u8(&b, NRM_ITEM_GRAB); nb_u16(&b, id);
+    if (!b.err) net_reliable_send(&n->server, body, (uint16_t)b.len);
+}
+void netgame_send_item_release(Game *g, uint16_t id, bool thrown, Vec3 vel) {
+    NetGame *n = &g->net;
+    if (n->mode != NM_CLIENT || !n->connected) return;
+    uint8_t body[16]; NetBuf b; nb_init_write(&b, body, sizeof body);
+    nb_u8(&b, NRM_ITEM_RELEASE); nb_u16(&b, id); nb_u8(&b, thrown ? 1 : 0);
+    nb_i16(&b, (int16_t)lrintf(clampf(vel.x, -320, 320) * 100.0f));
+    nb_i16(&b, (int16_t)lrintf(clampf(vel.y, -320, 320) * 100.0f));
+    nb_i16(&b, (int16_t)lrintf(clampf(vel.z, -320, 320) * 100.0f));
+    if (!b.err) net_reliable_send(&n->server, body, (uint16_t)b.len);
 }
 
 // ---------------------------------------------------------------- per-tick entry points

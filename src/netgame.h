@@ -79,6 +79,7 @@ typedef struct NetGame {
     NetInput  cur;                    // the local player's intent this tick
     char      level_name[32];         // what the host says everyone is playing
     float     bot_heading; uint32_t bot_next_turn;   // --bot on a client: wander state
+    unsigned  item_cursor;            // host: where the round-robin over sleeping items has got to
     // client prediction and reconciliation
     Vec3      hist_pos[NET_HIST]; uint32_t hist_tick[NET_HIST];
     Vec3      pos_error;              // visual offset that decays back to zero after a correction
@@ -112,5 +113,9 @@ void netgame_post_tick(struct Game *g, float dt);
 Vec3 netgame_local_input(struct Game *g, Vec3 move_dir, const Input *in);
 // Where the local player should be drawn: its simulated position plus the decaying correction.
 Vec3 netgame_view_pos(const NetGame *n, int slot, Vec3 sim_pos);
+// Reliable item commands, client -> host. The host validates reach and ownership; the client
+// predicts the result immediately and lets the next snapshot correct it.
+void netgame_send_item_grab(struct Game *g, uint16_t id);
+void netgame_send_item_release(struct Game *g, uint16_t id, bool thrown, Vec3 vel);
 // Bot client: wander so a screenshot shows movement.
 void netgame_bot_wander(struct Game *g, Input *in);
