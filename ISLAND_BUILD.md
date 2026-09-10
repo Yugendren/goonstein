@@ -1,6 +1,6 @@
 # Building Goonstein Island
 
-How the M3 island is put together, what it is made of, and what it still needs from the engine.
+How the M3 island is put together, what it is made of, and what it needed from the engine.
 Everything below is content: `assets/**` plus two scripts in `tools/`. No C was written for it.
 
 Research the map is drawn from: `ISLAND.md`. Tone and hard rules: `DESIGN.md`. The island name and
@@ -148,62 +148,54 @@ A `--bot` run walks the spine of the island in about 81 s of sim time and logs, 
 moved or something is blocking the road.
 
 Frame cost is the same as the shipped Lantern Count slice: both sit on the display cap
-(8.3 ms / 120 fps) with `HOLLOW_NOVSYNC=1`: 8.3 ms and 519 draw calls over 574 props on the
-island against 8.3 ms and 360 draws over 642 props on lantern. The island is not the expensive thing; the 80 m far plane is doing a lot of
-culling for free.
+(8.3 ms / 120 fps) with `HOLLOW_NOVSYNC=1`. The far plane decides how much of the island is in the
+frame at all, so the island's draw count now depends on where you stand: a few hundred at the pier,
+a couple of thousand looking down the spine.
 
 ---
 
-## 4. Needs code
+## 4. What the engine grew for this
 
-Content-only work ran into these. None of them are cosmetic.
+Every item content ran into has been built. What each one turned into, and where it lives:
 
-1. **The camera's far plane is a hard-coded 80 m.** `src/camera.c`,
-   `m4_perspective(c->fov * DEG2RAD, aspect, 0.1f, 80.0f)`. Nothing beyond 80 m from the eye is
-   ever drawn, so *a 300 m island can never read as an island in game* — not from the hill, not
-   from the boat, not from a cutscene camera. This was fine for a 90 m village and is the single
-   biggest blocker on M3. **Recommendation:** make the far plane a `Look` value (a `camera` line
-   field or its own `viewdist` line, default 80 so nothing else changes), set it to ~600 on the
-   island, and refit the sun shadow map's ortho extent to the visible range so shadow resolution
-   does not collapse. Until then the island's only overview is
-   `tools/island_terrain.py --preview`.
-2. **Characters are snapped to the terrain every tick** (`src/game.c`: `c->pos.y =
-   terrain_height(...)` for the player, the boss and every NPC), so nobody can stand on a block,
-   a prop or a boat deck, and there is no vertical collision at all. Consequences here: the dock
-   had to be built as a stone mole (ground) rather than a pier on piles; the goons stand *beside*
-   the boat in the intro rather than in it; no building can have a first floor or a raised
-   walkway. **Recommendation:** ground height = max(terrain, top of any block whose xz contains
-   the character and whose top is within a step of their feet), plus gravity.
-3. **Scene actors cannot be props.** `src/scene.c` resolves `actor NAME` to the player, the boss
-   or an NPC only. The intro wants a motor boat driving in to the dock with four men in it; it
-   gets a moored boat and a camera move. **Recommendation:** let `actor` name a level prop by an
-   optional `name` field on the `prop` line, and let characters parent to a moving prop.
-4. **The player is not terrain-snapped inside a cutscene.** `tick_explore` snaps the player's y
-   to the terrain every tick, but `tick_scene` only runs `character_script_update`, while NPCs are
-   snapped unconditionally. So `actor player teleport x 0 z yaw` — which is exactly how every
-   existing scene is written, because on the flat lantern level y is always 0 — buries the hero
-   inside the ground and he silently vanishes from the shot. Cost about half an hour to find.
-   The island's intro therefore carries the real quay height (1.60) in every player command.
-   **Recommendation:** snap the player in `tick_scene` too, or make `teleport`'s y optional.
-5. **Props have a yaw and nothing else.** `prop FILE x y z yaw scale` — there is no pitch or roll,
-   and the field after `yaw` is `scale`, so a line written as if it took a pitch (`... 0 -25
-   stretch ...`) silently multiplies the prop by -25 and puts a 45 m red slab on the hillside.
-   Anything tilted has to become a `.part` (which does have pitch and roll). **Recommendation:**
-   accept `pitch`/`roll` as optional prop keywords, and reject a non-positive `scale` with a log
-   line instead of drawing it.
-6. **`block` solidity is off by one.** `src/level.c` writes `block ... tile solid|pass` (13
-   tokens, which is also what `level_save` emits) but the loader requires 13 or 14 tokens and
-   reads the solidity from `tok[13]`, so a 13-token line is *always solid* and a saved `pass`
-   block silently comes back solid. The two non-solid quay kerbs here are props instead. One-line
-   fix: read `tok[12]` when `n == 13`.
-7. **No `pixel 0` shorthand.** `pixel` needs all five numbers or the line is rejected, so
-   "pixel pass off" is written `pixel 0 8 1 0 0.6`. Cosmetic, but it costs a confused minute.
-8. **No water shading.** The sea is one flat emissive box the size of the terrain
-   (`src/game.c`). It reads acceptably at dusk, but there is no shoreline foam, no depth tint and
-   no movement, and its edge is the edge of the terrain grid — currently hidden by fog, which is
-   the only reason the fog is as thick as it is.
-9. **Prop instancing / part cost.** A part is drawn piece by piece, so 104 palms is ~1700 draws
-   before culling. Fine at 80 m; it will matter the moment (1) is fixed.
+1. **The far plane is a level value.** `look far METRES` (default 80, so no other level changed);
+   the island asks for 600. The sun shadow map is refitted rather than stretched — the box follows
+   what the camera looks at, its ceiling grows with the far plane, and past its edge the world is
+   simply unshadowed, faded out over the outer 15% so there is no line across the ground. The sea
+   was the other thing hiding behind 80 m: it now reaches far past the grid so the far plane cuts
+   it, and the island's fog is thicker and falls off faster with height to suit.
+2. **Characters stand on things.** `resolve_ground` (src/game.c) replaces the old terrain snap: the
+   ground is the terrain, or the top of any solid block or `deck` collider within 0.5 m of the feet,
+   whichever is higher. Walking onto something that low steps up; walking off it falls at 1 g. No
+   jump yet. It applies to the player, every net slot, the boss, NPCs and cutscene actors.
+3. **A prop can be a scene actor.** `prop ... name boat` plus `actor prop:boat move|teleport|face`
+   in a scene; the prop's collider travels with it and anyone standing on that collider is carried.
+   The intro is rewritten around it: the four of them ride the boat in from 66 m out and climb onto
+   the quay.
+4. **Cutscene actors are grounded**, and a scene's `move`/`teleport` y is a floor rather than an
+   answer: `move x 0 z dur` hugs the terrain, a larger y lifts them onto a deck or a quay.
+5. **A `prop` scale that was meant as a pitch** now says so and draws at 1 instead of putting a
+   45 m mirrored slab on a hillside.
+6. **`block ... pass` survives a save.** The solidity word is read from the end of the line at
+   either length.
+7. **`pixel 0`** is a whole line: the trailing fields keep their defaults.
+8. **The sea is shaded.** Two crossing ripple trains (analytic normals, four sines), the sky at
+   grazing angles, a sun glint, and a coastline read from a small depth texture: shallow water lifts
+   toward the sand and foam sits on the waterline. See `terrain_draw_water` and lit.frag's `water`
+   material.
+9. **Prop instancing / part cost** is still open, and now matters: with the far plane at 600 a view
+   down the island is ~2600 draw calls instead of ~120. It still sits on the display cap, so this is
+   a headroom problem rather than a frame-rate one.
+
+Two smaller things worth knowing:
+
+- The vegetation carries its own colliders: a `.part` can declare `collide R [H] [deck]` and every
+  prop placed from it inherits it, scaled. That is why the level file has no collider lines for its
+  409 plants. The orbit camera ignores any collider under 1.2 m across so it does not shorten
+  against every palm.
+- `--bot` on a `view first` level wanders instead of walking the spine (`bot_input` hands over to
+  `netgame_bot_wander` in first person), so the trigger-by-trigger regression in section 3 needs
+  `--third`.
 
 ## 5. Deliberately not done yet
 
