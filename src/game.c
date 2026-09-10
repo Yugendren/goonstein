@@ -11,7 +11,7 @@
 
 static void say(Game *g, const char *m) { snprintf(g->msg, sizeof g->msg, "%s", m); g->msg_t = 2.5f; }
 
-static const char *GS_NAMES[] = { "EXPLORE", "SCENE", "FIGHT", "DEAD", "END", "BATTLE", "EDITOR" };
+static const char *GS_NAMES[] = { "EXPLORE", "SCENE", "FIGHT", "DEAD", "END", "BATTLE", "MENU" };
 static const char *BT_NAMES[] = { "INTRO", "PLAYER", "CARD", "ENEMY_TELL", "ENEMY_ATTACK", "ENEMY_RECOVER", "WIN", "LOSE" };
 
 static void debug_snapshot(Game *g) {
@@ -873,7 +873,13 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     if (in->ctrl && in->key_down[SDL_SCANCODE_D]) g->pf->debug = !g->pf->debug;                              // wireframe overlay (F1)
     if (in->ctrl && in->key_down[SDL_SCANCODE_G]) debug_snapshot(g);                                          // snapshot (F8)
     // Mouse look owns the cursor only while the game window itself is being played in first or third person.
-    { bool play = (g->state == GS_EXPLORE && g->level.view != VIEW_TOP) || g->state == GS_FIGHT;
+    // --- menu --- the main menu and the Esc menu run before anything else and, while one of them
+    // is up, the rest of the tick sees no input at all: a key typed at a menu never moves anybody.
+    // The world keeps ticking underneath (netgame below), because a host cannot stop answering.
+    static const Input MENU_EATEN_INPUT = { 0 };
+    bool menu_up = menu_tick(g, in, dt);
+    if (menu_up) in = &MENU_EATEN_INPUT;
+    { bool play = ((g->state == GS_EXPLORE && g->level.view != VIEW_TOP) || g->state == GS_FIGHT) && !menu_up;
       bool capture = play && g->tool_mode == 0 && !g->pf->tool_focus && !g->paused && !g->bot;
       static int captured = -1;
       if (captured != (int)capture) { captured = capture; platform_set_cursor(g->pf, !capture); } }
@@ -919,6 +925,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     case GS_DEAD:    tick_dead(g, in, dt); break;
     case GS_END:     tick_end(g, in, dt); break;
     case GS_BATTLE:  tick_battle(g, in, g->pf, dt); break;
+    case GS_MENU:    break;   // --- menu --- the front door: nobody is being played, menu_tick has the input
     }
     netgame_post_tick(g, dt);
     if (g->test_mode[0]) test_throw(g);
@@ -975,7 +982,7 @@ static void ctext(Gfx *x, float lx, float y, float maxw, float scale, Vec4 c, co
 }
 
 static void apply_builder(Game *g, int flags);
-static void settings_set(Game *g, const char *key, const char *value);
+// --- menu --- game_settings_set is declared in game.h: the menu writes name and last_join too
 
 // Dialogue portrait: the speaking character's head, posed by its emotion, through the pixel pass.
 static const char *emote_clip(const Model *m, const char *e) {
@@ -1042,8 +1049,8 @@ static void draw_console(Game *g, Platform *pf) {
         ctext(x, lx, y, pw - 24, 1.1f, head, "FRAME RATE   cap and vsync, saved to settings.txt; the simulation always runs 60 ticks a second"); y += SH + 8;
         static const int caps[] = { 0, 30, 60, 90, 120, 144, 240 }; float bw = (pw - 24 - 7 * 6) / 8;
         for (int i = 0; i < 7; i++) { bool on = pf->fps_cap == caps[i]; char lab[16]; snprintf(lab, sizeof lab, caps[i] ? "%d" : "display", caps[i]);
-            if (ui_toggle(&g->ui, lx + i * (bw + 6), y, bw, 26, lab, &on) && on) { pf->fps_cap = caps[i]; pf->next_frame_ns = 0; char v[16]; snprintf(v, sizeof v, "%d", caps[i]); settings_set(g, "fps", v); } }
-        { bool vs = pf->vsync; if (ui_toggle(&g->ui, lx + 7 * (bw + 6), y, bw, 26, "vsync", &vs)) { platform_set_vsync(pf, vs); settings_set(g, "vsync", vs ? "1" : "0"); } }
+            if (ui_toggle(&g->ui, lx + i * (bw + 6), y, bw, 26, lab, &on) && on) { pf->fps_cap = caps[i]; pf->next_frame_ns = 0; char v[16]; snprintf(v, sizeof v, "%d", caps[i]); game_settings_set(g, "fps", v); } }
+        { bool vs = pf->vsync; if (ui_toggle(&g->ui, lx + 7 * (bw + 6), y, bw, 26, "vsync", &vs)) { platform_set_vsync(pf, vs); game_settings_set(g, "vsync", vs ? "1" : "0"); } }
         ui_end(&g->ui);
         y += 34;
     }
@@ -1164,6 +1171,8 @@ static void draw_debug_overlay(Game *g, Platform *pf) {
 
 static void draw_hud(Game *g, Platform *pf) {
     Gfx *x = &g->gfx;
+    // --- menu --- a menu page owns the screen; the play HUD would only show through it
+    if (menu_up(g)) { menu_draw(g); return; }
     if (g->tool_mode == 2 && g->leveled.open) { if (g->leveled.msg_t > 0) gfx_ui_text(x, 12, INTERNAL_H - 16, 1.1f, v4(1, 0.85f, 0.4f, 1), g->leveled.msg); draw_debug_overlay(g, pf); return; }
     if (g->state == GS_BATTLE) {
         battle_draw_ui(&g->battle, x, camera_view_proj(&g->cam, (float)INTERNAL_W / INTERNAL_H));
@@ -1266,7 +1275,7 @@ static void draw_hud(Game *g, Platform *pf) {
     if (g->hint_t > 0 && g->state == GS_EXPLORE) {
         float a = fminf(1, g->hint_t);
         text_center(x, W * 0.5f, 30, 1.0f, v4(0.85f, 0.85f, 0.8f, a), "WASD move   Shift sprint   E interact   walk the path");
-        text_center(x, W * 0.5f, 44, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "[ environment editor   ] character builder   \\ debugger   Esc quit");
+        text_center(x, W * 0.5f, 44, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "[ environment editor   ] character builder   \\ debugger   Esc menu");
     }
     if (g->state == GS_FIGHT && g->cam.locked && g->boss.state != BS_DEAD) {
         // lock-on marker: a small diamond over the boss, projected
@@ -1283,6 +1292,7 @@ static void draw_hud(Game *g, Platform *pf) {
     }
 
     draw_debug_overlay(g, pf);
+    menu_draw(g);   // --- menu --- the menu, the host's address and the Tab player list sit on top
 }
 
 // Draw between the last two ticks so 90/120/144 Hz screens show motion every frame. Big jumps
@@ -1513,7 +1523,7 @@ bool game_shot_moment(Game *g, const char *when) {
 
 
 // settings.txt: replace or add one `key value` line, keeping the rest (comments included).
-static void settings_set(Game *g, const char *key, const char *value) {
+void game_settings_set(Game *g, const char *key, const char *value) {
     (void)g;
     char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR);
     size_t n = 0; char *st = SDL_LoadFile(sp, &n); char out[4096] = {0}; size_t on = 0; bool had = false; size_t kl = strlen(key);
@@ -1554,7 +1564,7 @@ static void apply_builder(Game *g, int flags) {
     }
     if (flags & BLD_USE) {
         snprintf(g->hero_config, sizeof g->hero_config, "%s", b->name);
-        settings_set(g, "hero", b->name);
+        game_settings_set(g, "hero", b->name);
         snprintf(b->msg, sizeof b->msg, "%s is now the hero (settings.txt)", b->name); b->msg_t = 3;
     }
     }

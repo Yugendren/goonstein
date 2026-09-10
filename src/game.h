@@ -16,13 +16,15 @@
 #include "terrain.h"
 #include "widgets.h"
 #include "netgame.h"
+#include "menu.h"   // --- menu --- the main menu, the Esc menu and the player list
 #include "phys.h"
 #include "items.h"
 
 #define INTERNAL_W 1280
 #define INTERNAL_H 800
 
-typedef enum GState { GS_EXPLORE, GS_SCENE, GS_FIGHT, GS_DEAD, GS_END, GS_BATTLE } GState;
+// GS_MENU is the main menu at launch: the island renders behind it and nobody is being played.
+typedef enum GState { GS_EXPLORE, GS_SCENE, GS_FIGHT, GS_DEAD, GS_END, GS_BATTLE, GS_MENU } GState;
 
 // The local player and its model. Slots 1..3 are filled by joining clients.
 #define PLAYER(g)       ((g)->players[(g)->local])
@@ -48,6 +50,7 @@ typedef struct Game {
     struct { Character c; CharModel model; bool ok; } npcs[LEVEL_MAX_NPCS]; int nnpcs; int talk_npc;   // talk_npc: the one in reach (-1 none)
     PropActor prop_actors[GAME_PROP_ACTORS]; int nprop_actors;   // props a scene is driving right now
     float daytime_from, daytime_to, daytime_t, daytime_dur;   // scene-driven time of day transition
+    Menu menu;   // --- menu --- which page is up, the text fields, the LAN addresses
     Ui ui; int tool_mode;            // 0 none, 1 debugger, 2 environment editor, 3 sprite editor
     float sprite_refresh_t;
     struct { char name[32]; Texture tex; int model; } portraits[16]; int nportraits;   // model: 0 image, 1 hero, 2 boss
@@ -94,6 +97,8 @@ void game_ground_character(Game *g, Character *c, float dt);
 void game_spawn_player(Game *g, int slot);
 // Re-seat the camera on the local player for the level's view mode (spawns, restarts, joining).
 void game_snap_camera(Game *g);
+// settings.txt: replace or add one `key value` line, keeping the rest (comments included).
+void game_settings_set(Game *g, const char *key, const char *value);
 void game_screenshot(Game *g, const char *path);
 void game_tool_screenshot(Game *g, const char *path);
 // Test harness: jump to a state ("explore", "fight", "end").

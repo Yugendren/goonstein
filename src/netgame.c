@@ -532,6 +532,7 @@ static void client_reliable(Game *g, const uint8_t *body, int len) {
         uint8_t slot = rb_u8(&b);
         if (!b.err && slot < NET_MAX_PLAYERS && slot != (unsigned)g->local) { dbg_log("net: slot %d left", slot); unseat(g, slot); }
     } else if (type == NRM_REJECT) {
+        n->rejected = true;   // --- menu --- the join page turns this into one line on screen
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "net: the host is full");
         dbg_log("net: rejected, the host is full");
     } else if (type == NRM_BYE) {

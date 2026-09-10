@@ -71,6 +71,7 @@ typedef struct NetGame {
     // client connection state
     NetPeer   server;
     bool      connected; int join_tries;
+    bool      rejected;               // --- menu --- the host answered "full": the menu says so instead of waiting out the timeout
     double    now;                    // seconds since netgame_start
     uint32_t  net_tick;               // ticks since start (what the client stamps its inputs with)
     int       snap_countdown;         // host: ticks until the next snapshot

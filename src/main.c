@@ -30,6 +30,9 @@ int main(int argc, char **argv) {
     // --first         force first-person view (R.E.P.O.-style: eye in the head, own model hidden)
     // --log FILE      write the debug log to FILE instead of hollow.log
     // --test NAME     run a scripted headless check: "throw" hurls a fragile item at a wall
+    // --menu-test S   drive the main menu without a hand on the keyboard: "host" or "join:HOST:PORT"
+    // With none of --host --join --level --start --bot, the game opens on the main menu (GS_MENU).
+    const char *menu_test = NULL; bool menu_boot = true;
     int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *shot_every_dir = NULL; int shot_every = 0; bool spawn_set = false; float spawn_x = 0, spawn_z = 0; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
     bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1; bool log_set = false;
     static Game game;   // large; static keeps it off the stack (and zeroed)
@@ -64,12 +67,17 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--first")) game.force_first = true;
         else if (!strcmp(argv[i], "--log") && i + 1 < argc) { log_set = true; snprintf(game.log_path, sizeof game.log_path, "%s", argv[++i]); }
         else if (!strcmp(argv[i], "--test") && i + 1 < argc) snprintf(game.test_mode, sizeof game.test_mode, "%s", argv[++i]);   // scripted headless check: throw
+        else if (!strcmp(argv[i], "--menu-test") && i + 1 < argc) menu_test = argv[++i];   // --- menu --- scripted menu run
         // --host/--slots/--join/--name already consumed by netgame_parse_args; skip so they are not mistaken for something else
         else if (!strcmp(argv[i], "--host") && i + 1 < argc) i++;
         else if (!strcmp(argv[i], "--slots") && i + 1 < argc) i++;
         else if (!strcmp(argv[i], "--join") && i + 1 < argc) i++;
         else if (!strcmp(argv[i], "--name") && i + 1 < argc) i++;
     }
+    // --- menu --- a flag that already says what to play skips the front door
+    for (int i = 1; i < argc; i++)
+        if (!strcmp(argv[i], "--host") || !strcmp(argv[i], "--join") || !strcmp(argv[i], "--level")
+            || !strcmp(argv[i], "--start") || !strcmp(argv[i], "--bot")) menu_boot = false;
     if (!log_set && game.net.name[0]) snprintf(game.log_path, sizeof game.log_path, "hollow_%s.log", game.net.name);
 
     Platform pf;
@@ -90,6 +98,9 @@ int main(int argc, char **argv) {
     pf.fps_cap = fps_cap; if (!vsync) platform_set_vsync(&pf, false); else pf.vsync = true;
     if (spawn_set) { PLAYER(&game).c.pos.x = spawn_x; PLAYER(&game).c.pos.z = spawn_z; }
     if (tool_mode) game_set_tool(&game, tool_mode);
+    // --- menu --- nothing was asked for: open the main menu over the island
+    if (menu_boot || menu_test) menu_open_main(&game);
+    if (menu_test) menu_set_test(&game, menu_test);
     game.bot = bot;
     audio_set_master(volume * 0.8f);
 
