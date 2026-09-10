@@ -54,7 +54,7 @@ typedef struct Speaker {
     float    want_l, want_r, want_cut;  // target left/right gain and muffle cutoff
     float    cur_l, cur_r;              // what the mixer is actually using; ramped across a block
     float    lp;                        // one-pole state for the muffle
-    bool     occluded; float dist;      // for the log line
+    bool     occluded; float dist, gain;   // for the log line (gain before the pan split)
     float    level;                     // smoothed loudness after proximity, for the HUD
     double   last_heard;                // g_v.now when a packet last arrived
     // latency, in milliseconds, capture to the moment the frame entered the playback ring
@@ -72,6 +72,7 @@ typedef struct VoiceState {
     VoicePreset preset;
 
     VoiceMode mode; float volume; bool monitor;
+    bool offline;   // no playback device: the mix is rendered on the main thread (see audio_silent)
 
     // capture
     float    mic[VOICE_FRAME * 4]; int mic_n;   // partial frame waiting to be filled
@@ -140,11 +141,8 @@ void voice_set_preset(const VoicePreset *p) {
 // with a one-pole low-pass whose coefficient is fixed for the block, then panned with left/right
 // gains linearly ramped from where the last block left them to this block's target -- which is
 // what stops a player running past you from clicking.
-static void voice_pull(float *out, int frames, void *user) {
-    (void)user;
-    if (!g_v.ok || frames <= 0) return;
+static void voice_render(float *out, int frames) {
     static float scratch[4096 * 2];
-    if (frames > 4096) frames = 4096;
     SDL_LockMutex(g_v.lock);
     float vol = g_v.volume;
     for (int s = 0; s < NET_MAX_PLAYERS; s++) {
@@ -172,12 +170,36 @@ static void voice_pull(float *out, int frames, void *user) {
         sp->cur_l = l1; sp->cur_r = r1;
         sp->level += 0.25f * (clamp01f(peak * 4.0f) - sp->level);
         // HOLLOW_VOICE_DUMP: this one speaker, exactly as the local mixer heard them -- after
-        // distance, occlusion and pan. This is file I/O on the audio thread, which is precisely
+        // distance, occlusion and pan, and stereo because the pan is half the point. This is file I/O on the audio thread, which is precisely
         // what a shipping build must not do; it exists only behind the test hook.
         if (sp->dump.open) voice_wav_write(&sp->dump, scratch, frames);
     }
     if (g_v.dump.open) voice_wav_write(&g_v.dump, out, frames);
     SDL_UnlockMutex(g_v.lock);
+}
+
+// The audio thread's entry point (see audio.h). Not used on a silent run.
+static void voice_pull(float *out, int frames, void *user) {
+    (void)user;
+    if (!g_v.ok || frames <= 0) return;
+    voice_render(out, frames > 4096 ? 4096 : frames);
+}
+
+// A silent run (HOLLOW_SILENT, or either voice test hook) opens no playback device, so nothing
+// ever calls voice_pull. The whole mix still has to happen: the jitter buffers are clocked by the
+// mixer draining their rings, and HOLLOW_VOICE_DUMP is written from inside the render. So on a
+// silent run the main thread renders the same blocks at wall-clock speed and throws the samples
+// away. Same code, same numbers in the dump, nothing reaches a speaker.
+static void voice_render_offline(float dt) {
+    static float sink[4096 * 2];
+    static double owed = 0;
+    owed += (double)dt * VOICE_RATE;
+    while (owed >= 1.0) {
+        int n = (int)owed; if (n > 4096) n = 4096;
+        owed -= n;
+        memset(sink, 0, (size_t)n * 2 * sizeof(float));
+        voice_render(sink, n);
+    }
 }
 
 // ---------------------------------------------------------------- capture
@@ -288,7 +310,7 @@ static void feed_speaker(Game *g, int slot, const uint8_t *body, int len) {
         if (g_v.dump.open) {
             char p[600]; snprintf(p, sizeof p, "%.*s.slot%d.wav",
                 (int)(strlen(g_v.dump.path) > 4 ? strlen(g_v.dump.path) - 4 : strlen(g_v.dump.path)), g_v.dump.path, slot);
-            voice_wav_open(&sp->dump, p, 1, VOICE_RATE);
+            voice_wav_open(&sp->dump, p, 2, VOICE_RATE);   // stereo: the pan is part of what the mixer heard
         }
         dbg_log("voice: speaker %d (%s) opened", slot, g->net.slots[slot].name);
     }
@@ -392,7 +414,7 @@ static void update_proximity(Game *g) {
         sp->want_l = gain * cosf(ang);
         sp->want_r = gain * sinf(ang);
         sp->want_cut = occ ? VOICE_MUFFLE_HZ : VOICE_OPEN_HZ;
-        sp->occluded = occ; sp->dist = dist;
+        sp->occluded = occ; sp->dist = dist; sp->gain = gain;
         SDL_UnlockMutex(g_v.lock);
     }
 }
@@ -411,7 +433,9 @@ static void top_up_rings(void) {
             if (queued >= (uint64_t)VOICE_FRAME * VOICE_RING_WANT) break;
             uint16_t t_ms = 0; uint8_t flags = 0;
             VjResult r = voice_jitter_pull(&sp->jit, frame, &t_ms, &flags);
-            if (r != VJ_SILENT) {
+            // Only a really decoded frame carries a real capture timestamp: FEC and PLC frames
+            // have one synthesised by the jitter buffer, and a silent one has none at all.
+            if (r == VJ_DECODED) {
                 float lat = since_ms(t_ms) + (float)queued / (float)(VOICE_RATE / 1000);
                 sp->lat_sum += lat; sp->lat_n++; sp->lat_last = lat;
             }
@@ -425,28 +449,31 @@ static void top_up_rings(void) {
 
 // ---------------------------------------------------------------- stats
 
+// dbg_log caps a line at ~148 characters, so this is one line for the process and one per
+// speaker rather than one long one.
 static void stats(Game *g, float dt) {
     g_v.stat_t += dt;
     if (g_v.stat_t < 1.0) return;
-    char who[320] = ""; size_t k = 0;
-    for (int i = 0; i < NET_MAX_PLAYERS; i++) {
-        Speaker *sp = &g_v.sp[i];
-        if (!sp->used || i == g_v.local || sp->jit.n_pushed == 0) continue;
-        k += (size_t)snprintf(who + k, sizeof who - k,
-            " | s%d %s d %.1f m gain %.2f%s rx %u fec %u plc %u late %u lat %.0f ms transit %.0f ms",
-            i, g->net.slots[i].name, (double)sp->dist,
-            (double)(sp->want_l + sp->want_r), sp->occluded ? " muffled" : "",
-            sp->jit.n_decoded, sp->jit.n_fec, sp->jit.n_concealed, sp->jit.n_late,
-            sp->lat_n ? (double)(sp->lat_sum / (float)sp->lat_n) : 0.0,
-            sp->transit_n ? (double)(sp->transit_sum / (float)sp->transit_n) : 0.0);
-        sp->jit.n_decoded = sp->jit.n_fec = sp->jit.n_concealed = sp->jit.n_late = 0;
-        sp->lat_sum = 0; sp->lat_n = 0; sp->transit_sum = 0; sp->transit_n = 0;
-        if (k >= sizeof who - 1) break;
-    }
-    dbg_log("voice: %s vol %.2f%s tx %u frames up %.2f kB/s down %.2f kB/s fwd %.2f kB/s%s",
+    dbg_log("voice: %s vol %.2f%s tx %u up %.2f down %.2f fwd %.2f kB/s",
             voice_mode_name(), (double)g_v.volume, g_v.monitor ? " monitor" : "",
             g_v.s_tx_frames, g_v.s_up_bytes / 1024.0, g_v.s_down_bytes / 1024.0,
-            g_v.s_fwd_bytes / 1024.0, who);
+            g_v.s_fwd_bytes / 1024.0);
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) {
+        Speaker *sp = &g_v.sp[i];
+        if (!sp->used || i == g_v.local) continue;
+        dbg_log("voice s%d %s: %.1f m gain %.2f%s | in %u rx %u fec %u plc %u mute %u late %u ovf %u sync %u q %d | %.0f/%.0f ms",
+                i, g->net.slots[i].name, (double)sp->dist, (double)sp->gain,
+                sp->occluded ? " muffled" : "",
+                sp->jit.n_pushed, sp->jit.n_decoded, sp->jit.n_fec, sp->jit.n_concealed,
+                sp->jit.n_silent, sp->jit.n_late, sp->jit.n_overflow, sp->jit.n_resync,
+                voice_jitter_depth(&sp->jit),
+                sp->transit_n ? (double)(sp->transit_sum / (float)sp->transit_n) : 0.0,
+                sp->lat_n ? (double)(sp->lat_sum / (float)sp->lat_n) : 0.0);
+        sp->jit.n_pushed = sp->jit.n_decoded = sp->jit.n_fec = sp->jit.n_concealed = 0;
+        sp->jit.n_silent = sp->jit.n_late = sp->jit.n_dup = 0;
+        sp->jit.n_overflow = sp->jit.n_resync = 0;
+        sp->lat_sum = 0; sp->lat_n = 0; sp->transit_sum = 0; sp->transit_n = 0;
+    }
     g_v.stat_t = 0; g_v.s_up_bytes = g_v.s_down_bytes = g_v.s_fwd_bytes = 0; g_v.s_tx_frames = 0;
 }
 
@@ -504,6 +531,7 @@ void voice_update(Game *g, const Input *in, float dt) {
     // 2. proximity for everyone we can hear, then keep the mixer fed
     update_proximity(g);
     top_up_rings();
+    if (g_v.offline) voice_render_offline(dt);
 
     // 3. retire speakers who stopped talking, so a slot that leaves does not sit in the mix
     for (int i = 0; i < NET_MAX_PLAYERS; i++) {
@@ -596,8 +624,12 @@ static void open_microphone(void) {
 }
 
 bool voice_init(Game *g) {
+    // The settings are applied before init (main.c reads them long before the mixer exists), so
+    // they have to survive the wipe.
+    VoiceMode mode = g_v.mode; float vol = g_v.volume; bool mon = g_v.monitor;
     memset(&g_v, 0, sizeof g_v);
-    g_v.mode = VOICE_PTT; g_v.volume = 1.0f; g_v.local = g->net.local;
+    g_v.mode = mode; g_v.volume = vol > 0 ? vol : 1.0f; g_v.monitor = mon;
+    g_v.local = g->net.local;
     voice_dsp_init(&g_v.dsp, 1, 1, VFX_NONE);
     g_v.preset.pitch = 1; g_v.preset.formant = 1; g_v.preset.effect = VFX_NONE;
 
@@ -636,17 +668,18 @@ bool voice_init(Game *g) {
     }
 
     g_v.ok = true;
-    audio_set_voice_source(voice_pull, NULL);
-    dbg_log("voice: ready, mode %s, %d kbps VBR, FEC on, %d ms jitter buffer, source %s",
+    g_v.offline = audio_silent();
+    if (!g_v.offline) audio_set_voice_source(voice_pull, NULL);
+    dbg_log("voice: ready, mode %s, %d kbps VBR, FEC on, %d ms jitter buffer, source %s, output %s",
             voice_mode_name(), VOICE_BITRATE / 1000, VOICE_JITTER_MS,
-            g_v.from_wav ? "wav" : (g_v.rec ? "microphone" : "none"));
+            g_v.from_wav ? "wav" : (g_v.rec ? "microphone" : "none"),
+            g_v.offline ? "silent (no playback device; the dump is rendered on the main thread)" : "mixer");
     return true;
 }
 
 void voice_shutdown(void) {
     if (!g_v.ok) return;
-    audio_set_voice_source(NULL, NULL);
-    SDL_Delay(30);   // let one more audio block go by before the state under it is torn down
+    if (!g_v.offline) { audio_set_voice_source(NULL, NULL); SDL_Delay(30); }   // let one more audio block go by first
     g_v.ok = false;
     for (int i = 0; i < NET_MAX_PLAYERS; i++) {
         voice_wav_close(&g_v.sp[i].dump);

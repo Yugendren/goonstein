@@ -7,12 +7,20 @@
 # client alone, after distance, occlusion and pan.
 #
 # The host's distance from the talker is the experiment. `--spawn X Z` moves the host, and the host
-# is authoritative over its own position, so it stays where it is put while the bot clients wander
-# around the level spawn.
+# is authoritative over its own position, so it stays exactly where it is put. c1, the one talking,
+# is deliberately NOT a bot: it stands at the spawn, so the distance is fixed for the whole run and
+# three runs can be compared directly. c2 and c3 do wander, so the host is always mixing one voice
+# among four moving bodies.
 #
-#   tools/voice_test.sh near        host at the spawn, ~2 m from the talker
-#   tools/voice_test.sh far         host 20 m away, out at the edge of the curve
+#   tools/voice_test.sh near        host ~1.5 m from the talker: the top of the curve
+#   tools/voice_test.sh mid         host ~12 m away
+#   tools/voice_test.sh far         host ~20 m away: nearly the 25 m cutoff
 #   tools/voice_test.sh loss        near, with HOLLOW_NET_LOSS=0.2 on all four processes
+#   tools/voice_test.sh all         near, mid and far in turn, then the attenuation table
+#
+# Nothing here is ever audible: HOLLOW_SILENT=1 (and either voice test hook on its own) stops the
+# game opening a playback device at all, and voice.c renders its bus on the main thread instead,
+# so the dump WAVs are identical to what you would have heard.
 #
 # Writes to /tmp/voice/<case>/: host.wav (the whole local voice bus, stereo), host.wav.slotN.wav
 # (one per speaker, mono, post-proximity) and the four hollow_*.log files.
@@ -20,17 +28,28 @@ set -u
 cd "$(dirname "$0")/.."
 CASE="${1:-near}"
 SECS="${2:-25}"
+export HOLLOW_SILENT=1        # hard guard: no process in this test opens a playback device
+export HOLLOW_FPS=60          # one frame per tick, so --frames N is N/60 seconds of wall clock
 FRAMES=$((SECS * 60))
 OUT="/tmp/voice/$CASE"
-BIN=./build/bin/goonstein
+BIN="${BIN:-./build/bin/goonstein}"
 WAV="$PWD/assets/audio/voice_test.wav"
 LEVEL="${HOLLOW_TEST_LEVEL:-lantern}"
 
+if [ "$CASE" = all ]; then
+  for c in near mid far; do "$0" "$c" "$SECS" || exit 1; done
+  echo
+  echo "--- proximity: the same sentence at three distances ---"
+  python3 tools/voice_check.py distance /tmp/voice/near /tmp/voice/mid /tmp/voice/far
+  exit 0
+fi
+
 case "$CASE" in
-  near) SPAWN=""; LOSS="" ;;
-  far)  SPAWN="--spawn 20 20"; LOSS="" ;;
-  loss) SPAWN=""; LOSS="0.2" ;;
-  *) echo "usage: $0 near|far|loss [seconds]"; exit 2 ;;
+  near) SPAWN="--spawn 0 -3";  LOSS="" ;;
+  mid)  SPAWN="--spawn 12 -3"; LOSS="" ;;
+  far)  SPAWN="--spawn 20 -3"; LOSS="" ;;
+  loss) SPAWN="--spawn 0 -3";  LOSS="0.2" ;;
+  *) echo "usage: $0 near|mid|far|loss|all [seconds]"; exit 2 ;;
 esac
 
 rm -rf "$OUT"; mkdir -p "$OUT"
@@ -46,8 +65,9 @@ HOST=$!
 sleep 6
 
 # c1 talks. c2 and c3 are just bodies moving around, so the host is mixing one voice among four.
+# c1 talks and stands still (no --bot), so the distance to the host is fixed for the whole run.
 HOLLOW_VOICE_WAV="$WAV" \
-  "$BIN" --volume 0 --join 127.0.0.1:7777 --bot --name c1 --start "level:$LEVEL" --first \
+  "$BIN" --volume 0 --join 127.0.0.1:7777 --name c1 --start "level:$LEVEL" --first \
          --voice open --frames $((FRAMES - 400)) --log "$OUT/hollow_c1.log" &
 for i in 2 3; do
   HOLLOW_VOICE_WAV="$WAV" \

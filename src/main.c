@@ -37,6 +37,9 @@ int main(int argc, char **argv) {
     // --voice-monitor             hear your own changed voice locally
     // HOLLOW_VOICE_WAV=FILE       feed a WAV instead of a microphone (no recording device is opened)
     // HOLLOW_VOICE_DUMP=FILE      write the local voice bus, and one .slotN.wav per speaker, as WAVs
+    // HOLLOW_SILENT=1             open no audio playback device at all (automated runs must be
+    //                             silent). Implied by either voice hook above. Not the same as
+    //                             --volume 0, which mutes the game but leaves voice audible.
     // --menu-test S   drive the main menu without a hand on the keyboard: "host" or "join:HOST:PORT"
     // With none of --host --join --level --start --bot, the game opens on the main menu (GS_MENU).
     const char *menu_test = NULL; bool menu_boot = true;

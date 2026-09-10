@@ -60,6 +60,14 @@ void audio_set_master(float v);
 typedef void (*AudioVoicePull)(float *out_stereo, int frames, void *user);
 void audio_set_voice_source(AudioVoicePull fn, void *user);
 
+// Headless silence. True when this process must not open a playback device at all -- set by
+// HOLLOW_SILENT=1, and implied by the two voice test hooks (HOLLOW_VOICE_DUMP, HOLLOW_VOICE_WAV),
+// because an automated four-process voice test must be able to run without a sound reaching the
+// speakers. The mixer still exists and every audio_* call still works; nothing is ever handed to
+// a device, and voice.c renders its bus on the main thread so the dump WAV is still written.
+// This is not the same as `--volume 0`, which mutes the game but leaves voice chat audible.
+bool audio_silent(void);
+
 // Sample playback (WAV via SDL_LoadWAV, OGG via stb_vorbis). Files are decoded fully at load and
 // cached by path; ids are stable for the run. Returns -1 on failure.
 int  audio_load(const char *path);

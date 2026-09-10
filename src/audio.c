@@ -808,6 +808,15 @@ static void music_track_release(MusicTrack *t) {
 
 // ---------------------------------------------------------------- public api
 
+// --- voice --- see audio.h. Checked once and cached: the environment does not change mid-run.
+bool audio_silent(void) {
+    static int cached = -1;
+    if (cached < 0)
+        cached = (SDL_getenv("HOLLOW_SILENT") || SDL_getenv("HOLLOW_VOICE_DUMP") ||
+                  SDL_getenv("HOLLOW_VOICE_WAV")) ? 1 : 0;
+    return cached != 0;
+}
+
 bool audio_init(void) {
     memset(&g_audio, 0, sizeof g_audio);
     g_audio.master = 1.0f;
@@ -820,6 +829,14 @@ bool audio_init(void) {
     g_audio.mutex = SDL_CreateMutex();
     if (!g_audio.mutex) return false;
 
+    // --- voice --- a silent run opens no playback device at all. Everything above and below
+    // still works; the mixer simply never gets asked for a block.
+    if (audio_silent()) {
+        g_audio.stream = NULL;
+        g_audio_ok = true;
+        SDL_Log("audio: silent run (HOLLOW_SILENT / a voice test hook): no playback device opened");
+        return true;
+    }
     SDL_AudioSpec spec = { .format = SDL_AUDIO_F32, .channels = 2, .freq = SAMPLE_RATE };
     g_audio.stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, audio_callback, NULL);
     if (!g_audio.stream) {

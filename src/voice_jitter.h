@@ -30,6 +30,7 @@ typedef struct VoiceJitter {
                                        // so a broken stream logs at most once a second
     // counters, cumulative; the caller may zero them for a per-second stats line
     uint32_t n_pushed, n_dup, n_late, n_overflow, n_decoded, n_fec, n_concealed, n_silent;
+    uint32_t n_resync;                // times the play cursor was moved to stay inside the queue
     uint16_t last_t_ms;               // capture timestamp of the last frame handed out
     uint8_t  last_flags;
 } VoiceJitter;
