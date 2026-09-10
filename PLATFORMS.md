@@ -11,13 +11,23 @@ only read-and-believed, and what crossplay demands of the two ends.
 | macOS 15, Apple Silicon, Metal | verified | verified | the dev machine; MSL shaders |
 | macOS via MoltenVK (Vulkan) | verified | verified | forced with `SDL_GPU_DRIVER=vulkan`; proves the SPIR-V path |
 | Ubuntu 24.04, arm64 (Docker) | verified | not run | headless container, no GPU; configures, compiles and links |
-| Ubuntu / SteamOS on x86-64 | untested | untested | same code path as the arm64 container; needs real hardware |
+| Ubuntu / SteamOS on x86-64 | verified (CI) | untested | GitHub `ubuntu-latest`; `ldd` shows only libc/libm, so the zip is self-contained |
 | Steam Deck | untested | untested | see below |
 | Windows x86-64, MinGW | verified | untested | cross-compiled from macOS with mingw-w64; links `goonstein.exe` |
-| Windows, MSVC | untested | untested | no Windows machine here; CMake written from the docs, CI covers it |
+| Windows, MSVC | verified (CI) | untested | GitHub `windows-latest`, VS 2022 x64; no Windows machine here to run it on |
 
-"Verified" means a command was run on this machine and its output checked. Everything else is
-honest guesswork until someone runs it.
+"Verified" means a command was run on this machine and its output checked. "Verified (CI)" means a
+GitHub runner did it -- a real compile and link on real hardware, but nobody has watched the game
+draw a frame there. Everything else is honest guesswork until someone runs it.
+
+## Releases
+
+Every push to `main` runs `.github/workflows/release.yml`, which builds the `HOLLOW_PORTABLE`
+layout on all three targets and republishes `goonstein-{macos-arm64,linux-x86_64,windows-x86_64}
+.zip` under the rolling `latest` tag. Each zip is one top-level `goonstein/` folder holding the
+binary and `assets/`; the Windows one also carries the `.dxil` shaders that job compiles with
+`dxc`, since D3D12 accepts nothing else and signed DXIL cannot be produced on macOS. Testers get
+them with `get.sh` / `get.ps1` (see the top of README.md) rather than a build toolchain.
 
 ## Build
 
