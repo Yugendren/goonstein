@@ -6,3 +6,5 @@ compile_commands.json
 hollow.log
 hollow_snapshot.txt
 __pycache__/
+hollow*.log
+hollow.log
