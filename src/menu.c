@@ -33,11 +33,16 @@ static const Vec4 C_BAD  = { 1.00f, 0.55f, 0.42f, 1 };
 
 // ---------------------------------------------------------------- small pieces
 
-static void note(Menu *m, const char *fmt, ...) {
-    va_list ap; va_start(ap, fmt);
+// The one line under the rows. note() is bad news (red), note_good() is not (amber).
+static void vnote(Menu *m, bool good, const char *fmt, va_list ap) {
     vsnprintf(m->note, sizeof m->note, fmt, ap);
-    va_end(ap);
-    m->note_t = 8.0f;
+    m->note_t = 8.0f; m->note_good = good;
+}
+static void note(Menu *m, const char *fmt, ...) {
+    va_list ap; va_start(ap, fmt); vnote(m, false, fmt, ap); va_end(ap);
+}
+static void note_good(Menu *m, const char *fmt, ...) {
+    va_list ap; va_start(ap, fmt); vnote(m, true, fmt, ap); va_end(ap);
 }
 
 static void field_set(MenuField *f, const char *s) {
@@ -212,7 +217,7 @@ static void tick_main(Game *g, const Input *in, MenuKeys k) {
             if (!m->name.buf[0]) field_set(&m->name, "goon");
             game_settings_set(g, "name", m->name.buf);
             snprintf(g->net.name, sizeof g->net.name, "%s", m->name.buf);
-            note(m, "you are %s", m->name.buf);
+            note_good(m, "you are %s", m->name.buf);
         }
         return;
     }
@@ -487,7 +492,7 @@ static void draw_main(Game *g) {
         draw_field(x, MW * 0.5f - 150, row_top(ROW_NAME) + 2, 300, &m->name, m->t, true, "your name");
         text_mid(x, MW * 0.5f, row_top(ROW_NAME) + 52, 22, C_DIM, "type a name, ENTER keeps it");
     }
-    if (m->note_t > 0) text_mid(x, MW * 0.5f, MH - 96, 26, C_BAD, m->note);
+    if (m->note_t > 0) text_mid(x, MW * 0.5f, MH - 96, 26, m->note_good ? C_HOT : C_BAD, m->note);
     text_mid(x, MW * 0.5f, MH - 56, 24, C_DIM, "arrows or mouse to choose   ENTER to take it");
 }
 
@@ -500,7 +505,7 @@ static void draw_join(Game *g) {
     draw_field(x, MW * 0.5f - 230, 310, 460, &m->addr, m->t, true, "192.168.1.20:7777");
     gfx_ui_rect(x, MW * 0.5f - 120, 430, 240, 54, v4(1.0f, 0.80f, 0.38f, 0.16f));
     text_mid(x, MW * 0.5f, 440, 34, C_HOT, "CONNECT");
-    if (m->note_t > 0) text_mid(x, MW * 0.5f, 520, 26, C_BAD, m->note);
+    if (m->note_t > 0) text_mid(x, MW * 0.5f, 520, 26, m->note_good ? C_HOT : C_BAD, m->note);
     text_mid(x, MW * 0.5f, MH - 56, 24, C_DIM, "ENTER connects   ESC goes back");
 }
 

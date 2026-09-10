@@ -31,7 +31,7 @@ typedef struct Menu {
     float    orbit;                // the main menu's slow turn around the pier, in radians
     MenuField name, addr;          // NAME, and the JOIN address (IP:PORT)
     double   connect_t;            // seconds spent waiting for the host to answer
-    char     note[96]; float note_t;   // the one line that says why something did not work
+    char     note[96]; float note_t; bool note_good;   // the one line under the rows, and whether it is bad news
     uint16_t port;                 // settings `port`, 7777 unless it says otherwise
     char     ips[MENU_IPS][16]; int nips;   // this machine's LAN addresses, read once when hosting
     bool     pad_prev[4];          // gamepad edges: up, down, A, B
