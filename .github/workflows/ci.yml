@@ -71,19 +71,37 @@ jobs:
           SDL_GPU_DRIVER: direct3d12
           HOLLOW_SILENT: '1'
         run: |
-          & ./dist/bin/goonstein.exe --volume 0 --level island --frames 90 --screenshot shot.png --log run.log
-          $code = $LASTEXITCODE
-          if (Test-Path dist/bin/run.log) {
-            Write-Host '---------------- run.log ----------------'
-            Get-Content dist/bin/run.log
-            Write-Host '-----------------------------------------'
-          } else {
-            Write-Host 'no run.log was written'
+          # Two runs. `menu` is the tester's launch exactly -- no flags, the front door over the
+          # island -- because that is the screen they said was black. `shot` jumps straight into a
+          # named level, so the frame it captures is the same scene every time and a change in it
+          # means something.
+          $runs = @(
+            @{ name = 'menu'; args = @('--volume', '0', '--frames', '90') },
+            @{ name = 'shot'; args = @('--volume', '0', '--level', 'island', '--frames', '90') }
+          )
+          $failed = @()
+          foreach ($r in $runs) {
+            $png = "$($r.name).png"; $log = "$($r.name).log"
+            # A variable, then @argv: that is PowerShell's splat. @(...) around an expression is the
+            # array operator instead, and would hand the exe one argument containing four words.
+            $argv = $r.args + @('--screenshot', $png, '--log', $log)
+            Write-Host "=== run '$($r.name)': goonstein.exe $($argv -join ' ') ==="
+            & ./dist/bin/goonstein.exe @argv
+            $code = $LASTEXITCODE
+            if (Test-Path "dist/bin/$log") {
+              Write-Host "---------------- $log ----------------"
+              Get-Content "dist/bin/$log"
+              Write-Host '-----------------------------------------'
+            } else {
+              Write-Host "no $log was written"
+            }
+            if ($code -ne 0) { $failed += "$($r.name): exited $code (a crash, or a startup that gave up)"; continue }
+            if (-not (Test-Path "dist/bin/$png")) { $failed += "$($r.name): no screenshot, the run never got as far as a frame"; continue }
+            # Exits non-zero on a black or near-uniform frame, which is exactly the bug the tester hit.
+            python tools/shot_check.py "dist/bin/$png" --json
+            if ($LASTEXITCODE -ne 0) { $failed += "$($r.name): the frame is blank" }
           }
-          if ($code -ne 0) { throw "goonstein exited $code (a crash, or a startup that gave up)" }
-          if (-not (Test-Path dist/bin/shot.png)) { throw 'no screenshot: the run never got as far as a frame' }
-          # Exits non-zero on a black or near-uniform frame, which is exactly the bug the tester hit.
-          python tools/shot_check.py dist/bin/shot.png --json
+          if ($failed.Count -gt 0) { throw ($failed -join '; ') }
 
       - name: Upload the render smoke evidence
         if: always() && runner.os == 'Windows'
@@ -91,8 +109,8 @@ jobs:
         with:
           name: windows-render-smoke
           path: |
-            dist/bin/shot.png
-            dist/bin/run.log
+            dist/bin/*.png
+            dist/bin/*.log
           if-no-files-found: warn
 
       - uses: actions/upload-artifact@v4
