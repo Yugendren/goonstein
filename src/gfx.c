@@ -216,7 +216,17 @@ typedef struct PipeDesc {
     int blend;   // 0 none, 1 alpha, 2 additive
 } PipeDesc;
 
-static SDL_GPUGraphicsPipeline *make_pipe(Gfx *g, const PipeDesc *d) {
+// D3D12 refuses things Metal and Vulkan wave through -- a format, a target combination, a
+// shader the driver's own compiler will not take -- and the only place that shows is here. Ask
+// once, at startup, and put the answer in the log the tester sends back.
+static void log_format_support(Gfx *g, const char *what, SDL_GPUTextureFormat fmt, SDL_GPUTextureUsageFlags usage) {
+    bool ok = SDL_GPUTextureSupportsFormat(g->dev, fmt, SDL_GPU_TEXTURETYPE_2D, usage);
+    if (ok) SDL_Log("format ok: %s (enum %d, usage 0x%x)", what, (int)fmt, (unsigned)usage);
+    else SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "format UNSUPPORTED: %s (enum %d, usage 0x%x) on GPU driver '%s'",
+                      what, (int)fmt, (unsigned)usage, SDL_GetGPUDeviceDriver(g->dev));
+}
+
+static SDL_GPUGraphicsPipeline *make_pipe(Gfx *g, const char *name, const PipeDesc *d) {
     SDL_GPUColorTargetDescription ct = { .format = d->color_fmt };
     if (d->blend) {
         ct.blend_state = (SDL_GPUColorTargetBlendState){ .enable_blend = true,
@@ -235,13 +245,17 @@ static SDL_GPUGraphicsPipeline *make_pipe(Gfx *g, const PipeDesc *d) {
                          .has_depth_stencil_target = d->depth_test, .depth_stencil_format = DEPTH_FMT } };
     if (d->vb) ci.vertex_input_state = (SDL_GPUVertexInputState){ .vertex_buffer_descriptions = d->vb, .num_vertex_buffers = 1, .vertex_attributes = d->attrs, .num_vertex_attributes = d->nattrs };
     SDL_GPUGraphicsPipeline *p = SDL_CreateGPUGraphicsPipeline(g->dev, &ci);
-    if (!p) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pipeline: %s", SDL_GetError());
+    if (!p) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pipeline '%s' failed: %s", name, SDL_GetError());
     return p;
 }
 
 bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     memset(g, 0, sizeof *g);
     g->dev = pf->gpu; g->iw = iw; g->ih = ih; g->bw = iw / 4; g->bh = ih / 4;
+    SDL_Log("gfx: %dx%d internal on GPU driver '%s'", iw, ih, SDL_GetGPUDeviceDriver(g->dev));
+    log_format_support(g, "HDR colour target (RGBA16F)", HDR_FMT, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
+    log_format_support(g, "LDR colour target (RGBA8)", LDR_FMT, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
+    log_format_support(g, "depth, sampled for shadows (D32F)", DEPTH_FMT, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
     g->hdr = make_target(g, HDR_FMT, iw, ih, false);
     g->depth = make_target(g, DEPTH_FMT, iw, ih, true);
     g->ldr = make_target(g, LDR_FMT, iw, ih, false);
@@ -249,6 +263,7 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->bloom_b = make_target(g, HDR_FMT, g->bw, g->bh, false);
     if (!g->hdr || !g->depth || !g->ldr || !g->bloom_a || !g->bloom_b) return false;
     g->swap_format = SDL_GetGPUSwapchainTextureFormat(g->dev, pf->window);
+    SDL_Log("gfx: swapchain format enum %d", (int)g->swap_format);
 
     g->samp_nearest = SDL_CreateGPUSampler(g->dev, &(SDL_GPUSamplerCreateInfo){ .min_filter = SDL_GPU_FILTER_NEAREST, .mag_filter = SDL_GPU_FILTER_NEAREST,
         .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT, .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT });
@@ -291,18 +306,18 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
         { .location = 2, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, .offset = 16 } };
     SDL_GPUVertexBufferDescription world_vb = { .pitch = sizeof(Vertex) }, skin_vb = { .pitch = sizeof(SkinVertex) }, p_vb = { .pitch = sizeof(PVertex) }, ui_vb = { .pitch = sizeof(UIVertex) };
 
-    g->pipe_world = make_pipe(g, &(PipeDesc){ world_vs, lit_fs, &world_vb, world_attrs, 4, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0 });
-    g->pipe_skin = make_pipe(g, &(PipeDesc){ skin_vs, lit_fs, &skin_vb, skin_attrs, 5, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0 });
-    g->pipe_sky = make_pipe(g, &(PipeDesc){ sky_vs, sky_fs, NULL, NULL, 0, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS_OR_EQUAL, SDL_GPU_CULLMODE_NONE, 0 });
-    g->pipe_particle_add = make_pipe(g, &(PipeDesc){ part_vs, part_fs, &p_vb, p_attrs, 3, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 2 });
-    g->pipe_particle_alpha = make_pipe(g, &(PipeDesc){ part_vs, part_fs, &p_vb, p_attrs, 3, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 1 });
-    g->pipe_bright = make_pipe(g, &(PipeDesc){ fs_vs, bright_fs, NULL, NULL, 0, HDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
-    g->pipe_blur = make_pipe(g, &(PipeDesc){ fs_vs, blur_fs, NULL, NULL, 0, HDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
-    g->pipe_post = make_pipe(g, &(PipeDesc){ fs_vs, post_fs, NULL, NULL, 0, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
-    g->pipe_ui = make_pipe(g, &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1 });
-    g->pipe_ui_swap = make_pipe(g, &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1 });
-    g->pipe_blit = make_pipe(g, &(PipeDesc){ fs_vs, blit_fs, NULL, NULL, 0, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
-    g->pipe_pixcomp = make_pipe(g, &(PipeDesc){ fs_vs, pixcomp_fs, NULL, NULL, 0, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 0 });
+    g->pipe_world = make_pipe(g, "world", &(PipeDesc){ world_vs, lit_fs, &world_vb, world_attrs, 4, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0 });
+    g->pipe_skin = make_pipe(g, "skin", &(PipeDesc){ skin_vs, lit_fs, &skin_vb, skin_attrs, 5, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0 });
+    g->pipe_sky = make_pipe(g, "sky", &(PipeDesc){ sky_vs, sky_fs, NULL, NULL, 0, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS_OR_EQUAL, SDL_GPU_CULLMODE_NONE, 0 });
+    g->pipe_particle_add = make_pipe(g, "particle_add", &(PipeDesc){ part_vs, part_fs, &p_vb, p_attrs, 3, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 2 });
+    g->pipe_particle_alpha = make_pipe(g, "particle_alpha", &(PipeDesc){ part_vs, part_fs, &p_vb, p_attrs, 3, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 1 });
+    g->pipe_bright = make_pipe(g, "bright", &(PipeDesc){ fs_vs, bright_fs, NULL, NULL, 0, HDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
+    g->pipe_blur = make_pipe(g, "blur", &(PipeDesc){ fs_vs, blur_fs, NULL, NULL, 0, HDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
+    g->pipe_post = make_pipe(g, "post", &(PipeDesc){ fs_vs, post_fs, NULL, NULL, 0, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
+    g->pipe_ui = make_pipe(g, "ui", &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1 });
+    g->pipe_ui_swap = make_pipe(g, "ui_swap", &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1 });
+    g->pipe_blit = make_pipe(g, "blit", &(PipeDesc){ fs_vs, blit_fs, NULL, NULL, 0, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
+    g->pipe_pixcomp = make_pipe(g, "pixcomp", &(PipeDesc){ fs_vs, pixcomp_fs, NULL, NULL, 0, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 0 });
     // depth-only shadow pipelines: no colour target
     {
         SDL_GPUGraphicsPipelineCreateInfo ci = {
@@ -313,9 +328,10 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
             .target_info = { .num_color_targets = 0, .has_depth_stencil_target = true, .depth_stencil_format = DEPTH_FMT },
             .vertex_input_state = { .vertex_buffer_descriptions = &world_vb, .num_vertex_buffers = 1, .vertex_attributes = world_attrs, .num_vertex_attributes = 4 } };
         g->pipe_shadow = SDL_CreateGPUGraphicsPipeline(g->dev, &ci);
+        if (!g->pipe_shadow) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pipeline 'shadow' failed: %s", SDL_GetError());
         ci.vertex_shader = skin_vs; ci.vertex_input_state = (SDL_GPUVertexInputState){ .vertex_buffer_descriptions = &skin_vb, .num_vertex_buffers = 1, .vertex_attributes = skin_attrs, .num_vertex_attributes = 5 };
         g->pipe_shadow_skin = SDL_CreateGPUGraphicsPipeline(g->dev, &ci);
-        if (!g->pipe_shadow || !g->pipe_shadow_skin) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "shadow pipeline: %s", SDL_GetError());
+        if (!g->pipe_shadow_skin) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pipeline 'shadow_skin' failed: %s", SDL_GetError());
         g->shadow_size = 2048;
         g->shadow_tex = SDL_CreateGPUTexture(g->dev, &(SDL_GPUTextureCreateInfo){ .type = SDL_GPU_TEXTURETYPE_2D, .format = DEPTH_FMT,
             .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER, .width = 2048, .height = 2048, .layer_count_or_depth = 1, .num_levels = 1 });
@@ -323,7 +339,35 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
         g->sun_vp = m4_identity(); g->shadow_strength = 0.85f; g->shadow_bias = 0.0025f;
     }
     for (size_t i = 0; i < sizeof all / sizeof *all; i++) SDL_ReleaseGPUShader(g->dev, all[i]);
-    if (!g->pipe_world || !g->pipe_skin || !g->pipe_sky || !g->pipe_particle_add || !g->pipe_particle_alpha || !g->pipe_bright || !g->pipe_blur || !g->pipe_post || !g->pipe_ui || !g->pipe_ui_swap || !g->pipe_blit || !g->pipe_pixcomp) return false;
+
+    // Roll call. A pipeline the driver refuses used to be a NULL pointer handed to
+    // SDL_BindGPUGraphicsPipeline several frames later, where SDL's own assert takes the process
+    // out with nothing in the log to say why. Name every one that failed, here, at once; refuse to
+    // start if a pipeline the frame cannot do without is among them; and let the optional ones
+    // (shadows) be skipped at draw time rather than crash.
+    {
+        struct { const char *name; SDL_GPUGraphicsPipeline *p; bool required; } roll[] = {
+            { "world", g->pipe_world, true }, { "skin", g->pipe_skin, true }, { "sky", g->pipe_sky, true },
+            { "particle_add", g->pipe_particle_add, true }, { "particle_alpha", g->pipe_particle_alpha, true },
+            { "bright", g->pipe_bright, true }, { "blur", g->pipe_blur, true }, { "post", g->pipe_post, true },
+            { "ui", g->pipe_ui, true }, { "ui_swap", g->pipe_ui_swap, true }, { "blit", g->pipe_blit, true },
+            { "pixcomp", g->pipe_pixcomp, true },
+            { "shadow", g->pipe_shadow, false }, { "shadow_skin", g->pipe_shadow_skin, false },
+        };
+        const int nroll = (int)(sizeof roll / sizeof *roll);
+        char missing[256]; missing[0] = 0; int nmissing = 0; bool fatal = false;
+        for (int i = 0; i < nroll; i++) {
+            if (roll[i].p) continue;
+            nmissing++; if (roll[i].required) fatal = true;
+            size_t used = strlen(missing);
+            snprintf(missing + used, sizeof missing - used, "%s%s%s", used ? " " : "", roll[i].name, roll[i].required ? "(required)" : "(optional)");
+        }
+        if (nmissing == 0) SDL_Log("pipelines: all %d created on '%s'", nroll, SDL_GetGPUDeviceDriver(g->dev));
+        else SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pipelines: %d of %d failed on '%s': %s",
+                          nmissing, nroll, SDL_GetGPUDeviceDriver(g->dev), missing);
+        if (!g->shadow_tex) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "no shadow map: the sun will not cast");
+        if (fatal) { SDL_SetError("required pipelines failed: %s", missing); return false; }
+    }
 
     g->ui_vb = SDL_CreateGPUBuffer(g->dev, &(SDL_GPUBufferCreateInfo){ .usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = UI_MAX_VERTS * sizeof(UIVertex) });
     g->ui_xfer = SDL_CreateGPUTransferBuffer(g->dev, &(SDL_GPUTransferBufferCreateInfo){ .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = UI_MAX_VERTS * sizeof(UIVertex) });
@@ -595,8 +639,13 @@ void gfx_pixel_end(Gfx *g) {
 void gfx_set_material(Gfx *g, const Material *m) { g->material = m ? *m : material_default(); }
 void gfx_set_sprite_lean(Gfx *g, float lean) { g->sprite_lean = lean; }
 
-static void bind_pipe(Gfx *g, SDL_GPUGraphicsPipeline *p) {
+// Returns false for a pipeline the driver refused at startup, and every caller drops the draw.
+// Binding NULL and drawing anyway trips SDL's "Graphics pipeline not bound!" assert, which with
+// SDL_HINT_ASSERT=abort ends the process -- the tester's crash, several frames after the real fault.
+static bool bind_pipe(Gfx *g, SDL_GPUGraphicsPipeline *p) {
+    if (!p) return false;
     if (g->bound_pipe != p) { SDL_BindGPUGraphicsPipeline(g->pass, p); g->bound_pipe = p; g->bound_tex = NULL; }
+    return true;
 }
 static void bind_tex(Gfx *g, const Texture *t, SDL_GPUSampler *s) {
     if (g->in_shadow) return;   // the depth pass samples nothing
@@ -608,7 +657,7 @@ static void bind_tex(Gfx *g, const Texture *t, SDL_GPUSampler *s) {
 
 void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Vec4 uv_xform) {
     if (!g->pass) return;
-    bind_pipe(g, g->in_shadow ? g->pipe_shadow : g->pipe_world);
+    if (!bind_pipe(g, g->in_shadow ? g->pipe_shadow : g->pipe_world)) return;
     VSUniforms u = { g->frame.view_proj, model, uv_xform, v4(g->planar_next ? 1.0f : 0.0f, 0, 0, 0) };
     SDL_PushGPUVertexUniformData(g->cmd, 0, &u, sizeof u);
     if (!g->in_shadow) push_material(g, tint);
@@ -621,7 +670,7 @@ void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Ve
 
 void gfx_draw_skinned(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, const Mat4 *joints, int njoints) {
     if (!g->pass) return;
-    bind_pipe(g, g->in_shadow ? g->pipe_shadow_skin : g->pipe_skin);
+    if (!bind_pipe(g, g->in_shadow ? g->pipe_shadow_skin : g->pipe_skin)) return;
     VSUniforms u = { g->frame.view_proj, model, v4(1, 1, 0, 0), v4(0, 0, 0, 0) };
     SDL_PushGPUVertexUniformData(g->cmd, 0, &u, sizeof u);
     static Mat4 tmp[64];
@@ -669,7 +718,7 @@ void gfx_draw_sprite(Gfx *g, const Texture *t, Vec3 foot, float w, float h, cons
     m.m[12] = foot.x; m.m[13] = foot.y + 0.03f; m.m[14] = foot.z;   // a hair above the ground so feet never z-fight
     // uv_xform: scale then offset: uv' = uv * (u1-u0, v1-v0) + (u0, v0)
     Vec4 xf = mirrored ? v4(uv[0] - uv[2], uv[3] - uv[1], uv[2], uv[1]) : v4(uv[2] - uv[0], uv[3] - uv[1], uv[0], uv[1]);
-    bind_pipe(g, g->pipe_world);
+    if (!bind_pipe(g, g->pipe_world)) return;
     VSUniforms vu = { g->frame.view_proj, m, xf, v4(0, 0, 0, 0) };
     SDL_PushGPUVertexUniformData(g->cmd, 0, &vu, sizeof vu);
     Material saved = g->material; if (g->material.unlit <= 0) g->material.unlit = 0.8f;
@@ -906,6 +955,10 @@ static void fullscreen_pass(Gfx *g, SDL_GPUCommandBuffer *cmd, SDL_GPUGraphicsPi
     (void)g;   // kept in the signature so every pass reads the same
     SDL_GPUColorTargetInfo ct = { .texture = dst, .load_op = SDL_GPU_LOADOP_CLEAR, .store_op = SDL_GPU_STOREOP_STORE, .clear_color = {0, 0, 0, 1} };
     SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(cmd, &ct, 1, NULL);
+    if (!pass) return;
+    // A pipeline the driver refused: the clear above still happened, so the target is defined
+    // rather than whatever was in that memory, and nothing is handed to SDL that it will assert on.
+    if (!pipe) { SDL_EndGPURenderPass(pass); return; }
     if (vpt) SDL_SetGPUViewport(pass, vpt);
     SDL_BindGPUGraphicsPipeline(pass, pipe);
     if (uniforms) SDL_PushGPUFragmentUniformData(cmd, 0, uniforms, usize);
@@ -926,7 +979,7 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
             .zenith = v4(fp->sky_zenith.x, fp->sky_zenith.y, fp->sky_zenith.z, 0), .horizon = v4(fp->sky_horizon.x, fp->sky_horizon.y, fp->sky_horizon.z, 0),
             .ground = v4(fp->sky_ground.x, fp->sky_ground.y, fp->sky_ground.z, 0), .params = v4((float)time, fp->stars, fp->sky_fog_blend, 0),
             .fog_color = v4(fp->fog_color.x, fp->fog_color.y, fp->fog_color.z, 0) };
-        bind_pipe(g, g->pipe_sky);
+        if (!bind_pipe(g, g->pipe_sky)) return;
         SDL_PushGPUFragmentUniformData(pf->cmd, 0, &su, sizeof su);
         SDL_DrawGPUPrimitives(g->pass, 3, 1, 0, 0);
     }
@@ -948,13 +1001,13 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
         g->bound_pipe = NULL; g->bound_tex = NULL;
         Mat4 vpm = fp->view_proj;
         SDL_PushGPUVertexUniformData(pf->cmd, 0, &vpm, sizeof vpm);
-        if (g->p_alpha_count) {
-            bind_pipe(g, g->pipe_particle_alpha); bind_tex(g, &g->soft, g->samp_clamp);
+        if (g->p_alpha_count && bind_pipe(g, g->pipe_particle_alpha)) {
+            bind_tex(g, &g->soft, g->samp_clamp);
             SDL_BindGPUVertexBuffers(g->pass, 0, &(SDL_GPUBufferBinding){ .buffer = g->p_vb, .offset = 0 }, 1);
             SDL_DrawGPUPrimitives(g->pass, g->p_alpha_count, 1, 0, 0);
         }
-        if (g->p_add_count) {
-            bind_pipe(g, g->pipe_particle_add); bind_tex(g, &g->soft, g->samp_clamp);
+        if (g->p_add_count && bind_pipe(g, g->pipe_particle_add)) {
+            bind_tex(g, &g->soft, g->samp_clamp);
             SDL_BindGPUVertexBuffers(g->pass, 0, &(SDL_GPUBufferBinding){ .buffer = g->p_vb, .offset = (Uint32)(P_MAX_VERTS * sizeof(PVertex)) }, 1);
             SDL_DrawGPUPrimitives(g->pass, g->p_add_count, 1, 0, 0);
         }
