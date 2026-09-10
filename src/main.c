@@ -11,6 +11,7 @@
 #include "platform.h"
 #include "game.h"
 #include "audio.h"
+#include "voice.h"   // --- voice ---
 
 #define TICK_HZ 60
 #define TICK_DT (1.0 / TICK_HZ)
@@ -30,17 +31,24 @@ int main(int argc, char **argv) {
     // --first         force first-person view (R.E.P.O.-style: eye in the head, own model hidden)
     // --log FILE      write the debug log to FILE instead of hollow.log
     // --test NAME     run a scripted headless check: "throw" hurls a fragile item at a wall
+    // --- voice ---
+    // --voice ptt|open|off        push to talk (V / left bumper), open mic with an energy gate, or off
+    // --voice-volume V            voice chat level, independent of --volume
+    // --voice-monitor             hear your own changed voice locally
+    // HOLLOW_VOICE_WAV=FILE       feed a WAV instead of a microphone (no recording device is opened)
+    // HOLLOW_VOICE_DUMP=FILE      write the local voice bus, and one .slotN.wav per speaker, as WAVs
     // --menu-test S   drive the main menu without a hand on the keyboard: "host" or "join:HOST:PORT"
     // With none of --host --join --level --start --bot, the game opens on the main menu (GS_MENU).
     const char *menu_test = NULL; bool menu_boot = true;
     int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *shot_every_dir = NULL; int shot_every = 0; bool spawn_set = false; float spawn_x = 0, spawn_z = 0; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
     bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1; bool log_set = false;
+    const char *voice_mode = "ptt"; float voice_vol = 1.0f; int voice_mon = 0;   // --- voice ---
     static Game game;   // large; static keeps it off the stack (and zeroed)
     // settings.txt next to the assets folder: volume V, debug 0|1, hero NAME, fps N (0 = display rate), vsync 0|1, level NAME. Command-line flags override it.
     { char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR); size_t sn; char *st = SDL_LoadFile(sp, &sn);
       if (st) { char *cur = st; while (*cur) { char *line = cur; char *nl = strchr(cur, '\n'); if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
           char *hash = strchr(line, '#'); if (hash) *hash = 0; char key[32], val[128];
-          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); else if (!strcmp(key, "fps")) fps_cap = atoi(val); else if (!strcmp(key, "vsync")) vsync = atoi(val); else if (!strcmp(key, "level") && !game.level_path[0]) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, val); } }
+          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); else if (!strcmp(key, "fps")) fps_cap = atoi(val); else if (!strcmp(key, "vsync")) vsync = atoi(val); else if (!strcmp(key, "voice")) voice_mode = SDL_strdup(val);                       /* --- voice --- */ else if (!strcmp(key, "voice_volume")) voice_vol = (float)atof(val); else if (!strcmp(key, "voice_monitor")) voice_mon = atoi(val); else if (!strcmp(key, "level") && !game.level_path[0]) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, val); } }
       if (SDL_getenv("HOLLOW_FPS")) fps_cap = atoi(SDL_getenv("HOLLOW_FPS"));
       if (SDL_getenv("HOLLOW_NOVSYNC")) vsync = 0;
         SDL_free(st); } }
@@ -57,6 +65,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--level") && i + 1 < argc) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, argv[++i]);
         else if (!strcmp(argv[i], "--volume") && i + 1 < argc) volume = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--quiet")) volume = 0.15f;
+        else if (!strcmp(argv[i], "--voice") && i + 1 < argc) voice_mode = argv[++i];                  // --- voice ---
+        else if (!strcmp(argv[i], "--voice-volume") && i + 1 < argc) voice_vol = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--voice-monitor")) voice_mon = 1;
         else if (!strcmp(argv[i], "--debug")) debug_on = true;
         else if (!strcmp(argv[i], "--console")) console_on = true;
         else if (!strcmp(argv[i], "--tool") && i + 1 < argc) tool_mode = atoi(argv[++i]);   // 2 = world editor, 4 = character builder
@@ -74,10 +85,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--join") && i + 1 < argc) i++;
         else if (!strcmp(argv[i], "--name") && i + 1 < argc) i++;
     }
-    // --- menu --- a flag that already says what to play skips the front door
+    // --- menu --- a flag that already says what to do skips the front door: multiplayer that was
+    // asked for on the command line, a level or a state to jump to, a bot, a tool, a scripted check.
     for (int i = 1; i < argc; i++)
         if (!strcmp(argv[i], "--host") || !strcmp(argv[i], "--join") || !strcmp(argv[i], "--level")
-            || !strcmp(argv[i], "--start") || !strcmp(argv[i], "--bot")) menu_boot = false;
+            || !strcmp(argv[i], "--start") || !strcmp(argv[i], "--bot")
+            || !strcmp(argv[i], "--tool") || !strcmp(argv[i], "--test")) menu_boot = false;
     if (!log_set && game.net.name[0]) snprintf(game.log_path, sizeof game.log_path, "hollow_%s.log", game.net.name);
 
     Platform pf;
@@ -95,6 +108,10 @@ int main(int argc, char **argv) {
     if (console_on) game_set_tool(&game, 1);
     if (start) game_start_at(&game, start);
     if (!netgame_start(&game)) return 1;   // after --start, so the host reports the level it is really on
+    // --- voice --- after netgame_start, which is what decides this process's slot, and after
+    // audio_init (in game_init), which owns the mixer the voice bus hangs off.
+    voice_set_mode_name(voice_mode); voice_set_volume(voice_vol); voice_set_monitor(voice_mon != 0);
+    voice_init(&game);
     pf.fps_cap = fps_cap; if (!vsync) platform_set_vsync(&pf, false); else pf.vsync = true;
     if (spawn_set) { PLAYER(&game).c.pos.x = spawn_x; PLAYER(&game).c.pos.z = spawn_z; }
     if (tool_mode) game_set_tool(&game, tool_mode);
@@ -121,6 +138,8 @@ int main(int argc, char **argv) {
         if (pf.want_quit) running = false;
 
         while (accumulator >= TICK_DT) {
+            voice_update(&game, &pf.input, (float)TICK_DT);   // --- voice --- before the tick, so a
+            // frame captured now rides out on this tick's input packet instead of the next one
             game_tick(&game, &pf.input, TICK_DT);
             platform_clear_edges(&pf);   // each press is seen by exactly one tick
             accumulator -= TICK_DT;
@@ -144,6 +163,7 @@ int main(int argc, char **argv) {
             game.battle.state, game.battle.enemy_hp, game.battle.round, game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, PLAYER(&game).c.hp, PLAYER(&game).c.yaw / DEG2RAD, game.flash, game.time,
             PLAYER(&game).c.pos.x, PLAYER(&game).c.pos.y, PLAYER(&game).c.pos.z, game.boss.c.pos.x, game.boss.c.pos.y, game.boss.c.pos.z, game.cam.eye.x, game.cam.eye.y, game.cam.eye.z, game.cam.cur_dist);
 
+    voice_shutdown();   // --- voice --- before the audio device goes away with game_shutdown
     netgame_shutdown(&game);
     game_shutdown(&game);
     platform_shutdown(&pf);

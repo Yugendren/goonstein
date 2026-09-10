@@ -298,6 +298,24 @@ static void test_tick(Game *g, float dt) {
     if (++m->step > 10) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "menu-test: gave up after %d steps", m->step); m->script[0] = 0; return; }
     // "host[:PORT]", "join:HOST:PORT", "solo", "pause" (solo, then the Esc menu) and
     // "invite[:PORT]" (host, then INVITE INFO): one script per page a screenshot wants.
+    if (!strncmp(m->script, "name:", 5)) {   // "name:NAME": edit the field and keep it
+        const char *v = m->script + 5;
+        if (m->page != MENU_MAIN) return;
+        if (!m->name.active) { m->row = ROW_NAME; m->name.active = true; SDL_Log("menu-test: NAME"); return; }
+        if (strcmp(m->name.buf, v) != 0) {
+            Input typed; memset(&typed, 0, sizeof typed);   // one tick's worth of typing, as SDL would deliver it
+            m->name.len = 0; m->name.buf[0] = 0;
+            snprintf(typed.text, sizeof typed.text, "%s", v); typed.ntext = (int)strlen(typed.text);
+            field_type(&m->name, &typed);
+            SDL_Log("menu-test: typed %s", m->name.buf);
+            return;
+        }
+        Input none; memset(&none, 0, sizeof none);
+        MenuKeys enter; memset(&enter, 0, sizeof enter); enter.ok = true;
+        tick_main(g, &none, enter);   // ENTER keeps it: settings.txt and the net name, the real path
+        m->script[0] = 0;
+        return;
+    }
     bool join = !strncmp(m->script, "join", 4);
     bool solo = !strncmp(m->script, "solo", 4) || !strncmp(m->script, "pause", 5);
     if (m->page == MENU_MAIN) {
