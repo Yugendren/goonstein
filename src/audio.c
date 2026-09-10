@@ -325,6 +325,53 @@ static float synth_sting(float t, Uint32 *seed, bool *done) {
     return (saw1 * 0.18f + saw2 * 0.18f) * env + n;
 }
 
+static float synth_grab(float t, Uint32 *seed, bool *done) {
+    const float dur = 0.12f;
+    *done = t >= dur;
+    if (*done) return 0.0f;
+    // Hands closing on an object: a soft scuff, not a hit. Average two consecutive noise samples
+    // as a crude one-pole-ish smoothing (no persistent per-voice filter state to reuse here) so
+    // the noise reads as cloth/wood texture rather than a sharp hiss, under a short punchy env.
+    float env = expdecay(t, 0.035f);
+    float n1 = noise1(seed);
+    float n2 = noise1(seed);
+    float scuff = (n1 + n2) * 0.5f * env;
+    // A brief low wood-ish tap for the moment of contact, gone almost immediately.
+    float tap = sinf(TWO_PI * 260.0f * t) * expdecay(t, 0.018f) * 0.3f;
+    return (scuff * 0.6f + tap) * 0.6f;
+}
+
+static float synth_drop(float t, Uint32 *seed, bool *done) {
+    const float dur = 0.35f;
+    *done = t >= dur;
+    if (*done) return 0.0f;
+    // Dull thud: a low body tone plus sub, both decaying quickly, with a bit of rattle
+    // (amplitude-modulated noise) trailing off as the object settles.
+    float env = expdecay(t, 0.06f);
+    float thud = sinf(TWO_PI * 80.0f * t) * env;
+    float sub = sinf(TWO_PI * 50.0f * t) * expdecay(t, 0.13f) * 0.5f;
+    float rattleEnv = expdecay(t, 0.16f) * (0.5f + 0.5f * sinf(TWO_PI * 17.0f * t));
+    float rattle = noise1(seed) * rattleEnv * 0.35f;
+    return (thud * 0.75f + sub * 0.5f + rattle) * 0.75f;
+}
+
+static float synth_smash(float t, Uint32 *seed, bool *done) {
+    const float dur = 0.6f;
+    *done = t >= dur;
+    if (*done) return 0.0f;
+    // Bright shatter: a fast-decaying noise burst plus a handful of ringing high partials, sat
+    // over a low crack (a shorter, lower noise burst plus a low thump). Kept dense so it still
+    // reads clearly at the low gain the caller is expected to use for the "big" moment.
+    float shatterEnv = expdecay(t, 0.16f);
+    float partials = sinf(TWO_PI * 3200.0f * t) * expdecay(t, 0.08f) * 0.25f
+                    + sinf(TWO_PI * 4700.0f * t) * expdecay(t, 0.06f) * 0.18f
+                    + sinf(TWO_PI * 6100.0f * t) * expdecay(t, 0.045f) * 0.12f;
+    float shatter = noise1(seed) * shatterEnv * 0.6f + partials;
+    float crackEnv = expdecay(t, 0.025f);
+    float crack = noise1(seed) * crackEnv * 0.7f + sinf(TWO_PI * 90.0f * t) * expdecay(t, 0.09f) * 0.5f;
+    return (shatter * 0.6f + crack * 0.5f) * 0.5f;
+}
+
 static float synth_sound(SoundId id, float t, Uint32 *seed, bool *done) {
     switch (id) {
         case SND_FOOTSTEP: return synth_footstep(t, seed, done);
@@ -341,8 +388,33 @@ static float synth_sound(SoundId id, float t, Uint32 *seed, bool *done) {
         case SND_STING:    return synth_sting(t, seed, done);
         case SND_WHIFF:    return synth_whiff(t, seed, done);
         case SND_FAIL:     return synth_fail(t, seed, done);
+        case SND_GRAB:     return synth_grab(t, seed, done);
+        case SND_DROP:     return synth_drop(t, seed, done);
+        case SND_SMASH:    return synth_smash(t, seed, done);
         default:           *done = true; return 0.0f;
     }
+}
+
+// ---------------------------------------------------------------- sound name lookup
+//
+// Lets data files and cutscenes reference a sound by name instead of the numeric SoundId. This
+// table must stay in step with the SoundId enum in audio.h: one entry per id, in enum order.
+static const char *SOUND_NAMES[SND_COUNT] = {
+    "footstep", "swing", "hit", "parry", "hurt", "stagger", "roar", "death",
+    "blip", "heart", "door", "sting", "whiff", "fail", "grab", "drop", "smash",
+};
+
+int audio_sound_from_name(const char *name) {
+    if (!name) return -1;
+    for (int i = 0; i < SND_COUNT; i++) {
+        if (strcmp(SOUND_NAMES[i], name) == 0) return i;
+    }
+    return -1;
+}
+
+const char *audio_sound_name(int id) {
+    if (id < 0 || id >= SND_COUNT) return "";
+    return SOUND_NAMES[id];
 }
 
 // ---------------------------------------------------------------- mixer callback

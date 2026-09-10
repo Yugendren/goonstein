@@ -18,6 +18,10 @@ typedef enum SoundId {
     SND_STING,      // horror sting: dissonant swell, ~1.5 s
     SND_WHIFF,      // parry raised but nothing came: soft leather creak / air, ~0.2 s
     SND_FAIL,       // parry failed: dull low clunk, clearly not the ping, ~0.3 s
+    SND_GRAB,       // hands close on an object: a short cloth/wood scuff, ~0.12 s, soft
+    SND_DROP,       // something heavy set down or dropped: a dull thud with a little rattle, ~0.35 s
+    SND_SMASH,      // a fragile thing breaks: bright shatter over a low crack, ~0.6 s, the one
+                     // the player remembers -- reads clearly even at a low gain
     SND_COUNT
 } SoundId;
 
@@ -25,6 +29,9 @@ bool audio_init(void);
 void audio_shutdown(void);
 // Fire-and-forget. gain 0..1, pitch multiplier (1 = normal). Thread-safe with the mixer.
 void audio_play(SoundId id, float gain, float pitch);
+// Sound ids by name ("parry", "smash", ...). -1 when the name is unknown.
+int         audio_sound_from_name(const char *name);
+const char *audio_sound_name(int id);   // "" when the id is out of range
 // Ambient drone intensity 0..1 (0 = silent). Smoothly followed by the mixer.
 void audio_set_drone(float intensity);
 // Fight layer 0..1: adds a slow pulse / low throb under the drone.
