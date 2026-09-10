@@ -10,7 +10,7 @@ layout(set = 3, binding = 0, std140) uniform Frame {
     vec4 ground_ambient;   // rgb
     vec4 fog_color;        // rgb, a = density per metre
     vec4 fog_height;       // x = base height, y = falloff, z = sun scatter, w = start distance
-    vec4 toon;             // x = band softness, y = shadow floor, z = rim power, w = unused
+    vec4 toon;             // x = band softness, y = shadow floor, z = rim power, w = time in seconds
     vec4 lights_pos[16];   // xyz, w = radius
     vec4 lights_color[16]; // rgb premultiplied by intensity
     ivec4 counts;          // x = light count
@@ -21,6 +21,7 @@ layout(set = 3, binding = 1, std140) uniform Material {
     vec4 tint;             // rgb multiply, a = alpha
     vec4 emissive;         // rgb added, a = unlit amount (sprites keep their own colours)
     vec4 rim;              // rgb, a = strength
+    vec4 water;            // x = 1 shades this surface as sea; yz = the coast texture's world origin in xz, w = 1 / its span
 };
 layout(location = 0) in vec3 v_wpos;
 layout(location = 1) in vec3 v_normal;
@@ -39,9 +40,38 @@ void main() {
     float dist = length(view);
     vec3 v = view / max(dist, 1e-4);
 
+    // The sea. Two crossing ripple trains whose normal is their analytic gradient: four sines and
+    // no vertex work. The coast comes from the bound texture, looked up by world position: red is
+    // how deep the water is (0 at the waterline, 1 past the shelf) and green is the foam mask along
+    // that waterline. The sea's own colour is the material tint.
+    float sea_shallow = 0.0, sea_foam = 0.0, sea_swell = 0.0;
+    bool sea = water.x > 0.5;
+    if (sea) {
+        float wt = toon.w;
+        vec2 p = v_wpos.xz;
+        vec2 d1 = normalize(vec2(0.86, 0.51)), d2 = normalize(vec2(-0.42, 0.91));
+        // Each train's phase is bent by the other one, or the crests come out as infinite parallel
+        // lines and the sea looks like corrugated iron.
+        float a1 = dot(p, d1) * 0.55 + wt * 1.10 + sin(dot(p, d2) * 0.21 - wt * 0.35) * 2.0;
+        float a2 = dot(p, d2) * 1.30 - wt * 1.70 + sin(dot(p, d1) * 0.37 + wt * 0.50) * 1.6;
+        vec2 cuv = clamp((v_wpos.xz - water.yz) * water.w, 0.0, 1.0);
+        vec4 coast = texture(tex, cuv);
+        sea_shallow = 1.0 - coast.r;
+        // Waves flatten with depth and with distance: at 100 m a ripple is smaller than a pixel and
+        // keeping it only buys shimmer.
+        float calm = mix(1.0, 0.30, sea_shallow) * clamp(1.0 - (dist - 20.0) / 90.0, 0.12, 1.0);
+        vec2 slope = (d1 * cos(a1) * 0.045 + d2 * cos(a2) * 0.028) * calm;
+        n = normalize(vec3(-slope.x, 1.0, -slope.y));
+        sea_foam = 0.0;
+        t = vec4(pow(tint.rgb, vec3(2.2)) * mix(1.0, 2.3, sea_shallow * sea_shallow), 1.0);   // shallow water shows the sand under it
+    }
+
     // Sun: two soft bands, never fully black
     float ndl = dot(n, -sun_dir.xyz);
-    float lit = toon.y + (1.0 - toon.y) * (0.65 * band(ndl, 0.05, toon.x) + 0.35 * band(ndl, 0.5, toon.x));
+    // The sea is shaded smoothly: run ripples through the toon bands and every wave becomes a hard
+    // edged stripe.
+    float lit = sea ? toon.y + (1.0 - toon.y) * clamp(ndl * 0.5 + 0.5, 0.0, 1.0)
+                    : toon.y + (1.0 - toon.y) * (0.65 * band(ndl, 0.05, toon.x) + 0.35 * band(ndl, 0.5, toon.x));
     // Sun shadow: 3x3 tap compare in the map, hard-edged to match the bands, fading at the map's rim
     float sh = 1.0;
     if (shadow.z > 0.0) {
@@ -80,6 +110,18 @@ void main() {
     // Rim: brightest where the surface turns away from the camera and faces the sun a little
     float fres = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), toon.z);
     c += rim.rgb * rim.a * fres * (0.4 + 0.6 * clamp(ndl + 0.5, 0.0, 1.0));
+
+    if (sea) {
+        // Water is mostly the sky, more of it the flatter you look across it. The fresnel is taken
+        // from a normal only part of the way to the ripples: from the full one, a near-level
+        // view swings between sky and deep water on every crest and the sea comes out in stripes.
+        float f = pow(1.0 - clamp(dot(normalize(mix(vec3(0.0, 1.0, 0.0), n, 0.6)), v), 0.0, 1.0), 3.0);
+        c = mix(c, fog_color.rgb + sky_ambient.rgb * 0.5, (0.12 + 0.50 * f) * (1.0 - sea_shallow * 0.7));
+        vec3 h = normalize(v - sun_dir.xyz);
+        c += sun_color.rgb * sun_dir.w * pow(clamp(dot(n, h), 0.0, 1.0), 90.0) * 1.2;
+        c *= 1.0 + sea_swell * 0.11;
+        c += vec3(0.75, 0.85, 0.90) * sea_foam * 0.30;
+    }
 
     // Fog: distance plus height, tinted toward the sun when looking into it
     float fd = max(dist - fog_height.w, 0.0);

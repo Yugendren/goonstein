@@ -28,7 +28,7 @@ typedef struct FrameUniforms {
     Sint32 counts[4];
     Mat4 sun_vp; Vec4 shadow;
 } FrameUniforms;
-typedef struct MaterialUniforms { Vec4 tint, emissive, rim; } MaterialUniforms;
+typedef struct MaterialUniforms { Vec4 tint, emissive, rim, water; } MaterialUniforms;
 typedef struct SkyUniforms { Mat4 inv_view_proj; Vec4 cam_pos, sun_dir, sun_color, zenith, horizon, ground, params, fog_color; } SkyUniforms;
 typedef struct PostUniforms { Vec4 params, res, flash, grade, lift, gain, style; Vec4 pal[64]; Sint32 npal[4]; } PostUniforms;
 typedef struct PixUniforms { Vec4 res, offset, params; Vec4 pal[64]; Sint32 npal[4]; } PixUniforms;
@@ -381,7 +381,8 @@ static void fullscreen_pass(Gfx *g, SDL_GPUCommandBuffer *cmd, SDL_GPUGraphicsPi
 static void push_material(Gfx *g, Vec4 tint) {
     const Material *m = &g->material;
     MaterialUniforms u = { .tint = v4(tint.x * m->tint.x, tint.y * m->tint.y, tint.z * m->tint.z, tint.w * m->tint.w),
-                           .emissive = v4(m->emissive.x, m->emissive.y, m->emissive.z, m->unlit), .rim = v4(m->rim_color.x, m->rim_color.y, m->rim_color.z, m->rim) };
+                           .emissive = v4(m->emissive.x, m->emissive.y, m->emissive.z, m->unlit), .rim = v4(m->rim_color.x, m->rim_color.y, m->rim_color.z, m->rim),
+                           .water = v4(m->water, m->water_origin.x, m->water_origin.y, m->water_origin.z) };
     SDL_PushGPUFragmentUniformData(g->cmd, 1, &u, sizeof u);
 }
 
@@ -409,7 +410,7 @@ static void push_frame_uniforms(Gfx *g, const FrameParams *fp) {
         .ground_ambient = v4(fp->ground_ambient.x, fp->ground_ambient.y, fp->ground_ambient.z, 0),
         .fog_color = v4(fp->fog_color.x, fp->fog_color.y, fp->fog_color.z, fp->fog_density),
         .fog_height = v4(fp->fog_height_base, fp->fog_height_falloff, fp->fog_scatter, fp->fog_start),
-        .toon = v4(fp->toon_softness, fp->shadow_floor, fp->rim_power, 0),
+        .toon = v4(fp->toon_softness, fp->shadow_floor, fp->rim_power, fp->time),
         .counts = { fp->nlights > GFX_MAX_LIGHTS ? GFX_MAX_LIGHTS : fp->nlights, 0, 0, 0 },
         .sun_vp = g->sun_vp, .shadow = v4(g->shadow_size > 0 ? 1.0f / g->shadow_size : 0, g->shadow_bias, g->shadow_valid ? g->shadow_strength : 0, 0.075f) };
     // shadow.w: the shadow fades to nothing over the outer 15% of the map's half-extent (0.5 in

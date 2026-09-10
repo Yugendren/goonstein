@@ -22,7 +22,11 @@ void terrain_init(Terrain *t, float cell, Vec3 origin, float base_height, Vec3 b
     t->mesh_dirty = true; t->present = true; t->water = -1000;
 }
 
-void terrain_destroy(Gfx *g, Terrain *t) { if (t->mesh_ok) gfx_mesh_destroy(g, &t->mesh); t->mesh_ok = false; }
+void terrain_destroy(Gfx *g, Terrain *t) {
+    if (t->mesh_ok) gfx_mesh_destroy(g, &t->mesh); t->mesh_ok = false;
+    if (t->water_ok) gfx_mesh_destroy(g, &t->water_mesh); t->water_ok = false;
+    if (t->water_tex_ok) gfx_texture_destroy(g, &t->water_tex); t->water_tex_ok = false;
+}
 
 bool terrain_inside(const Terrain *t, float x, float z) {
     float u = (x - t->origin.x) / t->cell, v = (z - t->origin.z) / t->cell;
@@ -88,6 +92,7 @@ void terrain_update_mesh(Gfx *g, Terrain *t) {
     if (t->mesh_ok) gfx_mesh_destroy(g, &t->mesh);
     t->mesh = gfx_mesh_create(g, verts, N * N, idx16, n);
     t->mesh_ok = true; t->mesh_dirty = false;
+    t->water_dirty = true;   // the sea's shoreline is baked from these heights
 }
 
 void terrain_draw(Gfx *g, Terrain *t) {
@@ -95,6 +100,90 @@ void terrain_draw(Gfx *g, Terrain *t) {
     terrain_update_mesh(g, t);
     if (!t->mesh_ok) return;
     gfx_draw(g, &t->mesh, &g->white, m4_identity(), v4(1, 1, 1, 1), v4(1, 1, 0, 0));
+}
+
+// How far past the grid the sea is carried. Any level's far plane cuts the skirt long before its
+// edge, which is the point: the horizon is then a line of fog, not the end of the water.
+#define WATER_SKIRT 4.0f
+// Depth (metres) at which water stops reading as shallow, and the width of the foam at the waterline.
+#define WATER_SHELF 4.0f
+#define WATER_FOAM  1.1f
+
+// The sea is two things: a flat mesh (the grid, plus a four-quad frame of open water around it) and
+// a texture of the coast -- red is how deep the water is, 0 at the waterline and 1 past the shelf,
+// green is the foam mask along that waterline. The shader samples it by world position rather than
+// by uv, so the mesh stays a plain grid and the same texture would serve any water surface.
+void terrain_update_water(Gfx *g, Terrain *t) {
+    if (!t->present || t->water < -900) return;
+    if (t->water_ok && !t->water_dirty && t->water_built == t->water) return;
+    static Vertex *verts = NULL; static Uint16 *idx16 = NULL;
+    const int NV = N * N + 8, NI = (N - 1) * (N - 1) * 6 + 4 * 6;
+    if (!verts) { verts = malloc(sizeof(Vertex) * NV); idx16 = malloc(sizeof(Uint16) * NI); }
+    if (!verts || !idx16) return;
+    float y = t->water;
+    for (int z = 0; z < N; z++) for (int x = 0; x < N; x++) {
+        Vertex *v = &verts[idx(x, z)];
+        v->pos[0] = t->origin.x + x * t->cell; v->pos[1] = y; v->pos[2] = t->origin.z + z * t->cell;
+        v->normal[0] = 0; v->normal[1] = 1; v->normal[2] = 0;
+        v->uv[0] = v->uv[1] = 0;
+        v->color[0] = v->color[1] = v->color[2] = v->color[3] = 1;
+    }
+    float span = (N - 1) * t->cell;
+    float x0 = t->origin.x, z0 = t->origin.z, x1 = x0 + span, z1 = z0 + span;
+    float ox0 = x0 - span * WATER_SKIRT, oz0 = z0 - span * WATER_SKIRT, ox1 = x1 + span * WATER_SKIRT, oz1 = z1 + span * WATER_SKIRT;
+    const float corner[8][2] = { { x0, z0 }, { x1, z0 }, { x1, z1 }, { x0, z1 },        // grid corners, clockwise from -x -z
+                                 { ox0, oz0 }, { ox1, oz0 }, { ox1, oz1 }, { ox0, oz1 } };
+    for (int i = 0; i < 8; i++) {
+        Vertex *v = &verts[N * N + i];
+        v->pos[0] = corner[i][0]; v->pos[1] = y; v->pos[2] = corner[i][1];
+        v->normal[0] = 0; v->normal[1] = 1; v->normal[2] = 0;
+        v->uv[0] = v->uv[1] = 0;
+        v->color[0] = v->color[1] = v->color[2] = v->color[3] = 1;
+    }
+    Uint32 n = 0;
+    for (int z = 0; z < N - 1; z++) for (int x = 0; x < N - 1; x++) {
+        Uint16 a = (Uint16)idx(x, z), b = (Uint16)idx(x + 1, z), c = (Uint16)idx(x, z + 1), d = (Uint16)idx(x + 1, z + 1);
+        idx16[n++] = a; idx16[n++] = c; idx16[n++] = b;
+        idx16[n++] = b; idx16[n++] = c; idx16[n++] = d;
+    }
+    for (int i = 0; i < 4; i++) {   // frame: each side runs from one grid corner to the next, out to the matching outer pair
+        Uint16 ia = (Uint16)(N * N + i), ib = (Uint16)(N * N + (i + 1) % 4);
+        Uint16 oa = (Uint16)(N * N + 4 + i), ob = (Uint16)(N * N + 4 + (i + 1) % 4);
+        idx16[n++] = ia; idx16[n++] = ib; idx16[n++] = ob;
+        idx16[n++] = ia; idx16[n++] = ob; idx16[n++] = oa;
+    }
+    if (t->water_ok) gfx_mesh_destroy(g, &t->water_mesh);
+    t->water_mesh = gfx_mesh_create(g, verts, (Uint32)NV, idx16, n);
+    t->water_ok = true; t->water_dirty = false; t->water_built = t->water;
+
+    static unsigned char *px = NULL;
+    if (!px) px = malloc((size_t)N * N * 4);
+    if (px) {
+        for (int i = 0; i < N * N; i++) {
+            float depth = fmaxf(y - (t->height[i] + t->origin.y), 0.0f);
+            px[i * 4 + 0] = (unsigned char)(clampf(depth / WATER_SHELF, 0, 1) * 255.0f);
+            px[i * 4 + 1] = (unsigned char)((1 - clampf(depth / WATER_FOAM, 0, 1)) * 255.0f);
+            px[i * 4 + 2] = 0; px[i * 4 + 3] = 255;
+        }
+        if (t->water_tex_ok) gfx_texture_destroy(g, &t->water_tex);
+        t->water_tex = gfx_texture_create(g, px, N, N);
+        t->water_tex_ok = true;
+    }
+}
+
+void terrain_draw_water(Gfx *g, Terrain *t) {
+    if (!t->present || t->water < -900) return;
+    terrain_update_water(g, t);
+    if (!t->water_ok || !t->water_tex_ok) return;
+    // The material carries where the coast texture sits in the world: xy is the grid's origin in xz
+    // and z one over its span, so the shader can find the right texel from a world position.
+    float span = (N - 1) * t->cell;
+    Material wm = material_default();
+    wm.water = 1; wm.water_origin = v3(t->origin.x, t->origin.z, 1.0f / span);
+    wm.emissive = v3(0.015f, 0.045f, 0.075f);
+    gfx_set_material(g, &wm);
+    gfx_draw(g, &t->water_mesh, &t->water_tex, m4_identity(), v4(0.10f, 0.24f, 0.36f, 1), v4(1, 1, 0, 0));
+    gfx_set_material(g, NULL);
 }
 
 // ---------------------------------------------------------------- brushes

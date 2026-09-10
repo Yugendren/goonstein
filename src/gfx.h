@@ -19,7 +19,7 @@ typedef struct Texture { SDL_GPUTexture *tex; int w, h; } Texture;
 typedef struct PointLight { Vec3 pos; float radius; Vec3 color; float intensity; } PointLight;
 
 typedef struct FrameParams {
-    Mat4  view_proj; Vec3 cam_pos, cam_right, cam_up;
+    Mat4  view_proj; Vec3 cam_pos, cam_right, cam_up; float time;   // seconds, for anything that animates in a shader (the sea)
     Vec3  sun_dir; float sun_intensity; Vec3 sun_color;
     Vec3  sky_ambient, ground_ambient;
     Vec3  fog_color; float fog_density, fog_height_base, fog_height_falloff, fog_scatter, fog_start;
@@ -29,7 +29,10 @@ typedef struct FrameParams {
     PointLight lights[GFX_MAX_LIGHTS]; int nlights;
 } FrameParams;
 
-typedef struct Material { Vec4 tint; Vec3 emissive; Vec3 rim_color; float rim; float unlit; } Material;
+// water: 1 shades the surface as sea -- two crossing ripple layers, sky at grazing angles, a sun
+// glint, and a coast read from the bound texture (red = depth, green = foam), which water_origin
+// locates in the world: x/y are its origin in xz and z is one over its span. See terrain_draw_water.
+typedef struct Material { Vec4 tint; Vec3 emissive; Vec3 rim_color; float rim; float unlit; float water; Vec3 water_origin; } Material;
 
 typedef struct PostParams {
     float grain, vignette, fade;

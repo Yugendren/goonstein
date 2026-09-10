@@ -12,6 +12,8 @@ typedef struct Terrain {
     float height[TERRAIN_N * TERRAIN_N];
     Vec3  color[TERRAIN_N * TERRAIN_N];
     Mesh  mesh; bool mesh_ok; bool mesh_dirty;
+    Mesh  water_mesh; bool water_ok; bool water_dirty; float water_built;   // sea surface; water_built = the height it was built for
+    Texture water_tex; bool water_tex_ok;   // per-cell water depth and foam mask, sampled by the sea shader
     bool  present;               // false = the level has no terrain (flat ground blocks only)
     float water;                 // water surface height (metres); below -900 = no water
     char  file[128];             // base path relative to assets/, e.g. levels/glade_terrain
@@ -28,6 +30,12 @@ bool  terrain_ray(const Terrain *t, Vec3 a, Vec3 b, Vec3 *hit);
 // Rebuild the GPU mesh if dirty (call once per frame from the render side).
 void  terrain_update_mesh(Gfx *g, Terrain *t);
 void  terrain_draw(Gfx *g, Terrain *t);
+// The sea: a flat grid at the water height, ringed by a skirt that carries the surface out past any
+// far plane so the horizon is fog rather than an edge, plus a small texture of how deep the water is
+// over each cell. The shader shades the coast from that texture, sampled by world position, which is
+// why the material carries the grid's origin and size (see gfx.h's Material.water).
+void  terrain_update_water(Gfx *g, Terrain *t);
+void  terrain_draw_water(Gfx *g, Terrain *t);
 
 // Brushes. radius/strength in metres and metres-per-second-ish units; dt scales the effect.
 typedef enum TerrainBrush { TB_RAISE, TB_LOWER, TB_SMOOTH, TB_FLATTEN, TB_PAINT } TerrainBrush;

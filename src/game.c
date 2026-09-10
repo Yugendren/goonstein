@@ -875,6 +875,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     }
     uifx_update(&g->fx, dt);
     update_particles(g, dt);
+    terrain_update_water(&g->gfx, &g->terrain);   // build the sea between frames, not in the middle of one
     if (g->hint_t > 0) g->hint_t -= dt;
     camera_update(&g->cam, dt);
 }
@@ -1256,7 +1257,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     Vec3 up = v3_cross(right, fwd);
     FrameParams fp = {
         .view_proj = camera_view_proj(&g->cam, (float)INTERNAL_W / INTERNAL_H),
-        .cam_pos = g->cam.eye, .cam_right = right, .cam_up = up,
+        .cam_pos = g->cam.eye, .cam_right = right, .cam_up = up, .time = (float)g->time,
         .sun_dir = v3_norm(lk->sun_dir), .sun_intensity = lk->sun_intensity, .sun_color = lk->sun_color,
         .sky_ambient = lk->sky_ambient, .ground_ambient = lk->ground_ambient,
         .fog_color = lk->fog_color, .fog_density = lk->fog_density, .fog_height_base = lk->fog_base,
@@ -1324,17 +1325,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     gfx_begin(x, pf, &fp);
     draw_level(x, lv, &g->wt);
     if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain);
-        if (g->terrain.water > -900) {   // flat water: a slab well past the terrain, a little glow so it reads at night
-            // Far bigger than the grid: with a long far plane the old terrain-sized slab put a
-            // straight edge of sea across the horizon, and any slab whose edge falls inside the far
-            // plane shows a step where the two meet. At this size the sea is always cut by the far
-            // plane instead, one clean line the fog has closed on long before it.
-            float span = (TERRAIN_N - 1) * g->terrain.cell; Vec3 c = v3(g->terrain.origin.x + span * 0.5f, g->terrain.water - 0.5f, g->terrain.origin.z + span * 0.5f);
-            span *= 8.0f;
-            Material wm = material_default(); wm.emissive = v3(0.02f, 0.06f, 0.10f); wm.rim = 0.6f; wm.rim_color = v3(0.6f, 0.8f, 1); gfx_set_material(x, &wm);
-            gfx_draw_box(x, &x->white, c, v3(span, 1, span), 0, v4(0.16f, 0.33f, 0.48f, 1), 0);
-            gfx_set_material(x, NULL);
-        } }
+        terrain_draw_water(x, &g->terrain); }
     props_draw(x, &g->props, lv, t);
     {
         Vec4 pt = v4(lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), 1);
