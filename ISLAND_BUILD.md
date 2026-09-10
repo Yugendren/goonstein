@@ -197,7 +197,67 @@ Two smaller things worth knowing:
   `netgame_bot_wander` in first person), so the trigger-by-trigger regression in section 3 needs
   `--third`.
 
-## 5. Deliberately not done yet
+## 5. The realistic pass
+
+The 467-prop stylised scatter (`scrub.part`, nine spheres and three cylinders; `cactus.part`;
+`sea_rock.part`, seven boxes) became 842 photoscanned instances: 104 palms (still ours), 480
+bushes (`shrub_02` and `pachira_aquatica_01` variants), 38 agaves (`cheiridopsis_succulent`,
+standing in for the saguaro that had no business on a limestone cay), 70 shore boulders (the
+`rock_moss` sets and `boulder_01`, tinted back toward bleached limestone), 150 ground-cover tufts.
+The bushes now clump: a moisture fbm in `scrub_w` gives thickets and clearings where the old
+scatter laid down an even lawn.
+
+About 100 more scanned props dress the compound, dock, helipad, staff yard, culvert yard, court,
+temple court and cove: crates, drums, jerrycans, buckets, a sack truck, a generator, planters with
+real plants in them, garden furniture, street lamps, a marble bust, two bronzes, a stone fire pit,
+conch shells, a timber jetty at the cove.
+
+**Surfaces.** `assets/textures/NAME.png|jpg` is now a texture name anywhere a texture name is
+accepted: on a `block` line, as `tex NAME [TILE]` on a `prop` line, and as `tex NAME [TILE]` on a
+`.part` piece (see `assets/levels/README.md`). 281 pieces across the island's own 14 assemblies and
+47 block/shape-prop lines in `island.txt` carry one. `TILE` is repeats per metre in world space
+(planar mapping), so a stretched box does not stretch its texture.
+
+**Tint compensation**, the non-obvious bit: `shaders/lit.frag` multiplies texture * vertex colour *
+tint in sRGB before the 2.2, so dropping a photoscan onto a flat-tinted piece darkens it by the
+map's mean. Every tint was divided back out — per channel where the map should be neutral (plaster,
+concrete, roof tile: the piece's tint is the paint), by luminance only where the map's own colour
+is the point (weathered planks, palm bark, foliage, terracotta). That is why the `.part` files are
+full of tints above 1.0, and why the island's palette is unchanged.
+
+The terrain takes a detail map: `assets/textures/ground_detail.*` is multiplied into the biome
+colours with world planar UVs at 0.45 repeats per metre and a 1/mean gain, so the ground has
+photoscan grain without a new palette (`src/terrain.c`, wired in `src/game.c`).
+
+The palms were rebuilt: each frond is now an inner plank leaving the crown almost flat plus an
+outer one hinged at its tip and drooping, so the crown arcs instead of spoking, and the trunk
+carries a real bark map. That is the surface you stand next to.
+
+Look retuned for dusk with scans: `toon 0.30 0.34 3.4` (softer bands, shallower floor, so a scan's
+own shading shows through), `grade 1.22 1.02 1.02 0.16 1.22` (more exposure, less saturation and
+bloom, because the albedo now carries the colour), `gain 1.04 1.00 0.94`, `fogv` density 0.0085 ->
+0.0072 and start 34 -> 42. `pixel` and `style` were not touched — they are off.
+
+Cost, draw calls at 300 frames, `HOLLOW_NOVSYNC=1`, before (commit 2c95ce1) vs after:
+
+| where | before | after |
+|---|---|---|
+| first person on the quay | 5641 | 4490 |
+| the pool | 1341 | 1434 |
+| summit overview | 985 | 371 |
+
+Props went 574 -> 1055 but draws went *down*: the old scatter's stylised pieces were assemblies
+(`scrub.part` nine spheres and three cylinders, `sea_rock.part` seven boxes) and a scan is one
+mesh. Free-running frame times after: 8.7 ms at the quay, 3.6 ms at the summit, 10.8 ms on the
+intro cutscene frame.
+
+The tools: `tools/polyhaven_get.py` fetches, md5-checks and keeps only the base-colour map,
+shrinking model textures to 512 px; `tools/gltf_split.py` splits a set into per-variant files
+sharing the `.bin`; `tools/blender/decimate.py` took four scans over 50k triangles down
+(`dead_tree_trunk` 101802 -> 17999, `modular_wooden_pier` 84780 -> 23994, `boulder_01` 66122 ->
+14000, `concrete_road_barrier` 60928 -> 9999).
+
+## 6. Deliberately not done yet
 
 - First person. `view first` does not exist; the level is `view third` until it does.
 - The descent. The Culvert stops at a steel door and the Music Room's hatch is sealed: both are
