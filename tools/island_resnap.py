@@ -18,6 +18,10 @@ re-applied to the new ground. Anything higher than that was on a roof, a deck or
 exactly where the author put it. Nothing moves at all where the ground did not move (`--eps`).
 
 It prints every change it would make and writes nothing without `--write`.
+
+Run it ONCE per terrain change, immediately after the change, against the heightmap as it was
+before. It is not idempotent: after a run the offsets are measured against the new ground, so a
+second run with the same `--old` moves everything a second time.
 """
 
 import argparse

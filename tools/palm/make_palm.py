@@ -144,7 +144,11 @@ def build_trunk(v, verts, faces, uvs, normals, wind, mats):
             n = (u_ax * math.cos(ang) + v_ax * math.sin(ang))
             verts.append(p + n * r)
             normals.append(n)
-            uvs.append((j / NRAD, arclen * 0.32))
+            # 0.62 repeats per metre up the trunk: a 512 px bark map (props cap model textures
+            # there) then puts about 320 pixels across the 1.6 m of trunk you are standing next
+            # to, instead of 160, and palm ring scars are 10 to 20 cm apart anyway. One wrap
+            # around the circumference makes the texels roughly square at the base.
+            uvs.append((j / NRAD, arclen * 0.62))
             wind.append(0.30 * s * s)      # the trunk leans a little, most of it near the top
             row.append(base + i * (NRAD + 1) + j)
         rings.append(row)
