@@ -807,7 +807,10 @@ static void bind_tex(Gfx *g, const Texture *t, SDL_GPUSampler *s) {
 void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Vec4 uv_xform) {
     if (!g->pass) return;
     if (!bind_pipe(g, g->in_shadow ? g->pipe_shadow : g->pipe_world)) return;
-    VSUniforms u = { g->frame.view_proj, model, uv_xform, v4(g->planar_next ? 1.0f : 0.0f, 0, 0, 0) };
+    // flags.y is the frame's time: world.vert's foliage sway needs a clock, and the vertex stage
+    // has no frame uniform block of its own to read one from. Stale by a frame in the shadow pass,
+    // which at a third of a metre of sway is five millimetres nobody can see.
+    VSUniforms u = { g->frame.view_proj, model, uv_xform, v4(g->planar_next ? 1.0f : 0.0f, g->frame.time, 0, 0) };
     SDL_PushGPUVertexUniformData(g->cmd, 0, &u, sizeof u);
     if (!g->in_shadow) push_material(g, tint, t);
     bind_tex(g, t, g->samp_linear);
@@ -1027,7 +1030,7 @@ void gfx_instances_draw(Gfx *g, GfxInstSet set) {
         const struct GfxInstBatch *b = &g->inst_batches[i];
         if (b->set != (Uint8)set || b->count == 0) continue;
         if (!bind_pipe(g, pipe)) break;
-        VSUniforms u = { g->frame.view_proj, m4_identity(), b->uv_xform, v4(b->planar ? 1.0f : 0.0f, 0, 0, 0) };
+        VSUniforms u = { g->frame.view_proj, m4_identity(), b->uv_xform, v4(b->planar ? 1.0f : 0.0f, g->frame.time, 0, 0) };   // flags.y = time, for the sway in world_inst.vert
         SDL_PushGPUVertexUniformData(g->cmd, 0, &u, sizeof u);
         if (!g->in_shadow) {
             // The per-instance tint rides in the vertex colour, so the material's own tint stays

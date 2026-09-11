@@ -3,7 +3,7 @@
 
 using namespace metal;
 
-struct _82
+struct _146
 {
     float4x4 _m0;
     float4x4 _m1;
@@ -13,70 +13,91 @@ struct _82
 
 struct main0_out
 {
-    float3 m_70 [[user(locn0)]];
-    float3 m_73 [[user(locn1)]];
-    float2 m_125 [[user(locn2)]];
-    float4 m_76 [[user(locn3)]];
+    float3 m_186 [[user(locn0)]];
+    float3 m_189 [[user(locn1)]];
+    float2 m_227 [[user(locn2)]];
+    float4 m_192 [[user(locn3)]];
     float4 gl_Position [[position]];
 };
 
 struct main0_in
 {
-    float3 m_48 [[attribute(0)]];
-    float3 m_66 [[attribute(1)]];
-    float2 m_149 [[attribute(2)]];
-    float4 m_77 [[attribute(3)]];
-    float4 m_12 [[attribute(4)]];
-    float4 m_14 [[attribute(5)]];
-    float4 m_16 [[attribute(6)]];
-    float4 m_18 [[attribute(7)]];
-    float4 m_79 [[attribute(8)]];
+    float3 m_132 [[attribute(0)]];
+    float3 m_182 [[attribute(1)]];
+    float2 m_251 [[attribute(2)]];
+    float4 m_139 [[attribute(3)]];
+    float4 m_98 [[attribute(4)]];
+    float4 m_100 [[attribute(5)]];
+    float4 m_102 [[attribute(6)]];
+    float4 m_104 [[attribute(7)]];
+    float4 m_194 [[attribute(8)]];
 };
 
-vertex main0_out main0(main0_in in [[stage_in]], constant _82& _84 [[buffer(0)]])
+vertex main0_out main0(main0_in in [[stage_in]], constant _146& _148 [[buffer(0)]])
 {
     main0_out out = {};
-    float4 _54 = float4x4(in.m_12, in.m_14, in.m_16, in.m_18) * float4(in.m_48, 1.0);
-    float3 _68 = float3x3(in.m_12.xyz, in.m_14.xyz, in.m_16.xyz) * in.m_66;
-    out.m_70 = _54.xyz;
-    out.m_73 = _68;
-    out.m_76 = in.m_77 * in.m_79;
-    if (_84._m3.x > 0.5)
+    float4 _138 = float4x4(in.m_98, in.m_100, in.m_102, in.m_104) * float4(in.m_132, 1.0);
+    float _145 = 1.0 - in.m_139.w;
+    float3 _352;
+    do
     {
-        float3 _100 = abs(fast::normalize(_68));
-        float _107 = _100.x;
-        float _110 = _100.y;
-        bool _111 = _107 > _110;
-        bool _120;
-        if (_111)
+        if (_145 <= 0.00200000009499490261077880859375)
         {
-            _120 = _107 > _100.z;
+            _352 = float3(0.0);
+            break;
+        }
+        float2 _295 = _138.xz;
+        float _299 = dot(_295, float2(0.115000002086162567138671875, 0.061999998986721038818359375)) - (_148._m3.y * 1.14999997615814208984375);
+        float _318 = (sin(_299) + (0.3400000035762786865234375 * sin((_299 * 2.36999988555908203125) + 1.7000000476837158203125))) * (0.550000011920928955078125 + (0.449999988079071044921875 * sin(dot(_295, float2(0.013500000350177288055419921875, 0.02099999971687793731689453125)) - (_148._m3.y * 0.20999999344348907470703125))));
+        float _322 = (_145 * _145) * 0.300000011920928955078125;
+        _352 = float3((0.87000000476837158203125 * _318) * _322, ((-abs(_318)) * _322) * 0.2199999988079071044921875, (0.4900000095367431640625 * _318) * _322);
+        break;
+    } while(false);
+    float3 _163 = _138.xyz + _352;
+    float4 _341 = _138;
+    _341.x = _163.x;
+    _341.y = _163.y;
+    _341.z = _163.z;
+    float3 _184 = float3x3(in.m_98.xyz, in.m_100.xyz, in.m_102.xyz) * in.m_182;
+    out.m_186 = _341.xyz;
+    out.m_189 = _184;
+    out.m_192 = in.m_139 * in.m_194;
+    if (_148._m3.x > 0.5)
+    {
+        float3 _206 = abs(fast::normalize(_184));
+        float _212 = _206.x;
+        float _214 = _206.y;
+        bool _215 = _212 > _214;
+        bool _223;
+        if (_215)
+        {
+            _223 = _212 > _206.z;
         }
         else
         {
-            _120 = _111;
+            _223 = _215;
         }
-        if (_120)
+        if (_223)
         {
-            out.m_125 = _54.zy * _84._m2.x;
+            out.m_227 = _341.zy * _148._m2.x;
         }
         else
         {
-            if (_110 > _100.z)
+            if (_214 > _206.z)
             {
-                out.m_125 = _54.xz * _84._m2.x;
+                out.m_227 = _341.xz * _148._m2.x;
             }
             else
             {
-                out.m_125 = _54.xy * _84._m2.x;
+                out.m_227 = _341.xy * _148._m2.x;
             }
         }
     }
     else
     {
-        out.m_125 = (in.m_149 * _84._m2.xy) + _84._m2.zw;
+        out.m_227 = (in.m_251 * _148._m2.xy) + _148._m2.zw;
     }
-    out.gl_Position = _84._m0 * _54;
+    out.gl_Position = _148._m0 * _341;
     return out;
 }
 

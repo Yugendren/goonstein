@@ -43,7 +43,11 @@ void main() {
     // than on the sampler because Metal's sampler has no LOD bias at all; a fetch bias is the one
     // spelling all three backends understand.
     vec4 s = texture(tex, v_uv, -0.5);
-    vec4 t = vec4(mix(s.rgb, flatc.rgb, flatc.a), s.a) * v_color * tint;
+    // Alpha-tested cut-out, which is what makes a leaf card a leaf. Opacity is the texture's alpha
+    // times the material's, and deliberately NOT the vertex colour's: that channel now carries the
+    // wind weight the vertex shaders read (see world.vert). It was 1 on every mesh in the game, so
+    // nothing changes colour or opacity by this; it only frees the channel.
+    vec4 t = vec4(mix(s.rgb, flatc.rgb, flatc.a) * v_color.rgb * tint.rgb, s.a * tint.a);
     if (t.a < 0.5) discard;
     t.rgb = pow(t.rgb, vec3(2.2));   // albedo is sRGB; light in linear
     vec3 n = normalize(v_normal);

@@ -234,12 +234,13 @@ bool model_load(Gfx *g, Model *m, const char *path, int max_tex_size) {
             if (m->nmeshes >= MODEL_MAX_MESHES) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s: too many meshes, truncating", path); break; }
             const cgltf_primitive *p = &n->mesh->primitives[pi];
             if (p->type != cgltf_primitive_type_triangles || !p->indices) continue;
-            const cgltf_accessor *pos = NULL, *nrm = NULL, *uv = NULL, *jnt = NULL, *wgt = NULL;
+            const cgltf_accessor *pos = NULL, *nrm = NULL, *uv = NULL, *jnt = NULL, *wgt = NULL, *col = NULL;
             for (size_t a = 0; a < p->attributes_count; a++) {
                 const cgltf_attribute *at = &p->attributes[a];
                 if (at->type == cgltf_attribute_type_position && at->index == 0) pos = at->data;
                 else if (at->type == cgltf_attribute_type_normal && at->index == 0) nrm = at->data;
                 else if (at->type == cgltf_attribute_type_texcoord && at->index == 0) uv = at->data;
+                else if (at->type == cgltf_attribute_type_color && at->index == 0) col = at->data;
                 else if (at->type == cgltf_attribute_type_joints && at->index == 0) jnt = at->data;
                 else if (at->type == cgltf_attribute_type_weights && at->index == 0) wgt = at->data;
             }
@@ -273,6 +274,17 @@ bool model_load(Gfx *g, Model *m, const char *path, int max_tex_size) {
                     if (nrm) cgltf_accessor_read_float(nrm, i, v[i].normal, 3); else v[i].normal[1] = 1;
                     if (uv) cgltf_accessor_read_float(uv, i, v[i].uv, 2);
                     v[i].color[0] = v[i].color[1] = v[i].color[2] = v[i].color[3] = 1;
+                    // COLOR_0's ALPHA is this engine's wind weight, inverted: 1 -- which is what
+                    // glTF means when a mesh has no COLOR_0 at all, and therefore what every
+                    // model in the tree already says -- is rigid, and 0 sways the most (see
+                    // shaders/world.vert). Its RGB is deliberately ignored: a prop's colour is
+                    // its texture and its tint, and a photoscan that happens to carry baked
+                    // vertex colours would otherwise be multiplied by them twice.
+                    if (col) {
+                        float c4[4] = { 1, 1, 1, 1 };
+                        cgltf_accessor_read_float(col, i, c4, 4);
+                        v[i].color[3] = clampf(c4[3], 0.0f, 1.0f);
+                    }
                 }
                 mm->gpu = gfx_mesh_create(g, v, nv, idx, ni_);
                 free(v);
