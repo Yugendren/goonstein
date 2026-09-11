@@ -64,6 +64,7 @@ boss  0 -60 -420 0
 # ================================================================ PELICAN PIER
 # A stone mole, not a timber pier: characters walk on the terrain, so the dock is ground.
 prop models/own/dock_house.part -78 1.60 -112 90 1.0
+prop models/own/arch/dock_house_trim.part -78 1.60 -112 90 1.0
 collider -78 3.20 -112 5 3.2 5
 
 # a paved quay deck laid over the spit, and a low stone kerb round its edge
@@ -146,10 +147,14 @@ prop models/shapes/box.obj -34.3 15.10 -100 72 1.0 stretch 0.55 0.55 2.2 tint 0.
 # ================================================================ VILLA AMBERGRIS
 # cream limestone, colonnades, turquoise roofs, a courtyard opening west toward the arrival road
 prop models/own/villa.part -16 18.00 -68 0 1.0
+prop models/own/arch/villa_facade.part -16 18.00 -68 0 1.0
+prop models/own/arch/villa_trim.part -16 18.00 -68 0 1.0
 collider -16 22.20 -68 20 8.4 12
 prop models/own/villa_wing.part -31 17.86 -78 270 1.0
+prop models/own/arch/wing_facade.part -31 17.86 -78 270 1.0
 collider -31 20.86 -78 10 6.0 8
 prop models/own/villa_wing.part -1 18.00 -78 90 1.0
+prop models/own/arch/wing_facade.part -1 18.00 -78 90 1.0
 collider -1 21.00 -78 10 6.0 8
 
 # courtyard: a round basin and four planted palms
@@ -201,14 +206,24 @@ prop models/shapes/cylinder.obj 16 16.55 -48 0 1 stretch 19.5 0.4 12.5 tint 1.77
 prop models/shapes/cylinder.obj 16 16.90 -48 0 1 stretch 17.6 0.10 10.6 tint 0.17 0.70 1.13 glow 0.03 0.14 0.20 tex pool_tile 0.55
 light 16 18.20 -48 0.24 0.72 0.92 22 0.9
 prop models/own/pool_house.part 8 16.94 -60 180 1.0
+prop models/own/arch/pool_house_facade.part 8 16.94 -60 180 1.0
+# a short flight up onto the pool house's plinth, and the coping ring round the water
+prop models/own/arch/stair_run.obj 8 16.60 -57.0 180 1 stretch 1.0 0.55 0.7 tint 1.77 1.96 2.26 tex paving_stone 0.8
+prop models/own/arch/pool_edge.part 16 16.95 -48 0 1.0
 collider 8 19.44 -60 9 5 5
 prop models/own/cabana.part 30 16.60 -61 90 1.0
+prop models/own/arch/cabana_facade.part 30 16.60 -61 90 1.0
 collider 30 18.60 -61 4.5 4 6
 prop models/own/cabana.part 30 16.60 -52.5 90 1.0
+prop models/own/arch/cabana_facade.part 30 16.60 -52.5 90 1.0
 collider 30 18.60 -52.5 4.5 4 6
 prop models/own/cabana.part 30 16.60 -44 90 1.0
+prop models/own/arch/cabana_facade.part 30 16.60 -44 90 1.0
 collider 30 18.60 -44 4.5 4 6
 prop models/own/cabana.part 30 16.60 -35.5 90 1.0
+prop models/own/arch/cabana_facade.part 30 16.60 -35.5 90 1.0
+# a timber pergola the length of the row, ten bays at the spacing the bay was drawn for
+prop models/own/arch/cabana_pergola.part 26 16.60 -48 0 1.0
 collider 30 18.60 -35.5 4.5 4 6
 light 27 19.60 -48 1.0 0.82 0.55 18 1.0
 
@@ -247,6 +262,7 @@ prop models/own/palm_tall.part 4 16.78 -34 150 1.05
 
 # ================================================================ THE BUNKHOUSE (staff)
 prop models/own/bunkhouse.part -32 15.20 -32 60 1.0
+prop models/own/arch/bunkhouse_facade.part -32 15.20 -32 60 1.0
 collider -32 17.50 -32 15 5 8
 prop models/polyhaven/barrel_03/barrel_03_1k.gltf -25 14.66 -37 30 1.0
 prop models/polyhaven/old_military_crate/old_military_crate_1k.gltf -26.5 14.76 -38.5 -18 1.0
@@ -265,6 +281,8 @@ emitter smoke -33.6 20.40 -33.4 0.2 0.2 0.2 1.1 0.66 0.66 0.64 0.30 3.2
 
 # ================================================================ THE CISTERN (water tower)
 prop models/own/water_tower.part -2 14.99 -4 0 1.0
+# the tank's conical cap, seamed and vented, over the shell's plain dome
+prop models/own/arch/cistern_cap.obj -2 26.19 -4 0 1 tint 1.78 1.86 2.01 tex corrugated 1.2
 collider -2 18.99 -4 5.6 8 5.6
 prop models/shapes/box.obj -9 14.58 -6 20 1 stretch 3.0 1.6 2.2 tint 0.83 0.85 0.91 tex concrete_rough 0.9
 prop models/polyhaven/wooden_barrels_01/wooden_barrels_01_1k.gltf -8 14.51 -1 -20 1.0
@@ -349,6 +367,7 @@ prop models/shapes/box.obj 34 22.00 102.2 -10 1 stretch 3.4 2.6 0.3 tint 1.25 1.
 # Permitted as a 10-foot octagonal music room with a grand piano. Built as a 9-metre striped
 # cube with a gold dome and two metal birds on the roof. The dome left in a hurricane.
 prop models/own/temple.part 0 31.00 126 0 1.0
+prop models/own/arch/temple_facade.part 0 31.00 126 0 1.0
 prop models/own/golden_bird.part -4.6 41.40 121.6 25 1.0 glow 0.35 0.24 0.05
 prop models/own/golden_bird.part 4.6 41.40 121.6 -25 1.0 glow 0.35 0.24 0.05
 # walls, leaving the doorway on the -Z face open

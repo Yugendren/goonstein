@@ -1,0 +1,21 @@
+# dock_house_trim -- the CAD kit's small joinery pieces laid over dock_house.part's shell. Placed
+# in island.txt at the dock house's own origin and yaw, so every coordinate here is its local
+# frame: posts at x/z +/-2.15, deck top at y 0.15, roof eaves at y 2.60, open front faces -z.
+#
+# This is a rough timber shelter, not a plastered building, so only the pieces that read as
+# carpentry go on it. A stair_run climbs from the sand onto the deck at the open front, scaled
+# small since the rise is only 0.15 m -- a full-size kit stair would look like a flight up to a
+# building twice this deck's height, so it is scaled down to a single shallow step rather than
+# built as a separate stair on the quay, which the shell gives no position for anyway. Two
+# lamp_brackets go on the front posts, tinted to the same teak as the rest of the timber instead
+# of the kit's usual metal tint, since a bracket built to match a plastered villa wall would stand
+# out against bare wood. cornice_run and roof_edge_run are both left off the roof entirely: they
+# are a moulded-plaster and barrel-tile vocabulary and neither reads on an open corrugated-tin
+# shed roof -- trimming it would make the shed look like a shrunken villa instead of a dock shed.
+
+# a shallow step up onto the deck at the open front
+piece models/own/arch/stair_run.obj      0.000  0.000  -2.150   0.800 0.200 0.600    0.0 0.0 0.0   1.47 1.25 0.88  tex planks_weathered 2.5
+
+# lamps on the two front posts, teak-tinted to match the timber rather than the kit's usual metal
+piece models/own/arch/lamp_bracket.obj   2.150  1.600  -2.150   1.000 1.000 1.000    0.0 0.0 0.0   1.47 1.25 0.88  tex planks_weathered 2.5
+piece models/own/arch/lamp_bracket.obj  -2.150  1.600  -2.150   1.000 1.000 1.000    0.0 0.0 0.0   1.47 1.25 0.88  tex planks_weathered 2.5

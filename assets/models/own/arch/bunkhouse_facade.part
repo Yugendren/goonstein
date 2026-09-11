@@ -1,0 +1,29 @@
+# bunkhouse_facade -- the CAD kit laid over bunkhouse.part's shell. Placed in island.txt at the
+# bunkhouse's own origin and yaw, so every coordinate here is its local frame: walls at x +/-8 and
+# z +/-3 rising to the wall top at y 3.40, four doors and four small windows on the -z face.
+#
+# This is staff quarters, not the villa, so the dressing stays plain: four plain doors and four
+# small windows at the shell's own positions, and a cornice at the eaves to finish the walls. No
+# columns, no balustrade -- there is nothing on this building for either to sit on. plain_door's
+# own opening (1.00 x 2.20) is already bigger than the shell's 0.9 x 2.1 dark rects in both
+# directions, so it goes on at scale 1 rather than being stretched further; the small windows are
+# scaled down to 0.7 x 0.62 to sit inside their narrower 0.6 x 0.7 rects instead of overhanging
+# them the way a full-size window_small would.
+
+# four doors at the shell's own positions, z -3.0
+piece models/own/arch/plain_door.obj    -6.000  0.400  -3.000   1.000 1.000 1.000    0.0 0.0 0.0   1.47 1.25 0.88  tex planks_weathered 2.5
+piece models/own/arch/plain_door.obj    -2.000  0.400  -3.000   1.000 1.000 1.000    0.0 0.0 0.0   1.47 1.25 0.88  tex planks_weathered 2.5
+piece models/own/arch/plain_door.obj     2.000  0.400  -3.000   1.000 1.000 1.000    0.0 0.0 0.0   1.47 1.25 0.88  tex planks_weathered 2.5
+piece models/own/arch/plain_door.obj     6.000  0.400  -3.000   1.000 1.000 1.000    0.0 0.0 0.0   1.47 1.25 0.88  tex planks_weathered 2.5
+
+# four small windows beside the doors, over the shell's 0.6 x 0.7 rects centred on y 1.95
+piece models/own/arch/window_small.obj  -5.000  1.450  -3.000   0.700 0.620 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/window_small.obj  -1.000  1.450  -3.000   0.700 0.620 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/window_small.obj   3.000  1.450  -3.000   0.700 0.620 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/window_small.obj   7.000  1.450  -3.000   0.700 0.620 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+
+# cornice at the wall top, y 3.40, all four walls
+piece models/own/arch/cornice_run.obj    0.000  3.400  -3.000  16.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/cornice_run.obj    0.000  3.400   3.000  16.000 1.000 1.000  180.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/cornice_run.obj    8.000  3.400   0.000   6.000 1.000 1.000  270.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/cornice_run.obj   -8.000  3.400   0.000   6.000 1.000 1.000   90.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8

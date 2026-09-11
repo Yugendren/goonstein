@@ -439,6 +439,22 @@ AS PART. They become one `assets/models/own/NAME.part` (a list of `piece FILE po
 colour` lines), replaced in the level by a single piece and added to the palette under `own`;
 UNGROUP takes it apart again. A part works as a prop and as a character attachment.
 
+**The architecture kit.** The compound's buildings started as stacked boxes, so their windows were
+black rectangles painted on a wall and their columns were cylinders. `tools/cad/` is a parametric
+CAD kit that dresses them: nineteen pieces -- windows with sills and shutters, doors, an arched
+opening, columns, cornices, balustrades, pantile eaves, stairs, a pergola bay, the Music Room's
+drum and dome -- each one a CadQuery function with named parameters, exported both as
+`tools/cad/out/NAME.step` to open in your own CAD tool and as `assets/models/own/arch/NAME.obj`
+for the game. `assets/models/own/arch/*.part` then lays them over the existing shells at each
+building's own origin, cutting nothing: the black rectangles stay where they are and end up inside
+the new frames' reveals. Rebuild the whole kit with
+`tools/cad/.venv/bin/python tools/cad/build_kit.py`; `tools/cad/README.md` says how to edit a
+piece and drop an OBJ back. Two things worth knowing when you place one: an OBJ prop is loaded
+with a single white texture, so its own UVs are never sampled and `tex NAME TILE` world-projects
+instead, and a piece whose section is constant along its run (a cornice, a coping) may be
+stretched by the `.part`'s scale while one whose features repeat along it (a balustrade, a tile
+course) may not.
+
 **LOOK.** Every lighting, fog, sky, grading and pixel-look value on a slider.
 
 ### Character builder (F3)

@@ -1,0 +1,26 @@
+# cabana_facade -- the CAD kit laid over cabana.part's shell. Placed in island.txt at each
+# cabana's own origin and yaw, so every coordinate here is the cabana's local frame: walls at
+# x +/-3 and z +/-2.25 rising to the wall top at y 2.70, porch faces -z.
+#
+# The shell's door and window rects are already sized close to the kit's own openings, so nothing
+# here needs stretching much. The door's dark rect (1.0 x 2.2 from y 0) is exactly plain_door's
+# own opening, so it goes on at scale 1. The two window rects (0.8 x 0.9 centred on y 1.75) are
+# smaller than window_small's opening, so the piece is scaled down to 0.85 to sit closer to their
+# size rather than towering over the porch posts either side of it. One lamp_bracket goes beside
+# the door at porch-post height; the porch posts and awning plate themselves are left alone.
+
+# door, over the shell's 1.0 x 2.2 dark rect -- exactly the kit door's own opening
+piece models/own/arch/plain_door.obj     0.000  0.000  -2.250   1.000 1.000 1.000    0.0 0.0 0.0   1.47 1.25 0.88  tex planks_weathered 2.5
+
+# windows, over the shell's two 0.8 x 0.9 rects centred on y 1.75
+piece models/own/arch/window_small.obj  -1.800  1.070  -2.250   0.850 0.850 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/window_small.obj   1.800  1.070  -2.250   0.850 0.850 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+
+# cornice at the wall top, y 2.70, all four walls
+piece models/own/arch/cornice_run.obj    0.000  2.700  -2.250   6.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/cornice_run.obj    0.000  2.700   2.250   6.000 1.000 1.000  180.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/cornice_run.obj    3.000  2.700   0.000   4.500 1.000 1.000  270.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/cornice_run.obj   -3.000  2.700   0.000   4.500 1.000 1.000   90.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+
+# lamp beside the door, porch-post height
+piece models/own/arch/lamp_bracket.obj   1.150  1.900  -2.250   1.000 1.000 1.000    0.0 0.0 0.0   1.20 1.10 0.95
