@@ -61,6 +61,14 @@ static bool prop_sphere(Gfx *g, PropCache *pc, PropModel *pm, Vec3 *cen, float *
 // palette per draw and an instance has nowhere to keep one. Such a prop is drawn whole, the old
 // way, rather than half instanced and half not. Asked once per file and cached, because for a
 // .part it means loading and walking the whole assembly.
+// HOLLOW_NOLOD=1 draws the real mesh everywhere, which is the only way to measure what the far
+// stand-ins are worth: the same camera path with and without them, triangles counted both times.
+static bool props_lod_off(void) {
+    static int v = -1;
+    if (v < 0) v = SDL_getenv("HOLLOW_NOLOD") != NULL;
+    return v != 0;
+}
+
 static bool model_has_skin(const Model *m) {
     for (int i = 0; i < m->nmeshes; i++) if (m->meshes[i].skinned) return true;
     return false;
@@ -106,7 +114,7 @@ static void collect_matrix(Gfx *g, PropCache *pc, unsigned sets, bool lod, PropM
         }
         return;
     }
-    bool use_lod = lod && pm->lod_ok;
+    bool use_lod = lod && pm->lod_ok && !props_lod_off();
     const Model *m = use_lod ? &pm->lod : &pm->model;
     const ModelPose *pose = use_lod ? &pm->lod_rest : &pm->rest;
     for (int i = 0; i < m->nmeshes; i++) {
