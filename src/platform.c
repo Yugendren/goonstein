@@ -51,8 +51,7 @@ bool platform_init(Platform *pf, const char *title, int w, int h) {
         NULL);
     if (!pf->gpu) return false;
     if (!SDL_ClaimWindowForGPUDevice(pf->gpu, pf->window)) return false;
-    SDL_SetGPUSwapchainParameters(pf->gpu, pf->window,
-                                  SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_getenv("HOLLOW_NOVSYNC") && SDL_WindowSupportsGPUPresentMode(pf->gpu, pf->window, SDL_GPU_PRESENTMODE_IMMEDIATE) ? SDL_GPU_PRESENTMODE_IMMEDIATE : SDL_GPU_PRESENTMODE_VSYNC);
+    platform_set_vsync(pf, SDL_getenv("HOLLOW_NOVSYNC") == NULL);
 
     SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(pf->gpu));
     SDL_SetWindowRelativeMouseMode(pf->window, true);
@@ -272,11 +271,43 @@ void platform_begin_frame(Platform *pf) {
     if (pf->console_win && !SDL_AcquireGPUSwapchainTexture(pf->cmd, pf->console_win, &pf->console_swap, &pf->console_w, &pf->console_h)) pf->console_swap = NULL;
 }
 
+const char *platform_present_mode_name(const Platform *pf) {
+    switch (pf->present_mode) {
+    case SDL_GPU_PRESENTMODE_IMMEDIATE: return "immediate";
+    case SDL_GPU_PRESENTMODE_MAILBOX:   return "mailbox";
+    default:                            return "vsync";
+    }
+}
+
+// Turning vsync off is a request with three possible answers, and which one the driver gives
+// decides whether any frame-time number from this process means anything.
+//
+//   IMMEDIATE  present the moment the frame is done. Tears. The only mode that measures the
+//              renderer rather than the display.
+//   MAILBOX    render uncapped, show the newest finished frame at the refresh. No tearing, and
+//              the CPU/GPU still run flat out, so frame times are still the renderer's.
+//   VSYNC      block on the display. Every number becomes a multiple of the refresh period.
+//
+// Metal on this Mac reports IMMEDIATE as supported and then refuses SDL_SetGPUSwapchainParameters
+// for it on some window configurations, which is how `HOLLOW_NOVSYNC=1` used to come back silently
+// capped: the call failed, nobody looked at the return value, and 9.98 ms medians were the 100 Hz
+// panel talking. So try the modes in order, check what each call returns, and keep the first that
+// takes. The mode that won is logged and available to the profiler and the benchmark.
 void platform_set_vsync(Platform *pf, bool on) {
     pf->vsync = on;
-    SDL_GPUPresentMode want = on ? SDL_GPU_PRESENTMODE_VSYNC : SDL_GPU_PRESENTMODE_IMMEDIATE;
-    if (!on && !SDL_WindowSupportsGPUPresentMode(pf->gpu, pf->window, want)) want = SDL_GPU_PRESENTMODE_VSYNC;
-    SDL_SetGPUSwapchainParameters(pf->gpu, pf->window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, want);
+    SDL_GPUPresentMode order[3]; int n = 0;
+    if (on) order[n++] = SDL_GPU_PRESENTMODE_VSYNC;
+    else { order[n++] = SDL_GPU_PRESENTMODE_IMMEDIATE; order[n++] = SDL_GPU_PRESENTMODE_MAILBOX; order[n++] = SDL_GPU_PRESENTMODE_VSYNC; }
+    for (int i = 0; i < n; i++) {
+        if (!SDL_WindowSupportsGPUPresentMode(pf->gpu, pf->window, order[i])) continue;
+        if (!SDL_SetGPUSwapchainParameters(pf->gpu, pf->window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, order[i])) continue;
+        pf->present_mode = order[i];
+        SDL_Log("present mode: %s (asked for %s)", platform_present_mode_name(pf), on ? "vsync" : "no vsync");
+        return;
+    }
+    // Nothing took, not even VSYNC: whatever the swapchain was created with is what we have.
+    pf->present_mode = SDL_GPU_PRESENTMODE_VSYNC;
+    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "present mode: no requested mode accepted (%s); frame times are the display's, not the renderer's", SDL_GetError());
 }
 
 void platform_end_frame(Platform *pf) {
