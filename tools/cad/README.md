@@ -1,3 +1,22 @@
+# The architecture kit, and the buildings it goes on
+
+There are two halves to this folder. The **kit** makes *pieces* -- a window, a door, a column, a
+cornice -- that hang on a wall. The **shells** make the wall: whole buildings, with thickness,
+with the openings cut through them that those pieces then sit in. Read the kit first; the shells
+obey the same frame and the same colour rules, and reuse its pieces.
+
+    tools/cad/kitlib.py        the kit's contract
+    tools/cad/pieces/*.py      the pieces
+    tools/cad/build_kit.py     the kit's driver
+    tools/cad/shelllib.py      the shell contract: walls, openings, roofs, verandas, arcades
+    tools/cad/shells/*.py      the buildings, one function each
+    tools/cad/shells/extras/   the hand-placed bits appended to a generated .part
+    tools/cad/build_shells.py  the shell driver
+    tools/cad/obj_stage.py     the Blender half, shared by both
+    tools/cad/shell_stage.py   the same, once per material group of a building
+
+Jump to [The buildings](#the-buildings) for the shells.
+
 # The architecture kit
 
 The compound started as stacked boxes: a window was a black rectangle painted on a wall, a column
@@ -127,3 +146,162 @@ The dome is worth a note. `assets/levels/island.txt` says the Music Room's dome 
 hurricane", so the drum is what stands on the roof and the dome itself lies on the ground beside
 the podium where the weather put it. The piece is still in the kit, still parametric, and putting
 it back on the drum is one line.
+
+---
+
+# The buildings
+
+Every building on this island used to be a stack of boxes with a black rectangle painted on for
+each window, a wedge for each roof slope, and a cylinder for each column. The kit dressed those
+boxes. The shells replace them.
+
+A shell is a building generated the way a building is built:
+
+  * walls with a real thickness -- 0.30 m, 0.45 m on the Music Room -- so the opening cut through
+    one has a **reveal** you can see down, and a doorway has jambs;
+  * openings **cut**, not painted. There is no black rectangle anywhere in this folder. Behind
+    each hole is either a room with a floor, or a dark panel set back at the inner wall face;
+  * a rebate round each hole, exactly as deep as the kit frame's architrave projects, so the
+    frame sits **in** the wall and finishes flush instead of standing on it like a picture frame;
+  * a roof that **oversails** its walls by half a metre or more and stops at a beaded tile
+    course, which is the single change that most stops a building reading as a box: it puts the
+    top of the wall in shadow;
+  * plinths, steps, verandas you can stand on, parapets, chimney and vent stacks, and -- in the
+    pool house -- an arcade of true semicircular arches rather than a cylinder laid on two piers.
+
+## Regenerating them
+
+    tools/cad/.venv/bin/python tools/cad/build_shells.py                  # everything
+    tools/cad/.venv/bin/python tools/cad/build_shells.py villa --groups   # one, with the split
+    tools/cad/.venv/bin/python tools/cad/build_shells.py --list
+
+Each building writes three things:
+
+    tools/cad/out/NAME.step                 the editable CAD body, coloured per group
+    assets/models/own/shell/NAME_SKIN.obj   one game mesh per distinct skin
+    assets/models/own/NAME.part             the whole building: those meshes, the kit frames
+                                            that sit in its reveals, and any hand-placed extras
+
+**The .part is generated. Do not hand-edit it** -- rebuilding overwrites it exactly as it
+overwrites the OBJ, and `git status` will tell on you. Hand-placed things go in
+
+    tools/cad/shells/extras/NAME.part          the fabric: benches, air conditioners, planters
+    tools/cad/shells/extras/NAME_facade.part   the dressing: cornice runs, lamps, a colonnade
+
+and are appended verbatim.
+
+A building is ONE .part on purpose. `src/props.c` caches a .part in the same 192-slot table it
+caches a model in, and this island was already close enough to that ceiling that a second prop
+line per building to place its facade cost a slot, a draw and a line in the level for nothing --
+a .part can place a kit OBJ perfectly well itself. The same pressure is why `build_shells.py`
+fuses any two groups that ask for the same texture, the same tile and the same tint into one
+mesh: two groups are only ever two files because `tex` is per file.
+
+## Why a building is several OBJs
+
+`tex NAME TILE` in a .part is per *piece*, which means per model file: one OBJ can wear exactly
+one world texture. A villa needs plaster on its walls, tile on its roof and paving underfoot, so
+a shell is exported once per distinct skin -- `floor`, `wall`, `trim`, `roof`, `wood` and so on
+-- and the .part stacks those four or five meshes at the same origin. That is four or five draw
+calls for a whole villa where there used to be forty-seven boxes, and four cabanas still batch
+into the same instanced draw per group.
+
+Two consequences worth knowing:
+
+  * `src/model.c` rebases **every** OBJ's lowest vertex to Y = 0 as it loads it. A roof exported
+    at 2.7 m would therefore arrive sitting on the ground. The generated .part puts each group
+    back at the height it was drawn at -- that is what the `y` on each `piece` line is -- so a
+    building cannot come apart into a wall, a roof and a floor all stacked at zero.
+  * a group's colour is kitlib's `paint`, the same 0.78 grey as `assets/models/shapes/paint.mtl`,
+    unless the colour is the point. Every tint already written against a box therefore still
+    means exactly what it meant on a box, and the compound's palette did not move.
+
+## The frame
+
+Same convention as the kit, for the same reason:
+
+    +Z up, and the base of the building at Z = 0.
+    +Y is the FRONT: the -90 about X on export turns cad +Y into game -Z, which is the way
+      every building on this island faces.
+    +X is the width, as in game.     game (x, y, z) = cad (x, z, -y)
+
+The origin is the middle of the footprint -- the point `assets/levels/island.txt` places. Only
+the Z = 0 rule is exact; X and Y are checked with a couple of metres of slack, because a porch
+or a veranda legitimately pushes the bounding box off centre.
+
+## Openings, and how a frame finds its hole
+
+`shelllib.Walls` is the thing to reach for. It cuts the hole *and* emits the kit piece that
+sits in it, from one call:
+
+    w = Walls(20.0, 12.0, 5.4, t=0.30, z0=0.20)
+    w.kit("french_door", "front", u=0.0, z0=0.0)
+    for u in (-7.2, -4.8, -2.4, 2.4, 4.8, 7.2):
+        w.kit("window_large", "front", u=u, z0=1.10)
+    groups["wall"].append(w.solid())
+    groups["dark"] += w.linings()
+    groups["floor"].append(w.floor())
+    return groups, w.fits
+
+`w.fits` is what `build_shells.py` writes into the second half of the building's .part, already
+in game coordinates and already turned to face out of its wall, so a window frame and the reveal
+it sits in can never drift apart again. `shelllib.KIT` carries what each kit piece measures;
+`Walls.place` is for a piece with no hole behind it, like a lamp bracket.
+
+`Walls(..., lined=False)` is the other half of the same idea. A lining is a dark panel set at the
+back of an opening -- the room beyond, for a building that has no room beyond. Once a ring has a
+floor and a roof over it the lining stops being the room and starts being a black rectangle
+painted over the room, and from *inside* it is a black rectangle painted over the window. Every
+building with a floor turns it off.
+
+A door's hole is dropped to the floor automatically. The kit's threshold and the bottom member
+of its architrave stand 0.15 m high, and cutting the hole only as far as the opening would leave
+a knee-high bar of wall across a doorway you are meant to walk through.
+
+## Editing a building in CAD and dropping it back
+
+The same two paths the kit has, and the same trade:
+
+1. **Change the numbers.** Open `tools/cad/shells/NAME.py`, change a wall height or a window
+   position, rerun `build_shells.py NAME`. This is the path that survives.
+2. **Open the body.** `tools/cad/out/NAME.step` is the real solid, coloured per group, Z up, in
+   metres. Change it in your own CAD tool, export each group you changed as an STL or OBJ in
+   millimetres or metres, Z up, and run it through the same stage the shells use:
+
+       blender -b --python tools/cad/shell_stage.py -- \
+           assets/models/own/shell wall:paint:c7c7c7:/path/to/your_walls.stl
+
+   The arguments are `group:material:hexcolour:file`, one per group, and the output lands at
+   `OUTDIR/PREFIX_GROUP.obj`. Remember that the .part's `y` for that group is the height the
+   group was drawn at -- if your edit moved the bottom of the group, edit the generator instead,
+   because the next `build_shells.py` will overwrite the .part anyway.
+
+Either way `assets/levels/island.txt` does not change, because the building keeps its name, its
+origin and its footprint.
+
+## Colliders
+
+A shell is geometry; what stops you is still `assets/levels/island.txt`. Three shapes of rule:
+
+  * a building whose inside you are not meant to enter keeps its single `collider` box round the
+    walls;
+  * the villa is four thin `collider` boxes, one per wall, with a 1.8 m gap in the front one
+    where the door is -- which is how you walk in;
+  * a veranda or a quay deck gets `collide R H deck` (or a `collider` box the height of the
+    slab), so the players stand on it rather than walking through it.
+
+The generated .part can also declare `collide R H [deck]` for itself, which every prop placed
+from it inherits; see `src/part.h`. Most buildings say it in the level instead, because the
+level is where a footprint's neighbours are.
+
+## Budget
+
+Every shell declares its own triangle budget and the build fails if the geometry overshoots.
+**Nothing is decimated.** A collapse modifier is fine on a 2000-triangle window and ruinous on a
+building: the first things it eats are the window reveals and the eave line, which are the whole
+reason any of this exists. If a building is over, take geometry out of it.
+
+Curves are what cost. Use `shelllib.post(..., sides=8)` rather than a tessellated cylinder, and
+never model individual roof tiles -- `eave_course` is a swept ring on purpose. Seventy metres of
+villa eave at one barrel tile every 400 mm is seven thousand triangles for a pattern the
+`roof_tile` texture already draws.

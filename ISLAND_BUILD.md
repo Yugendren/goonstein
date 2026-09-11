@@ -70,14 +70,29 @@ b, c and d stand on the pier as `npc` lines with a talk scene each
 
 ### Parts
 
-New assemblies in `assets/models/own/`, all built from `models/shapes/*.obj` with flat tints:
+New assemblies in `assets/models/own/`. The small ones -- `sun_lounger`, `golden_bird`,
+`palm_tall`, `palm_bent`, `scrub`, `cactus`, `sea_rock`, `boat` -- are still built from
+`models/shapes/*.obj` with flat tints, which is all a lounger needs.
 
-`boat`, `dock_house`, `shed_blue`, `villa`, `villa_wing`, `cabana`, `pool_house`, `bunkhouse`,
-`sun_lounger`, `water_tower`, `service_shed`, `temple`, `golden_bird`, `palm_tall`, `palm_bent`,
-`scrub`, `cactus`, `sea_rock`.
+**Every building is not.** `villa`, `villa_wing`, `cabana`, `pool_house`, `bunkhouse`,
+`shed_blue`, `service_shed`, `water_tower`, `dock_house` and `temple` are generated as CadQuery
+solids by `tools/cad/build_shells.py` -- walls with a real thickness and openings cut through
+them, roofs that oversail their walls, plinths, verandas, an arcade of true arches -- and their
+`.part` files, and the `arch/*_facade.part` files that seat the kit's frames in their reveals,
+are written by that same script. **Do not hand-edit those .part files**; edit
+`tools/cad/shells/NAME.py` (or `tools/cad/shells/extras/NAME.part` for hand-placed clutter) and
+rebuild. See `tools/cad/README.md`.
 
-The temple's stripes are ten full-plan boxes stacked with alternating tints, which is why a
-9.5 m striped cube costs ten pieces.
+One thing to know before moving a building: a shell is several OBJs, one per material group,
+because `tex NAME TILE` is per model file. The `y` on each generated `piece` line is the height
+that group was drawn at, put back, because `src/model.c` rebases every OBJ's lowest vertex to
+zero. Nothing in the level file needs to know that -- but if you ever see a roof lying on the
+ground, that is why.
+
+The temple's stripes used to be ten full-plan boxes stacked with alternating tints. They are now
+courses modelled on the outside of a real 0.45 m wall, the cobalt ones standing proud with
+chamfered edges so each throws its own shadow line, returned in their own group so the level can
+still retint them independently.
 
 ---
 
