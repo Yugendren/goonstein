@@ -526,14 +526,284 @@ export a new glTF over an old one, or save from the tools, and the world updates
 
 ### Performance budget
 
-Props are culled per pass against the camera and the sun frustum, and skipped when smaller than a
-few pixels; bounding spheres are cached per file. A generated world with 1779 pieces draws about
-30 pieces at the play camera and about 200 at a wide editor view, at 4 to 7 ms a frame on an M4
-with shadows on. Textures cap at 512 for props. The debugger shows frame time, draw calls and the
-drawn/culled counts; `HOLLOW_NOVSYNC=1` and the `perf:` line at exit measure headlessly. Terrain is
-one flat-white mesh with per-vertex biome colours (cheap, but smooth at 3.5m cells); if
-`assets/textures/ground_detail.*` exists it is multiplied on top with world-space planar UVs, tinted
-by 1/its mean colour so the biome palette is unchanged — grain, not a repaint.
+Three target machines: an M4 Mac at 144 Hz and 1080p, an RTX 3060 at 1440p, and an
+integrated-GPU laptop at 1080p60. Only the first one has ever run this code, so everything below
+is a measurement on that machine and a set of levers for the other two.
+
+#### Where the frame goes
+
+`src/prof.c` is a CPU stopwatch per phase with a 4096-frame history. It shows on the F1 overlay as
+a bar list and prints as a `prof:` block at exit, into `hollow.log` and stdout:
+
+    prof: assets/levels/island.txt  frames 339  (median ms / p90 ms)
+    prof:   frame            9.936  14.018
+    prof:   input            0.027   0.039
+    prof:   tick             0.047   0.061
+    prof:   render           9.753  11.156
+    prof:     cull           0.000   0.000
+    prof:     shadow         4.356   4.983
+    prof:     world          5.155   5.827
+    prof:     water          0.002   0.002
+    prof:     particles      0.093   0.097
+    prof:     post           0.090   0.112
+    prof:     ui             0.008   0.010
+    prof:   present_wait     0.014   3.545
+    prof:   submit           0.015   0.021
+    prof:   counters draws 9160 instances 9160 tris 9141225 batches 0 props_drawn 1296 props_culled 814
+    prof:   input->present 9.89 ms (median)
+
+That is the island on 2026-09-11, before any of the work below. It says the whole thing: 9.9 ms a
+frame, of which 9.75 is the CPU writing 9160 draw calls into a command buffer, 0.047 is the
+simulation, and 0.014 is time spent waiting for the GPU. The island was not GPU bound and it was
+not simulation bound. It was bound by the number of times the CPU said "draw".
+
+It does **not** measure GPU time. SDL3's GPU API has no timestamp queries of any kind, so there is
+nothing to ask. `present_wait` stands in: it is the time the CPU spends blocked waiting for an
+image to draw into, so a large value means the GPU is behind and a small one means it is not.
+`input->present` is the gap between the input poll returning and the frame being handed to the
+driver -- a floor under the real input-to-photon latency, not the whole of it, since the display's
+own pipeline is past where this can see.
+
+#### Measuring anything at all: the two switches
+
+`HOLLOW_NOVSYNC=1` asks for no vsync. It used to ask for `IMMEDIATE`, ignore what
+`SDL_SetGPUSwapchainParameters` returned, and leave the caller believing an uncapped run when the
+swapchain had quietly stayed on `VSYNC`. It now walks IMMEDIATE -> MAILBOX -> VSYNC, checks the
+setter's return value, and logs the mode that actually won:
+
+    present mode: immediate (asked for no vsync)
+
+That is still not enough to measure a renderer on macOS. With IMMEDIATE, an **empty** level costs
+5.7 ms a frame and 5.1 of them are inside `SDL_WaitAndAcquireGPUSwapchainTexture`. That is the
+window server handing out drawables at its own pace, and it puts a floor of about 120 frames a
+second under every number this project can produce. Below the floor you are timing the compositor:
+removing the entire shadow pass -- 246 draw calls and 1.3 million triangles -- moved the measured
+frame time by nothing at all.
+
+So `HOLLOW_NOPRESENT=1` acquires no swapchain image and draws the frame into the off-screen targets
+it was always drawn into, including a stand-in of the swapchain's own size and format so the final
+upscale to the window's real pixel count is still paid for. The CPU is held two frames ahead of the
+GPU with a fence, which is the backpressure the swapchain used to provide, so what comes out is the
+renderer's throughput rather than how fast the CPU can fill a command buffer. Nothing appears on
+screen while it is on.
+
+    island, third person, 400 frames, HOLLOW_FIXED_DT
+      IMMEDIATE      frame 8.24 ms   present_wait 5.66   <- the floor
+      NOPRESENT      frame 6.02 ms   present_wait 3.47
+    corridor, an almost empty level
+      IMMEDIATE      frame 5.69 ms   present_wait 5.13   <- all floor
+      NOPRESENT      frame 3.71 ms   present_wait 2.89
+
+#### The benchmark
+
+    ./build/bin/goonstein --bench bench.json --bench-shots /tmp/shots --volume 0
+
+Four fixed paths over the island, 60 warm-up frames and 600 measured frames each, one tick per
+rendered frame so two runs land on the same tick of the same frame:
+
+| path | what it is |
+|---|---|
+| `pier` | walking the stone mole in first person, the real physics and the real first-person camera |
+| `courtyard` | third person orbiting the Villa Ambergris colonnade |
+| `summit` | third person looking across the island from the eastern high point -- the heavy one |
+| `shootout` | four seated goons circling each other with a bat, a pistol, a wrench and a shotgun |
+
+It writes `bench.json`: median and p90 frame time, every profiler phase, and the draw / instance /
+triangle / batch counts per path. `--bench-shots DIR` drops a PNG of each path so a human can check
+that `summit` is still looking at the island. A bench run sets `HOLLOW_NOPRESENT` for the reason
+above, forces the island level, skips the menu and never writes to `settings.txt`.
+
+`tools/bench_check.py BASELINE NEW [--tol 0.15]` compares a run against `bench_baseline.json` and
+fails any path more than 15% slower. The baseline is keyed by **machine tag** --
+`driver/platform/cores`, e.g. `metal/macOS/10` -- because 1.8 ms a frame is a fact about one M4 and
+a lie about anything else. A tag with no entry means "nothing to compare against". The `bench` job
+in `.github/workflows/ci.yml` runs this on `macos-latest` and uploads the JSON.
+
+#### What it costs now
+
+One binary, one Release build, one machine (M4, 1280x800 internal, `HOLLOW_NOPRESENT`, best of four
+runs each). "Before" is the same binary at `--quality high` with
+`HOLLOW_NOINSTANCE=1 HOLLOW_NOLOD=1 HOLLOW_NOMIP=1`, which undo instancing, the far LODs and
+mipmapping and leave the shadow map and texture caps where this game always had them -- so this
+compares one thing, not two builds of two commits. "After" is the shipping default, `quality normal`.
+
+| path | before | after | | draws | | triangles | |
+|---|---|---|---|---|---|---|---|
+| `pier` | 4.522 ms | **1.912 ms** | -58% | 5703 | **551** | 7 025 905 | **2 706 696** |
+| `courtyard` | 4.405 ms | **1.712 ms** | -61% | 3665 | **507** | 3 739 822 | **1 945 250** |
+| `summit` | 6.173 ms | **2.072 ms** | -66% | 6323 | **537** | 10 052 497 | **3 484 922** |
+| `shootout` | 4.437 ms | **1.894 ms** | -57% | 3940 | **622** | 4 091 213 | **2 200 094** |
+
+Draw counts are both passes together, the sun's and the camera's.
+
+#### Instancing
+
+One draw per (mesh, texture, uv mapping, glow), not one per object. A palm is
+`assets/models/own/palm_tall.part`, thirty boxes and cylinders with a tint each, and the island
+stands a hundred and fifteen of them: 3450 draw calls for two meshes and two textures. Everything
+that differed was a matrix and a green, so the matrix and the tint moved onto a per-instance vertex
+stream (`shaders/world_inst.vert`) and the tint reaches the fragment shader through the vertex
+colour, which is exactly where `lit.frag` already multiplied the material tint in. Same arithmetic,
+same pixels.
+
+The shadow pass is instanced too, with its own culled set. Both sets are built in one walk over the
+level before either render pass opens, because an upload is a copy pass and a copy pass cannot run
+inside a render pass. Instances arrive in level order and a draw needs them contiguous, so the
+batch counts become offsets and each item is scattered into place: one pass to collect, one to
+place, no sort.
+
+Collecting cost more than the draws it replaced until the two things it did per prop per pass
+stopped being done per prop per pass: a `.part`'s piece names were resolved by `strcmp` against
+every loaded file, and its piece matrices were built from three angles in degrees -- 41 000 sines a
+frame for the palms alone. Both are constant for the life of the file; both are cached.
+
+A prop with a skinned mesh anywhere in it cannot be instanced (skinning wants a joint matrix palette
+per draw) and is drawn whole, the old way, off a small fallback list. The island, the lantern level
+and the glade have none.
+
+#### Triangles: far LODs
+
+`tools/make_lods.sh` decimates every island prop over 8000 triangles into a `<model>.lod.glb`
+beside it, with headless Blender. The originals are untouched. A pachira is a background shrub and
+it is 76 914 triangles; a cheiridopsis succulent, a thing the size of a dinner plate, is 82 438.
+Two thirds of the frame's triangles were plants drawn at a size where you could not count their
+leaves if you tried.
+
+`props.c` uses the stand-in for **every shadow-map instance** -- a shadow is a silhouette, it does
+not care -- and for anything under about ninety pixels across (radius over distance below 0.04, ten
+times the threshold at which a prop is dropped entirely). A shrub a metre across keeps its real mesh
+out to twenty-five metres. The LOD's textures load capped at 256.
+
+    island, two fixed cameras, 400 frames
+      wide view   11 919 004 tris  7.357 ms  ->  3 959 394 tris  2.994 ms
+      close view   3 173 545 tris  2.335 ms  ->  1 414 741 tris  1.675 ms
+
+Draw calls do not move: this is the GPU's half of the problem and instancing was the CPU's.
+
+#### Mipmaps
+
+Until 2026-09-11 every texture in this tree was one mip level, so a 1024-pixel photoscan on a shrub
+forty metres away sampled one texel in twenty out of a texture the cache could not hold: the worst
+case for bandwidth and the worst case for aliasing at once. The world sampler even asked for
+`SAMPLERMIPMAPMODE_LINEAR` and got nothing, because `max_lod` defaults to 0.
+
+Every texture now has a full chain, filled by `SDL_GenerateMipmapsForGPUTexture`, and the world
+sampler has `max_lod` and 8x anisotropy. The nearest and clamp samplers -- pixel art, the UI, the
+single-level render targets, the shadow map -- never ask above level zero, so the pixel look is
+untouched. `lit.frag` biases the fetch by -0.5 levels, because without it the ground detail texture
+averages to its own mean by the middle distance and the beach goes flat cream. The bias is in the
+shader and not on the sampler because Metal's sampler has no LOD bias at all.
+
+This is the one deliberate visible change in this work: far textures stop shimmering. On an M4 it
+is worth 3-5% of the frame; on a laptop chip with no cache to hide behind it should be worth much
+more, and that is the machine it is for.
+
+#### Quality tiers
+
+`assets/settings.txt`, key `quality`, one of `potato`, `normal`, `high`; `--quality NAME`
+overrides. The tier shows on the F1 overlay and in the menu's corner.
+
+| | render scale | shadow map | texture cap | HDR target | scatter | far plane |
+|---|---|---|---|---|---|---|
+| `potato` | 0.66 | 512 | 256 | `R11G11B10` | 50% | 70% |
+| `normal` | 1.00 | 1024 | 1024 | `RGBA16F` | 100% | 100% |
+| `high` | 1.00 | 2048 | 2048 | `RGBA16F` | 100% | 100% |
+
+`src/quality.h` holds that table and nothing else in the tree names those numbers.
+
+Scatter thinning drops half of the props that both have a far LOD and are under three metres
+across -- the grass, the plants and the small rocks, not the buildings or the boat or the
+pavilion -- chosen by a hash of the prop's index in the level, so the same ones are gone every
+frame and on every run. The far plane comes in to 70% with the fog scaled to match (`fog_start`
+down, density up by the same factor), so the total fog opacity reached at the far plane is
+unchanged and potato draws less distance rather than the same distance behind thicker fog.
+
+On the first run, with no `quality` line in `settings.txt`, the game guesses from what SDL will
+actually tell it -- `SDL_GetGPUDeviceDriver`, the logical core count and the system RAM, since
+SDL3's GPU API exposes no device name at all -- and then checks the guess: two seconds of real
+play, and if the median frame is over 12 ms it drops a tier and writes the answer back to
+`settings.txt`. It only ever drops.
+
+    --bench, this M4, best of four runs, ms per frame
+                pier   courtyard  summit  shootout
+      potato   1.370     1.285    1.627    1.373
+      normal   1.929     1.713    2.072    1.927
+      high     1.947     2.039    2.164    2.736
+
+**`normal` and `high` measure the same on an M4.** The only thing between them is the shadow map,
+1024 against 2048, and on this chip that costs nothing while it does visibly soften the shadow of
+every branch and leaf (11.95% of pixels differ between the two, 5.62% by more than 8 of 255, all of
+it in the sun shadow's edges). So the default tier ships a softer shadow than this game had before
+and buys nothing for it *here*. It is still the right ladder for a laptop chip, where a 2048x2048
+depth pass is sixteen times the fill of a 512 one. If the softer default is not wanted, `quality
+high` is one line in `settings.txt`.
+
+The benchmark does not open a microphone: voice encodes Opus on the game thread at a bitrate that
+varies with what the room sounds like, which showed up as the `shootout` path swinging between 2.1
+and 3.7 ms from run to run while its draw counts stayed identical to the draw. Even so, an idle M4
+still swings about 40% on two of the four paths at 1.8 ms a frame, so `bench_check.py` takes
+several runs and uses the lowest median per path, and the CI job runs the bench twice. Noise only
+ever adds time, so of N runs of identical work the fastest is the one closest to what the work
+costs.
+
+#### Netcode
+
+The packet build and parse are O(players + items) with no allocation anywhere in `netgame.c` or
+`net.c`. `assets/levels/netbench.txt` is the lantern level with the item list filled to 64 so that
+can be sized: a host plus three bot clients on loopback, four players seated, 64 items.
+
+    host tick     0.031 ms median   0.180 ms p90     (a tick's budget is 16.7 ms)
+    host out      22 kB/s, 90 packets/s, ~243 B each
+    corrections   0        hard snaps 0        dropped 0
+
+64 items instead of 12 moved the host's outbound from 13 to 22 kB/s and the tick by nothing
+measurable. See "Headless four-process test" for how to run it.
+
+#### The rest of the frame
+
+- **Light culling.** `lit.frag` loops over every light it is given for every fragment -- sixteen of
+  them, each with a square root and no early out -- and the island declares seventeen spread over
+  three hundred metres. A point light of radius R can only change a surface within R of it, so a
+  light whose sphere is outside the view frustum is dropped. This is a cull, not a heuristic: the
+  frame comes out byte-identical. It buys nothing measurable on an M4 and is for the machines that
+  are short of fragment throughput.
+- **No per-frame filesystem or environment calls.** `level_reload_if_changed` asked the disk
+  whether the level file had changed once per *tick*; it is now once a second, like every other hot
+  reload here. `game_render_at` asked SDL nine environment questions a frame, and SDL keeps the
+  environment behind a mutex; they are read once now.
+- **No per-frame allocation** anywhere in the tick or the render path. The terrain mesh and the sea
+  are dirty-gated, the UI vertex upload is sized to the vertices actually written and batched by
+  texture, and the instance stream is one buffer allocated at startup.
+- **MSAA** is off and has never been on: no pipeline in `gfx.c` sets a sample count.
+- **Bloom** already runs at quarter resolution and is skipped entirely when the level asks for
+  `bloom 0`; the particle pass is skipped when there are no particles; the shadow pass is skipped
+  when the sun is below the horizon.
+
+#### Checking any of it yourself
+
+Every claim above can be undone in the binary you have:
+
+| | |
+|---|---|
+| `HOLLOW_NOINSTANCE=1` | one draw per prop piece, as it was before instancing |
+| `HOLLOW_NOLOD=1` | the real mesh everywhere, never a far stand-in |
+| `HOLLOW_NOMIP=1` | every world texture fetch pinned to level 0, no anisotropy |
+| `HOLLOW_NOSHADOW=1` | no sun shadow pass |
+| `HOLLOW_NOPART=1` | no particles |
+| `HOLLOW_NOPRESENT=1` | no compositor in the loop (see above) |
+| `HOLLOW_NOVSYNC=1` | ask for IMMEDIATE, then MAILBOX |
+| `HOLLOW_FIXED_DT=1` | one tick per rendered frame, so two runs are comparable |
+
+#### What has not been tested
+
+Every number here is an Apple M4 with unified memory and a large cache. The two machines this work
+is actually aimed at -- a discrete RTX 3060 and an integrated laptop GPU -- have not drawn a frame
+of it. The changes most likely to matter there and least likely to show here are exactly the ones
+with the smallest numbers above: mipmaps and anisotropy (texture bandwidth), light culling
+(fragment ALU), the potato tier's `R11G11B10` HDR target (half the bandwidth on a target the world
+pass writes and two later passes read), and the render scale. A real test needs someone to run
+`--bench` on those machines and send back `bench.json`; the machine tag in it is what tells the
+baseline which numbers are whose.
 
 ### Headless Blender (installed with Homebrew, never opened)
 

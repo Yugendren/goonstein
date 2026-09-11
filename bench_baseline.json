@@ -4,16 +4,16 @@
   "machines": {
     "metal/macOS/10": {
       "pier": {
-        "frame_ms_median": 1.929
+        "frame_ms_median": 1.912
       },
       "courtyard": {
-        "frame_ms_median": 1.713
+        "frame_ms_median": 1.712
       },
       "summit": {
         "frame_ms_median": 2.072
       },
       "shootout": {
-        "frame_ms_median": 1.927
+        "frame_ms_median": 1.894
       }
     }
   }
