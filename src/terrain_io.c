@@ -22,7 +22,7 @@ static float decode_height(uint16_t v) {
 }
 
 bool terrain_save(const Terrain *t, const char *asset_dir) {
-    const int n = TERRAIN_N;
+    const int n = t->n;
     uint8_t *hbuf = malloc((size_t)n * (size_t)n * 4);
     uint8_t *cbuf = malloc((size_t)n * (size_t)n * 4);
     if (!hbuf || !cbuf) {
@@ -115,33 +115,39 @@ bool terrain_load(Terrain *t, const char *asset_dir, const char *file) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "terrain_load: cannot decode %s", hpath);
         return false;
     }
-    if (hw != TERRAIN_N || hh != TERRAIN_N) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "terrain_load: %s is %dx%d, expected %dx%d",
-                     hpath, hw, hh, TERRAIN_N, TERRAIN_N);
+    // The grid a terrain uses can be any of a few power-of-two-plus-one sizes up to TERRAIN_N (the
+    // island's 257 for its finer 1.75 m cell); anything else is not a size terrain.c ever built.
+    int n = hw;
+    bool n_ok = hw == hh && (hw == 65 || hw == 129 || hw == 257);
+    if (!n_ok) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "terrain_load: %s is %dx%d, expected a square 65, 129 or %d",
+                     hpath, hw, hh, TERRAIN_N);
         stbi_image_free(hbuf);
         return false;
     }
 
     int cw, ch, cn;
     uint8_t *cbuf = stbi_load(cpath, &cw, &ch, &cn, 4);
-    bool have_color = cbuf && cw == TERRAIN_N && ch == TERRAIN_N;
+    bool have_color = cbuf && cw == n && ch == n;
     if (cbuf && !have_color) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "terrain_load: %s is %dx%d, expected %dx%d, ignoring",
-                    cpath, cw, ch, TERRAIN_N, TERRAIN_N);
+                    cpath, cw, ch, n, n);
     }
 
     float cell;
     Vec3 origin;
     load_sidecar(tpath, &cell, &origin);
 
-    // 260 kB of Terrain, and this runs nested inside level_load's own scratch copy: on the heap,
-    // for the same reason. The scratch copy itself stays, so a half-decoded file cannot land.
+    // Roughly 1 MB of Terrain (height/color are always allocated at the TERRAIN_N maximum), and this
+    // runs nested inside level_load's own scratch copy: on the heap, for the same reason. The scratch
+    // copy itself stays, so a half-decoded file cannot land.
     Terrain *tmp = calloc(1, sizeof *tmp);
     if (!tmp) { stbi_image_free(hbuf); if (cbuf) stbi_image_free(cbuf); return false; }
     tmp->cell = cell;
     tmp->origin = origin;
     tmp->water = sidecar_water;
-    for (int i = 0; i < TERRAIN_N * TERRAIN_N; i++) {
+    tmp->n = n;
+    for (int i = 0; i < n * n; i++) {
         uint16_t v = (uint16_t)((hbuf[i * 4 + 0] << 8) | hbuf[i * 4 + 1]);
         tmp->height[i] = decode_height(v);
         tmp->color[i] = have_color
@@ -167,18 +173,19 @@ bool terrain_import_heightmap(Terrain *t, const char *png_path, float range) {
     uint8_t *px8 = NULL;
     if (!px16) { px8 = stbi_load(png_path, &w, &h, &n, 1); if (!px8) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "heightmap: cannot read %s", png_path); return false; } }
     float lo = 1e9f, hi = -1e9f;
+    int tn = t->n;
     static float tmp[TERRAIN_N * TERRAIN_N];
-    for (int z = 0; z < TERRAIN_N; z++) for (int x = 0; x < TERRAIN_N; x++) {
-        float u = (float)x / (TERRAIN_N - 1) * (w - 1), v = (float)z / (TERRAIN_N - 1) * (h - 1);
+    for (int z = 0; z < tn; z++) for (int x = 0; x < tn; x++) {
+        float u = (float)x / (tn - 1) * (w - 1), v = (float)z / (tn - 1) * (h - 1);
         int x0 = (int)u, z0 = (int)v, x1 = x0 + 1 < w ? x0 + 1 : x0, z1 = z0 + 1 < h ? z0 + 1 : z0; float fx = u - x0, fz = v - z0;
         #define S(X, Z) (px16 ? px16[(Z) * w + (X)] / 65535.0f : px8[(Z) * w + (X)] / 255.0f)
         float val = (S(x0, z0) * (1 - fx) + S(x1, z0) * fx) * (1 - fz) + (S(x0, z1) * (1 - fx) + S(x1, z1) * fx) * fz;
         #undef S
-        tmp[z * TERRAIN_N + x] = val; if (val < lo) lo = val; if (val > hi) hi = val;
+        tmp[z * tn + x] = val; if (val < lo) lo = val; if (val > hi) hi = val;
     }
     if (px16) stbi_image_free(px16); if (px8) stbi_image_free(px8);
     float span = hi - lo > 1e-6f ? hi - lo : 1;
-    for (int i = 0; i < TERRAIN_N * TERRAIN_N; i++) t->height[i] = (tmp[i] - lo) / span * range;
+    for (int i = 0; i < tn * tn; i++) t->height[i] = (tmp[i] - lo) / span * range;
     t->mesh_dirty = true;
     SDL_Log("heightmap %s: %dx%d %s, stretched to %.0f m", png_path, w, h, px16 ? "16-bit" : "8-bit", range);
     return true;

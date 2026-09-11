@@ -435,7 +435,7 @@ void leveled_generate_world(LevelEd *e, Level *lv, Terrain *tr) {
     int trees[KIT_MAX], rocks[KIT_MAX]; int nt = 0, nr = 0;
     for (int i = 0; i < e->nkit; i++) { if (!strcmp(e->kit[i].category, "trees")) trees[nt++] = i; else if (!strcmp(e->kit[i].category, "rocks")) rocks[nr++] = i; }
     srand(e->seed);
-    float span = (TERRAIN_N - 1) * tr->cell;
+    float span = (tr->n - 1) * tr->cell;
     for (float z = tr->origin.z + 3; z < tr->origin.z + span - 3 && lv->nprops < LEVEL_MAX_PROPS - 48; z += 3.0f)
         for (float x = tr->origin.x + 3; x < tr->origin.x + span - 3 && lv->nprops < LEVEL_MAX_PROPS - 48; x += 3.0f) {
             Vec3 q = v3(x + ((rand() % 100) / 100.0f - 0.5f) * 2.4f, 0, z + ((rand() % 100) / 100.0f - 0.5f) * 2.4f);
@@ -445,7 +445,7 @@ void leveled_generate_world(LevelEd *e, Level *lv, Terrain *tr) {
             float forest = terrain_noise(e->seed + 99, q.x, q.z, 22) * e->g_forest * 1.6f;   // clumps
             bool near_pad = hypotf(q.x - lv->spawn.x, q.z - lv->spawn.z) < 9 || hypotf(q.x - lv->boss_spawn.x, q.z - lv->boss_spawn.z) < 13;
             // stay off the path: painted path colour is a good enough marker
-            Vec3 c = tr->color[(int)((q.z - tr->origin.z) / tr->cell) * TERRAIN_N + (int)((q.x - tr->origin.x) / tr->cell)];
+            Vec3 c = tr->color[(int)((q.z - tr->origin.z) / tr->cell) * tr->n + (int)((q.x - tr->origin.x) / tr->cell)];
             bool on_path = fabsf(c.x - BIOME[5].c.x) < 0.08f && fabsf(c.y - BIOME[5].c.y) < 0.08f;
             if (near_pad || on_path) continue;
             float r = (rand() % 1000) / 1000.0f;

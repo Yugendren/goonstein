@@ -4,14 +4,24 @@
 #include "gfx.h"
 #include <stdbool.h>
 
-#define TERRAIN_N 129            // vertices per side (128 cells)
+// Storage size: the biggest grid a Terrain can hold (257 vertices a side), sized for the island's
+// 1.75 m cell over its 448 m span. Most terrains use fewer vertices than this -- see `n` below --
+// height/color are always allocated at this worst case (~1 MB) so a terrain can be resampled to any
+// supported size in place.
+#define TERRAIN_N 257
+#define TERRAIN_N_DEFAULT 129     // vertices per side for every terrain but the island (128 cells)
 
 typedef struct Terrain {
     float cell;                  // metres per cell
     Vec3  origin;                // world position of vertex (0,0); the grid extends +x and +z
+    int   n;                     // vertices per side actually in use; always <= TERRAIN_N and always
+                                  // a power of two plus one (65, 129, 257 today)
     float height[TERRAIN_N * TERRAIN_N];
     Vec3  color[TERRAIN_N * TERRAIN_N];
-    Mesh  mesh; bool mesh_ok; bool mesh_dirty;
+    // The ground mesh, split into chunks: a GPU mesh's indices are Uint16, so one mesh tops out at
+    // 65536 vertices, and the full 257x257 grid has 66049. n == TERRAIN_N_DEFAULT (today's normal
+    // case) still builds as a single chunk, i.e. mesh[0], nmesh == 1, unchanged from before.
+    Mesh  mesh[4]; bool mesh_ok; bool mesh_dirty; int nmesh;
     Mesh  water_mesh; bool water_ok; bool water_dirty; float water_built;   // sea surface; water_built = the height it was built for
     Texture water_tex; bool water_tex_ok;   // per-cell water depth and foam mask, sampled by the sea shader
     bool  present;               // false = the level has no terrain (flat ground blocks only)
