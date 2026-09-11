@@ -128,9 +128,9 @@ prop models/shapes/sphere.obj -48 9.9 -79.6 0 1 stretch 0.3 0.3 0.3 tint 1 1 1 g
 light -48 13.01 -92 1.0 0.70 0.30 20 0.8
 # two blue-roof sheds beside the pad
 prop models/own/shed_blue.part -57 10.00 -84 150 1.0
-collider -57 11.60 -84 4.6 3.2 4.6
+collider -57 11.60 -84 5.2 3.2 4.4
 prop models/own/shed_blue.part -39 10.00 -84 205 1.0
-collider -39 11.60 -84 4.6 3.2 4.6
+collider -39 11.60 -84 5.2 3.2 4.4
 # the pad's clutter: barriers along the drop, a jerrycan, the box that runs the lights
 prop models/polyhaven/concrete_road_barrier/concrete_road_barrier_1k.glb -58.5 10.00 -96.5 12 1.0
 prop models/polyhaven/concrete_road_barrier/concrete_road_barrier_1k.glb -56.6 9.99 -95.6 12 1.0
@@ -147,14 +147,19 @@ prop models/shapes/box.obj -34.3 15.10 -100 72 1.0 stretch 0.55 0.55 2.2 tint 0.
 # ================================================================ VILLA AMBERGRIS
 # cream limestone, colonnades, turquoise roofs, a courtyard opening west toward the arrival road
 prop models/own/villa.part -16 18.00 -68 0 1.0
-prop models/own/arch/villa_facade.part -16 18.00 -68 0 1.0
 prop models/own/arch/villa_trim.part -16 18.00 -68 0 1.0
-collider -16 22.20 -68 20 8.4 12
+# The villa is four walls now, not one solid block, with a 1.8 m gap in the front one where the
+# french door is: the shell cuts that opening right through a 0.30 m wall, so you can walk in and
+# stand in the room. The walls themselves are exactly where the old single box's faces were, so
+# nothing outside the villa moved.
+collider -21.45 22.20 -73.85   9.1 8.4 0.30
+collider -10.55 22.20 -73.85   9.1 8.4 0.30
+collider -16.00 22.20 -62.15  20.0 8.4 0.30
+collider -25.85 22.20 -68.00   0.30 8.4 12.0
+collider  -6.15 22.20 -68.00   0.30 8.4 12.0
 prop models/own/villa_wing.part -31 18.01 -78 270 1.0
-prop models/own/arch/wing_facade.part -31 18.01 -78 270 1.0
 collider -31 20.86 -78 10 6.0 8
 prop models/own/villa_wing.part -1 18.00 -78 90 1.0
-prop models/own/arch/wing_facade.part -1 18.00 -78 90 1.0
 collider -1 21.00 -78 10 6.0 8
 
 # courtyard: a round basin and four planted palms
@@ -187,10 +192,12 @@ prop models/polyhaven/outdoor_table_chair_set_01/outdoor_table_chair_set_01_1k.g
 prop models/polyhaven/painted_wooden_bench/painted_wooden_bench_1k.gltf -8.5 18.00 -71 250 1.0
 prop models/polyhaven/street_lamp_02/street_lamp_02_1k.gltf -28.5 17.69 -84.8 20 1.3 glow 0.30 0.24 0.12
 prop models/polyhaven/street_lamp_02/street_lamp_02_1k.gltf -21.5 17.70 -84.8 200 1.3 glow 0.30 0.24 0.12
-# warm light out of the villa windows
-light -16 21.00 -74.5 1.0 0.80 0.52 16 1.6
-light -22 21.00 -62 1.0 0.80 0.52 13 1.1
-light -10 21.00 -62 1.0 0.80 0.52 13 1.1
+# Warm light out of the villa windows -- and now literally out of them: the openings are cut
+# through a real wall, so these three sit INSIDE the room and spill through the door, the
+# french windows and the reveals instead of washing the plaster from outside.
+light -16 21.00 -71.0 1.0 0.80 0.52 16 1.6
+light -22 21.00 -65.0 1.0 0.80 0.52 13 1.1
+light -10 21.00 -65.0 1.0 0.80 0.52 13 1.1
 
 # terrace wall around the western shelf, with the road gate left open
 block -33.5 18.90 -68 1.0 1.8 24 plaster_white 1.48 1.60 1.93 0.5 solid
@@ -206,22 +213,26 @@ prop models/shapes/cylinder.obj 16 16.55 -48 0 1 stretch 19.5 0.4 12.5 tint 1.77
 prop models/shapes/cylinder.obj 16 16.90 -48 0 1 stretch 17.6 0.10 10.6 tint 0.17 0.70 1.13 glow 0.03 0.14 0.20 tex pool_tile 0.55
 light 16 18.20 -48 0.24 0.72 0.92 22 0.9
 prop models/own/pool_house.part 8 16.94 -60 180 1.0
-prop models/own/arch/pool_house_facade.part 8 16.94 -60 180 1.0
 # a short flight up onto the pool house's plinth, and the coping ring round the water
 prop models/own/arch/stair_run.obj 8 16.60 -57.0 180 1 stretch 1.0 0.55 0.7 tint 1.77 1.96 2.26 tex paving_stone 0.8
 prop models/own/arch/pool_edge.part 16 16.95 -48 0 1.0
-collider 8 19.44 -60 9 5 5
+# The pool house is its three walls and its four arcade piers, not a solid box: the arcade is
+# three real openings cut through a 0.30 m wall and it would be a poor joke to put an invisible
+# one back across them. Walls where they always were; you walk in under an arch.
+collider  8.00 19.44 -62.35   9.0 5 0.30
+collider  3.65 19.44 -60.00   0.30 5 5.0
+collider 12.35 19.44 -60.00   0.30 5 5.0
+collider  3.80 19.44 -57.65   0.60 5 0.30
+collider 12.20 19.44 -57.65   0.60 5 0.30
+collider  6.50 19.44 -57.65   1.20 5 0.30
+collider  9.50 19.44 -57.65   1.20 5 0.30
 prop models/own/cabana.part 30 16.60 -61 90 1.0
-prop models/own/arch/cabana_facade.part 30 16.60 -61 90 1.0
 collider 30 18.60 -61 4.5 4 6
 prop models/own/cabana.part 30 16.60 -52.5 90 1.0
-prop models/own/arch/cabana_facade.part 30 16.60 -52.5 90 1.0
 collider 30 18.60 -52.5 4.5 4 6
 prop models/own/cabana.part 30 16.60 -44 90 1.0
-prop models/own/arch/cabana_facade.part 30 16.60 -44 90 1.0
 collider 30 18.60 -44 4.5 4 6
 prop models/own/cabana.part 30 16.60 -35.5 90 1.0
-prop models/own/arch/cabana_facade.part 30 16.60 -35.5 90 1.0
 # a timber pergola the length of the row, ten bays at the spacing the bay was drawn for
 prop models/own/arch/cabana_pergola.part 26 16.60 -48 0 1.0
 collider 30 18.60 -35.5 4.5 4 6
@@ -262,7 +273,6 @@ prop models/own/palm_a.part 4 16.63 -34 150 1.05
 
 # ================================================================ THE BUNKHOUSE (staff)
 prop models/own/bunkhouse.part -32 15.20 -32 60 1.0
-prop models/own/arch/bunkhouse_facade.part -32 15.20 -32 60 1.0
 collider -32 17.50 -32 15 5 8
 prop models/polyhaven/barrel_03/barrel_03_1k.gltf -25 14.82 -37 30 1.0
 prop models/polyhaven/old_military_crate/old_military_crate_1k.gltf -26.5 14.98 -38.5 -18 1.0
@@ -367,7 +377,6 @@ prop models/shapes/box.obj 34 22.14 102.2 -10 1 stretch 3.4 2.6 0.3 tint 1.25 1.
 # Permitted as a 10-foot octagonal music room with a grand piano. Built as a 9-metre striped
 # cube with a gold dome and two metal birds on the roof. The dome left in a hurricane.
 prop models/own/temple.part 0 31.00 126 0 1.0
-prop models/own/arch/temple_facade.part 0 31.00 126 0 1.0
 prop models/own/golden_bird.part -4.6 41.40 121.6 25 1.0 glow 0.35 0.24 0.05
 prop models/own/golden_bird.part 4.6 41.40 121.6 -25 1.0 glow 0.35 0.24 0.05
 # walls, leaving the doorway on the -Z face open
