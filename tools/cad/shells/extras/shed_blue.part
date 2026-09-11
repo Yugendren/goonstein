@@ -1,0 +1,8 @@
+# Hand-placed, not part of the fabric: four corner battens, the one bit of the old box-and-wedge
+# shed_blue.part that wasn't either a wall, a roof, an opening or a step -- kept for the cheap
+# vertical shadow line they give the corners. Positioned just inside the new wall's own corners
+# (half-width 2.25, half-depth 1.75) and rising from the plinth to the wall top.
+piece models/shapes/box.obj  2.20  0.12  1.70  0.15 2.30 0.15  0 0 0  1.47 1.25 0.88  tex planks_weathered 2.0
+piece models/shapes/box.obj  2.20  0.12 -1.70  0.15 2.30 0.15  0 0 0  1.47 1.25 0.88  tex planks_weathered 2.0
+piece models/shapes/box.obj -2.20  0.12  1.70  0.15 2.30 0.15  0 0 0  1.47 1.25 0.88  tex planks_weathered 2.0
+piece models/shapes/box.obj -2.20  0.12 -1.70  0.15 2.30 0.15  0 0 0  1.47 1.25 0.88  tex planks_weathered 2.0

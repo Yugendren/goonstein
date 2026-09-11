@@ -1,45 +1,13 @@
-# water_tower -- cistern tower on four splayed legs, ~12 m tall
-# legs
-piece models/shapes/cylinder.obj     2.750   0.000   2.750    0.350  7.600  0.350     0.0  -5.0  -5.0   2.02 2.09 2.27  tex corrugated 1.0
-piece models/shapes/cylinder.obj     2.750   0.000  -2.750    0.350  7.600  0.350     0.0   5.0  -5.0   2.02 2.09 2.27  tex corrugated 1.0
-piece models/shapes/cylinder.obj    -2.750   0.000   2.750    0.350  7.600  0.350     0.0  -5.0   5.0   2.02 2.09 2.27  tex corrugated 1.0
-piece models/shapes/cylinder.obj    -2.750   0.000  -2.750    0.350  7.600  0.350     0.0   5.0   5.0   2.02 2.09 2.27  tex corrugated 1.0
-
-# X cross bracing, two levels, four sides
-piece models/shapes/box.obj          0.000   2.000   2.750    5.500  0.120  0.120     0.0   0.0  40.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          0.000   2.000   2.750    5.500  0.120  0.120     0.0   0.0 -40.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          0.000   5.200   2.750    5.500  0.120  0.120     0.0   0.0  40.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          0.000   5.200   2.750    5.500  0.120  0.120     0.0   0.0 -40.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          0.000   2.000  -2.750    5.500  0.120  0.120     0.0   0.0  40.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          0.000   2.000  -2.750    5.500  0.120  0.120     0.0   0.0 -40.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          0.000   5.200  -2.750    5.500  0.120  0.120     0.0   0.0  40.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          0.000   5.200  -2.750    5.500  0.120  0.120     0.0   0.0 -40.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj         -2.750   2.000   0.000    0.120  0.120  5.500     0.0  40.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj         -2.750   2.000   0.000    0.120  0.120  5.500     0.0 -40.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj         -2.750   5.200   0.000    0.120  0.120  5.500     0.0  40.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj         -2.750   5.200   0.000    0.120  0.120  5.500     0.0 -40.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          2.750   2.000   0.000    0.120  0.120  5.500     0.0  40.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          2.750   2.000   0.000    0.120  0.120  5.500     0.0 -40.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          2.750   5.200   0.000    0.120  0.120  5.500     0.0  40.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          2.750   5.200   0.000    0.120  0.120  5.500     0.0 -40.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-
-# platform, tank, banding, conical cap
-piece models/shapes/plate.obj        0.000   7.500   0.000    5.500  2.000  5.500     0.0   0.0   0.0   2.02 2.09 2.27  tex corrugated 1.0
-piece models/shapes/cylinder.obj     0.000   7.600   0.000    4.600  3.600  4.600     0.0   0.0   0.0   2.07 2.15 2.30  tex corrugated 1.2
-piece models/shapes/cylinder.obj     0.000   8.300   0.000    4.700  0.150  4.700     0.0   0.0   0.0   1.58 1.65 1.76  tex corrugated 1.5
-piece models/shapes/cylinder.obj     0.000   9.400   0.000    4.700  0.150  4.700     0.0   0.0   0.0   1.58 1.65 1.76  tex corrugated 1.5
-piece models/shapes/cylinder.obj     0.000  10.500   0.000    4.700  0.150  4.700     0.0   0.0   0.0   1.58 1.65 1.76  tex corrugated 1.5
-piece models/shapes/sphere.obj       0.000  11.200   0.000    4.600  1.200  4.600     0.0   0.0   0.0   1.78 1.86 2.01  tex corrugated 1.2
-
-# ladder on the front-right leg
-piece models/shapes/cylinder.obj     2.600   0.000   3.050    0.050  7.400  0.050     0.0   0.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/cylinder.obj     2.900   0.000   3.050    0.050  7.400  0.050     0.0   0.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          2.750   1.000   3.050    0.350  0.050  0.050     0.0   0.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          2.750   2.200   3.050    0.350  0.050  0.050     0.0   0.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          2.750   3.400   3.050    0.350  0.050  0.050     0.0   0.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          2.750   4.600   3.050    0.350  0.050  0.050     0.0   0.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          2.750   5.800   3.050    0.350  0.050  0.050     0.0   0.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-piece models/shapes/box.obj          2.750   7.000   3.050    0.350  0.050  0.050     0.0   0.0   0.0   1.73 1.74 1.82  tex corrugated 2.2
-
-# downpipe
-piece models/shapes/cylinder.obj     0.000   0.000  -2.400    0.150  7.600  0.150     0.0   0.0   0.0   0.45 0.28 0.18
+# water_tower -- generated by tools/cad/build_shells.py from tools/cad/shells/. DO NOT EDIT.
+# cistern tower: 4-leg lattice, 16-gon riveted tank on a 9.2 m platform, real ladder
+# 9.2 x 9.2 m footprint, 11.2 m tall. One piece per material group, all at the
+# building's own origin: `tex NAME TILE` is per model file, so a wall and a roof cannot
+# share one. The y on each line is the height that group was drawn at, put back: model.c
+# rebases every OBJ's lowest vertex to zero, which would otherwise land the roof on the
+# ground. Hand-placed extras, if any, follow at the bottom from
+# tools/cad/shells/extras/water_tower.part
+piece models/own/shell/water_tower_wall.obj   0 7.500 0   1 1 1   0 0 0   2.070 2.150 2.300  tex corrugated 1.2
+piece models/own/shell/water_tower_trim.obj   0 0.000 0   1 1 1   0 0 0   2.020 2.090 2.270  tex corrugated 1
+piece models/own/shell/water_tower_band.obj   0 8.250 0   1 1 1   0 0 0   1.580 1.650 1.760  tex corrugated 1.5
+piece models/own/shell/water_tower_metal.obj   0 0.000 0   1 1 1   0 0 0   1.730 1.740 1.820  tex corrugated 2.2
+piece models/own/shell/water_tower_dark.obj   0 0.000 0   1 1 1   0 0 0   0.450 0.280 0.180

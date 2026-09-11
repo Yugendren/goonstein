@@ -1,0 +1,4 @@
+# Hand-placed, not part of the shell's fabric: the two teak benches under the outer arches,
+# kept from the original hand-built pool_house.part.
+piece models/shapes/box.obj -3.0 0.2 -2.3 1.2 0.4 0.4 0 0 0 1.47 1.25 0.88 tex planks_weathered 2.5
+piece models/shapes/box.obj 3.0 0.2 -2.3 1.2 0.4 0.4 0 0 0 1.47 1.25 0.88 tex planks_weathered 2.5

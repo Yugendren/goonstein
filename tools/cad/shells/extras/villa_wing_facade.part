@@ -1,0 +1,4 @@
+# The old wing_facade.part's wall_column veranda posts and cornice_run/roof_edge_run trim are
+# superseded here: villa.py's villa_wing() models the veranda posts, head beam and eave course
+# as real CAD geometry (the way cabana.py's porch does it) rather than dressing thin placeholder
+# cylinders with kit pieces, so nothing from the old facade needs to be hand-carried across.

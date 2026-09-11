@@ -1,0 +1,4 @@
+# Hand-placed, not tied to an opening: the two entrance planters flanking the front steps,
+# carried over unchanged from the old hand-built villa.part.
+piece models/shapes/box.obj 1.8 0.15 -7.6 0.5 0.5 0.5 0 0 0 1.47 1.25 0.88 tex planks_weathered 2.5
+piece models/shapes/box.obj -1.8 0.15 -7.6 0.5 0.5 0.5 0 0 0 1.47 1.25 0.88 tex planks_weathered 2.5

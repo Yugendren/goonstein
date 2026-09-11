@@ -1,0 +1,19 @@
+# dock_house extras -- hand-placed props that belong to the dock house but are not its fabric,
+# carried across from the old dock_house.part and re-levelled onto the new deck (top at y 0.21)
+# and ridge (at y 3.90). Local GAME coordinates: +X right, +Y up, -Z front (the open side).
+
+# the bench along the boarded back wall
+piece models/shapes/box.obj          0.000   0.210   1.700    3.000  0.450  0.500     0.0   0.0   0.0   0.55 0.42 0.28
+
+# a coil of rope dropped near the front-right post
+piece models/shapes/cylinder.obj     1.600   0.210  -1.000    0.500  0.050  0.500     0.0   0.0   0.0   0.55 0.45 0.30
+piece models/shapes/cylinder.obj     1.600   0.260  -1.000    0.350  0.050  0.350     0.0   0.0   0.0   0.55 0.45 0.30
+
+# a hanging lamp under the ridge
+piece models/shapes/cylinder.obj     0.000   3.800   0.000    0.030  0.150  0.030     0.0   0.0   0.0   0.30 0.28 0.26
+piece models/shapes/cylinder.obj     0.000   3.500   0.000    0.300  0.150  0.300     0.0   0.0   0.0   0.30 0.28 0.26
+piece models/shapes/sphere.obj       0.000   3.300   0.000    0.200  0.200  0.200     0.0   0.0   0.0   1.00 0.90 0.60
+
+# mooring cleats screwed to the deck
+piece models/shapes/box.obj          2.300   0.210   1.500    0.300  0.100  0.120     0.0   0.0   0.0   0.42 0.42 0.40
+piece models/shapes/box.obj         -2.300   0.210  -1.500    0.300  0.100  0.120     0.0   0.0   0.0   0.42 0.42 0.40

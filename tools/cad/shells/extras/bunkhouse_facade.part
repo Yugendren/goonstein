@@ -1,0 +1,5 @@
+# Nothing to carry: the old bunkhouse_facade.part's only non-opening-frame content was a
+# cornice run round the wall top, and the brief for this rebuild is explicit that the bunkhouse
+# stays plain -- no cornice, no pilasters. Its four doors and four small windows are opening
+# frames, generated straight from the shell's own Walls.kit() calls, so they are not repeated
+# here.

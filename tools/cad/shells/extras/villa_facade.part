@@ -1,0 +1,25 @@
+# Hand-placed, not tied to an opening: the colonnade's columns and the lamps beside the door,
+# carried over unchanged from the old hand-built arch/villa_facade.part. The stylobate and
+# architrave they stand on are real CAD geometry in villa.py now; only the kit pieces that dress
+# that masonry -- which have no hole behind them for Walls.kit to track -- live here.
+
+# front colonnade, -z: eight columns from the stylobate at y 0.5 to the architrave at y 5.1
+piece models/own/arch/wall_column.obj   -8.400  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj   -6.000  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj   -3.600  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj   -1.200  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    1.200  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    3.600  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    6.000  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    8.400  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+
+# back colonnade, +z: five columns on the wider spacing the shell uses
+piece models/own/arch/wall_column.obj   -8.000  0.500   7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj   -4.000  0.500   7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    0.000  0.500   7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    4.000  0.500   7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    8.000  0.500   7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+
+# a lantern each side of the door, on the wall rather than on the columns
+piece models/own/arch/lamp_bracket.obj  -1.900  2.300  -6.000   1.000 1.000 1.000   0.0 0.0 0.0   1.20 1.10 0.95
+piece models/own/arch/lamp_bracket.obj   1.900  2.300  -6.000   1.000 1.000 1.000   0.0 0.0 0.0   1.20 1.10 0.95

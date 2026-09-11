@@ -38,7 +38,7 @@ def cabana():
     g["floor"] += steps(1.6, count=1, going=0.36, rise=0.09, y0=D / 2 + 1.30, z0=0.0)
 
     # -- walls, with the openings the kit's frames are sized for
-    w = Walls(W, D, H, t=T, z0=BASE)
+    w = Walls(W, D, H, t=T, z0=BASE, lined=False)  # lined=False: the room behind is real, so an opening shows it
     w.kit("plain_door", "front", u=0.0, z0=0.15, tint=(1.47, 1.25, 0.88), tex="planks_weathered",
           tile=2.5)
     for u in (-1.85, 1.85):

@@ -1,0 +1,13 @@
+# Carried from the hand-authored arch/pool_house_facade.part this replaces: the cornice below
+# the parapet, all four walls, at the wall top (y 3.6) -- unchanged, since the footprint and
+# wall height it rides on did not change.
+#
+# The old balustrade that used to ride above the front cornice (y 3.95) is NOT carried across:
+# the shell now builds a real, solid parapet on all four sides with shelllib.parapet(), per the
+# brief's must-have list, and a decorative balustrade line buried inside that solid coping would
+# be wasted geometry rather than a railing you could see. Flag this if a balustrade-topped
+# parapet was actually wanted instead of a solid one.
+piece models/own/arch/cornice_run.obj     0.000  3.600  -2.500   9.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/cornice_run.obj     0.000  3.600   2.500   9.000 1.000 1.000  180.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/cornice_run.obj     4.500  3.600   0.000   5.000 1.000 1.000  270.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/cornice_run.obj    -4.500  3.600   0.000   5.000 1.000 1.000   90.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8

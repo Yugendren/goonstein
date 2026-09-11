@@ -1,0 +1,26 @@
+# temple's dressing: the kit pieces that are not part of the shell's own fabric.
+#
+# The ten painted bands and the peristyle's cornice used to be kit pieces (stripe_panel,
+# cornice_run) laid over a plain box; both are now real geometry in temple.py (the "stripe" and
+# "band" groups), so they are gone from here -- keeping them too would draw the same course
+# twice and cost two more slots in src/props.c's 192-model cache for nothing.
+#
+# What's left is genuinely not fabric: the drum the dome used to sit on, four finials on the
+# parapet corners, and the dome itself, knocked off the roof by the hurricane and lying on the
+# ground in front of the porch. Coordinates are local to temple.part's own origin and yaw.
+
+# the drum, standing in the open well at y 10.0 -- 5.6 across in a 10.4 opening, which is how you
+# can tell something used to sit on it
+piece models/own/arch/temple_drum.obj        0.000 10.000   0.000   1.000 1.000 1.000    0.0 0.0   0.0   1.55 1.60 1.68  tex plaster_smooth 0.7
+
+# four gold finials on the parapet corners, a size down from the two big birds
+piece models/own/arch/bird_finial.obj       -5.500 10.400  -5.500   1.000 1.000 1.000    0.0 0.0   0.0   1.00 0.90 0.70
+piece models/own/arch/bird_finial.obj       -5.500 10.400   5.500   1.000 1.000 1.000    0.0 0.0   0.0   1.00 0.90 0.70
+piece models/own/arch/bird_finial.obj        5.500 10.400  -5.500   1.000 1.000 1.000    0.0 0.0   0.0   1.00 0.90 0.70
+piece models/own/arch/bird_finial.obj        5.500 10.400   5.500   1.000 1.000 1.000    0.0 0.0   0.0   1.00 0.90 0.70
+
+# the dome, off the podium on the sand, tipped onto its shoulder with its gilt side to the path
+# so you meet the outside of it rather than the hollow, resting on the podium's front step with
+# its far side out over the drop. Twenty years of weather have taken the shine off, which is what
+# the sheet-metal texture and the blue-leaning tint are doing to the gold underneath.
+piece models/own/arch/temple_dome.obj       -6.500  2.100 -10.500   1.000 1.000 1.000   25.0 -70.0  0.0   0.88 0.90 1.02  tex corrugated 1.0

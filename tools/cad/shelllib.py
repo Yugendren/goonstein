@@ -345,32 +345,44 @@ def veranda(w, d, t=0.22, z0=0.0, y=0.0, nose=0.03):
     return s.edges(">Z").chamfer(nose) if nose > 0 else s
 
 
-def arcade(w, d, h, n, pier, rise, z0=0.0, reveal=0.07, margin=0.11, end_pier=None):
-    """A wall of `n` true round-headed arches: piers, springing, semicircular heads, cut through.
+def arcade(w, d, h, n, pier, rise, z0=0.0, crown=None, sill=0.0,
+           reveal=0.07, margin=0.11, end_pier=None):
+    """A wall of `n` true round-headed arches: piers, a springing line, semicircular heads, cut
+    right through, with a reveal on BOTH faces so you see the thickness as you walk under one.
 
-    Returns (wall, [Opening, ...]) so the caller can line the arches with a dark panel or leave
-    them open. `pier` is the solid between two arches and `end_pier` the solid at each end
-    (default: the same). The springing height is h - rise, so `h` is to the crown.
+    w, d, h    the wall: its width, its thickness and its height above `z0`
+    n, pier    how many arches, and the solid between two of them (`end_pier` at each end)
+    rise       the radius of the semicircular head
+    crown      the top of the arch above `z0`; the default leaves a course of wall over it
+    sill       how far above `z0` the arches start, if they stand on a stylobate
+
+    Returns (wall, [Opening, ...]). The openings are in the wall's own absolute coordinates, so
+    a caller can hand them to `opening_lining` or leave the arches open, which is the point of
+    an arcade.
     """
     if end_pier is None:
         end_pier = pier
+    if crown is None:
+        crown = h - 0.35
     span = (w - 2 * end_pier - (n - 1) * pier) / float(n)
     if span <= 0:
-        raise ValueError("arcade: %d arches, %.2f piers and %.2f ends do not fit in %.2f" %
-                         (n, pier, end_pier, w))
+        raise ValueError("arcade: %d arches, %.2f piers and %.2f ends do not fit in %.2f m"
+                         % (n, pier, end_pier, w))
+    if 2 * rise > span + 1e-6:
+        raise ValueError("arcade: a %.2f m rise will not spring across a %.2f m arch" % (rise, span))
+    head = crown - rise - sill          # height of the square part, from the sill to the springing
+    if head <= 0:
+        raise ValueError("arcade: a crown at %.2f leaves no wall under a %.2f m rise" % (crown, rise))
+
     wall = slab(w, d, h, z0=z0)
     us = [-w / 2.0 + end_pier + span / 2.0 + i * (span + pier) for i in range(n)]
-    arches = [hole("front", u, z0, span, h - z0 - rise - (z0 - z0), arch=rise,
-                   reveal=reveal, margin=margin) for u in us]
-    # The arcade is a single wall, not a ring, so cut against its own depth in Y.
+    arches = [Opening("front", u, z0 + sill, span, head, rise, reveal, margin) for u in us]
     for o in arches:
-        for tool in [_prism(o.w, o.h, o.arch, -d, d).translate((o.u, 0, o.z0))]:
-            wall = wall.cut(tool)
-        if o.reveal > 0:
-            wall = wall.cut(_prism(o.w + 2 * o.margin, o.h + o.margin, o.arch,
-                                   d / 2.0 - o.reveal, d).translate((o.u, 0, o.z0)))
-            wall = wall.cut(_prism(o.w + 2 * o.margin, o.h + o.margin, o.arch,
-                                   -d, -d / 2.0 + o.reveal).translate((o.u, 0, o.z0)))
+        wall = wall.cut(_prism(o.w, o.h, o.arch, -d, d).translate((o.u, 0, o.z0)))
+        if o.reveal > 0 and o.margin > 0:
+            for y0, y1 in ((d / 2.0 - o.reveal, d), (-d, -d / 2.0 + o.reveal)):
+                wall = wall.cut(_prism(o.w + 2 * o.margin, o.h + o.margin, o.arch, y0, y1)
+                                .translate((o.u, 0, o.z0)))
     return wall, arches
 
 
@@ -443,8 +455,17 @@ class Walls:
     so the frames and the holes they sit in can never drift apart.
     """
 
-    def __init__(self, w, d, h, t=0.30, z0=0.0):
+    def __init__(self, w, d, h, t=0.30, z0=0.0, lined=True):
+        """`lined=False` for a building whose inside is modelled.
+
+        A lining is a dark panel set at the back of an opening: the room beyond, for a building
+        that has no room beyond. Once a ring has a floor and a roof over it, the lining stops
+        being the room and starts being a black rectangle painted over the room -- the exact
+        thing these shells exist to get rid of -- and worse, it is a black rectangle when seen
+        from INSIDE, where the window should be the way out.
+        """
         self.w, self.d, self.h, self.t, self.z0 = w, d, h, t, z0
+        self.lined = lined
         self.openings = []
         self.fits = []
 
@@ -452,7 +473,7 @@ class Walls:
     def hole(self, face, u, z0, w, h, arch=0.0, reveal=0.07, margin=0.11, lining=True):
         """A plain hole, with its outer rebate. `z0` is measured from the building's base."""
         o = Opening(face, u, z0, w, h, arch, reveal, margin)
-        self.openings.append((o, lining))
+        self.openings.append((o, lining and self.lined))
         return o
 
     def kit(self, kind, face, u, z0, scale=1.0, tint=(1.0, 1.0, 1.0), tex=None, tile=1.0,

@@ -1,0 +1,20 @@
+# Hand-placed, not part of the fabric: the roof plant (two pipe stacks, a railing along the +x
+# side, a roof box) riding the new roof deck -- top at 4.25, five centimetres above the old flat
+# roof's 4.20, and the railing pulled in from x=5.2 to x=4.65 so it stands just inside the new
+# parapet instead of through it. Below that, a leaning plywood sheet propped against the front
+# wall and its two cleats, unchanged from the survey since the footprint didn't move.
+
+# roof plant
+piece models/shapes/cylinder.obj     2.500   4.250   1.500    0.400  1.400  0.400     0.0   0.0   0.0   0.45 0.28 0.18
+piece models/shapes/cylinder.obj    -2.000   4.250  -1.000    0.400  1.400  0.400     0.0   0.0   0.0   0.45 0.28 0.18
+piece models/shapes/box.obj          4.650   4.250  -3.000    0.060  0.600  0.060     0.0   0.0   0.0   1.95 2.28 2.66  tex concrete_wall 0.6
+piece models/shapes/box.obj          4.650   4.250  -1.000    0.060  0.600  0.060     0.0   0.0   0.0   1.95 2.28 2.66  tex concrete_wall 0.6
+piece models/shapes/box.obj          4.650   4.250   1.000    0.060  0.600  0.060     0.0   0.0   0.0   1.95 2.28 2.66  tex concrete_wall 0.6
+piece models/shapes/box.obj          4.650   4.250   3.000    0.060  0.600  0.060     0.0   0.0   0.0   1.95 2.28 2.66  tex concrete_wall 0.6
+piece models/shapes/box.obj          4.650   4.850   0.000    0.060  0.060  8.000     0.0   0.0   0.0   1.95 2.28 2.66  tex concrete_wall 0.6
+piece models/shapes/box.obj         -3.500   4.250   2.500    1.000  0.300  1.000     0.0   0.0   0.0   0.69 0.70 0.77  tex concrete_rough 0.6
+
+# a leaning plywood sheet propped against the front wall, and its cleats
+piece models/shapes/box.obj         -2.600   0.000  -4.300    1.500  3.200  0.120    25.0   0.0   0.0   0.45 0.28 0.18
+piece models/shapes/box.obj         -3.350   2.600  -4.300    0.100  0.150  0.100     0.0   0.0   0.0   0.96 0.76 0.60  tex planks_weathered 2.0
+piece models/shapes/box.obj         -3.350   0.600  -4.300    0.100  0.150  0.100     0.0   0.0   0.0   0.96 0.76 0.60  tex planks_weathered 2.0
