@@ -12,9 +12,9 @@
 // is behind", not as an idle CPU.
 //
 // Phases accumulate: calling prof_begin/prof_end on the same phase twice in a frame adds both
-// intervals. Nesting a child phase inside a parent is fine and expected (PROF_TICK_PHYS inside
-// PROF_TICK); the overlay indents children and does not subtract them, so a parent's number is
-// its whole cost.
+// intervals. Nesting one phase inside another is fine and expected (PROF_TICK_PHYS inside
+// PROF_TICK); the overlay indents the inner ones and does not subtract them, so an outer phase's
+// number is its whole cost.
 #pragma once
 #include <SDL3/SDL.h>
 #include <stdbool.h>

@@ -41,42 +41,143 @@ static bool prop_sphere(Gfx *g, PropCache *pc, PropModel *pm, Vec3 *cen, float *
     return true;
 }
 
-void props_draw(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTextures *wt, float time) {
-    (void)time;
-    pc->wt = wt;   // so a piece's own `tex` resolves from any later props_draw_matrix caller
-    // One frustum for the whole pass: the camera's in the main pass, the sun's ortho box in the
-    // shadow pass. Assemblies cull as a whole, on the union of their pieces' bounds.
-    Frustum fr = frustum_from_view_proj(g->frame.view_proj);
-    pc->props_drawn = pc->props_culled = 0;
+// ---------------------------------------------------------------- instance collection
+//
+// props_draw's twin: the same walk over the level, the same bounding-sphere cull, the same
+// recursion into .part assemblies -- but instead of a draw call per mesh it queues an instance.
+// Nothing here touches the GPU, because it runs before the frame's first render pass opens.
+//
+// What it buys, on the island: a palm is thirty pieces and they are all the same two meshes with
+// the same two textures, so the hundred and fifteen palms collapse from 3450 draws to 2.
+
+// A prop with a skinned mesh anywhere in it cannot be instanced: skinning wants a joint matrix
+// palette per draw and an instance has nowhere to keep one. Such a prop is drawn whole, the old
+// way, rather than half instanced and half not. Asked once per file and cached, because for a
+// .part it means loading and walking the whole assembly.
+static bool model_has_skin(const Model *m) {
+    for (int i = 0; i < m->nmeshes; i++) if (m->meshes[i].skinned) return true;
+    return false;
+}
+static bool prop_needs_fallback(Gfx *g, PropCache *pc, PropModel *pm, int depth) {
+    if (pm->fallback) return pm->fallback > 0;
+    int v = 0;
+    if (pm->part) {
+        if (depth <= 2)
+            for (int i = 0; i < pm->part->n && !v; i++) {
+                PropModel *lp = load_one(g, pc, pm->part->pieces[i].file);
+                if (lp && prop_needs_fallback(g, pc, lp, depth + 1)) v = 1;
+            }
+    } else v = model_has_skin(&pm->model) ? 1 : 0;
+    pm->fallback = v ? 1 : -1;
+    return v != 0;
+}
+
+// Piece names and local matrices, resolved once per .part file (see PropModel's comment).
+static void cache_pieces(Gfx *g, PropCache *pc, PropModel *pm) {
+    if (pm->piece_cached || !pm->part) return;
+    pm->piece_cached = true;
+    for (int i = 0; i < pm->part->n && i < PART_MAX_PIECES; i++) {
+        pm->piece_pm[i] = load_one(g, pc, pm->part->pieces[i].file);
+        pm->piece_mat[i] = piece_matrix(&pm->part->pieces[i]);
+    }
+}
+
+// `sets` is a bitmask of 1 << GfxInstSet: a prop the sun and the camera both see is expanded once
+// and queued into both.
+static void collect_matrix(Gfx *g, PropCache *pc, unsigned sets, PropModel *pm, Mat4 world,
+                           Vec4 tint, Vec3 glow, const Texture *tex, float tile, int depth) {
+    if (!pm || !pm->ok) return;
+    if (pm->part) {
+        if (depth > 2) return;
+        cache_pieces(g, pc, pm);
+        for (int i = 0; i < pm->part->n && i < PART_MAX_PIECES; i++) {
+            const Piece *p = &pm->part->pieces[i];
+            Vec4 t = v4(tint.x * p->tint.x, tint.y * p->tint.y, tint.z * p->tint.z, tint.w);
+            const Texture *pt = tex; float ptile = tile;
+            if (p->tex >= 0 && pc->wt) { pt = world_texture(pc->wt, p->tex); ptile = p->tex_tile > 0 ? p->tex_tile : 1.0f; }
+            collect_matrix(g, pc, sets, pm->piece_pm[i], m4_mul(world, pm->piece_mat[i]), t, glow, pt, ptile, depth + 1);
+        }
+        return;
+    }
+    const Model *m = &pm->model;
+    for (int i = 0; i < m->nmeshes; i++) {
+        const ModelMesh *mm = &m->meshes[i];
+        bool hidden = false;
+        for (int n = mm->node; n >= 0; n = m->nodes[n].parent) if (m->nodes[n].hidden) { hidden = true; break; }
+        if (hidden) continue;
+        Mat4 w = m4_mul(world, pm->rest.global[mm->node]);
+        const Texture *use = tex ? tex : &m->textures[mm->tex];
+        Vec4 uv = tex ? v4(tile, 0, 0, 0) : v4(1, 1, 0, 0);
+        if (sets & (1u << GFX_SET_SHADOW)) gfx_instance(g, GFX_SET_SHADOW, &mm->gpu, use, w, tint, uv, tex != NULL, glow);
+        if (sets & (1u << GFX_SET_WORLD))  gfx_instance(g, GFX_SET_WORLD,  &mm->gpu, use, w, tint, uv, tex != NULL, glow);
+    }
+}
+
+// Which PropModel every prop line resolves to, rebuilt when the level changes under us.
+static void cache_prop_models(Gfx *g, PropCache *pc, const Level *lv) {
+    if (pc->by_prop_lv == lv && pc->by_prop_n == lv->nprops && pc->by_prop_stamp == lv->mtime) return;
+    pc->by_prop_lv = lv; pc->by_prop_n = lv->nprops; pc->by_prop_stamp = lv->mtime;
+    for (int i = 0; i < lv->nprops && i < LEVEL_MAX_PROPS; i++) {
+        PropModel *pm = find(pc, lv->props[i].file);
+        pc->by_prop[i] = (pm && pm->ok) ? pm : NULL;
+        if (pc->by_prop[i]) { prop_needs_fallback(g, pc, pc->by_prop[i], 0); cache_pieces(g, pc, pc->by_prop[i]); }
+    }
+    (void)g;
+}
+
+void props_collect(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTextures *wt,
+                   Mat4 shadow_vp, bool want_shadow, Mat4 camera_vp, Vec3 cam_pos) {
+    pc->wt = wt;
+    pc->nfb[GFX_SET_SHADOW] = pc->nfb[GFX_SET_WORLD] = 0;
+    cache_prop_models(g, pc, lv);
+    Frustum sun_fr = frustum_from_view_proj(shadow_vp), cam_fr = frustum_from_view_proj(camera_vp);
+    unsigned drawn = 0, culled = 0;
     for (int i = 0; i < lv->nprops; i++) {
+        PropModel *pm = pc->by_prop[i];
+        if (!pm) continue;
         const Prop *p = &lv->props[i];
-        PropModel *pm = find(pc, p->file);
-        if (!pm || !pm->ok) continue;
         Vec3 st = p->stretch.x == 0 && p->stretch.y == 0 && p->stretch.z == 0 ? v3(1, 1, 1) : p->stretch;
         Vec3 s = v3(p->scale * st.x, p->scale * st.y, p->scale * st.z);
         Mat4 world = m4_trs(p->pos, p->yaw, s);
+        bool in_sun = want_shadow, in_cam = true;
         Vec3 lc; float lr;
         if (prop_sphere(g, pc, pm, &lc, &lr)) {   // no bounds (a missing piece): always drawn
             Vec3 c = m4_mul_point(world, lc);
             float r = lr * fmaxf(fabsf(s.x), fmaxf(fabsf(s.y), fabsf(s.z)));   // yaw keeps lengths
-            // The shadow pass needs no distance cut of its own: game.c fits the sun's box around
-            // what the camera looks at (at most 140 m radius on an 80 m level, more on a level
-            // with a longer far plane), so the frustum test is that box, exactly. Measuring it
-            // from frame.cam_pos instead over-culls once the camera
-            // pulls back, since the eye can sit far outside the box (at dist 120, 116 of 464 props
-            // inside the box lost their shadows that way).
-            bool keep = frustum_sees_sphere(&fr, c, r);
-            if (keep && !g->in_shadow)   // main pass: also drop what is only a few pixels across
-                keep = r >= PROP_CULL_SIZE * v3_len(v3_sub(c, g->frame.cam_pos));
-            if (!keep) { pc->props_culled++; continue; }
+            // The sun set needs no distance cut of its own: game.c fits the sun's box around what
+            // the camera looks at, so the frustum test is that box, exactly. Measuring from the eye
+            // instead over-culls once the camera pulls back (at dist 120, 116 of 464 props inside
+            // the box lost their shadows that way).
+            in_sun = want_shadow && frustum_sees_sphere(&sun_fr, c, r);
+            // Camera set: also drop what is only a few pixels across.
+            in_cam = frustum_sees_sphere(&cam_fr, c, r) && r >= PROP_CULL_SIZE * v3_len(v3_sub(c, cam_pos));
         }
-        pc->props_drawn++;
+        if (in_cam) drawn++; else culled++;
+        if (!in_sun && !in_cam) continue;
+        if (pm->fallback > 0) {   // a skinned mesh somewhere in it: drawn whole, the old way
+            if (in_sun && pc->nfb[GFX_SET_SHADOW] < LEVEL_MAX_PROPS) pc->fb[GFX_SET_SHADOW][pc->nfb[GFX_SET_SHADOW]++] = i;
+            if (in_cam && pc->nfb[GFX_SET_WORLD]  < LEVEL_MAX_PROPS) pc->fb[GFX_SET_WORLD][pc->nfb[GFX_SET_WORLD]++]  = i;
+            continue;
+        }
+        unsigned sets = (in_sun ? 1u << GFX_SET_SHADOW : 0u) | (in_cam ? 1u << GFX_SET_WORLD : 0u);
         const Texture *tex = p->tex >= 0 && wt ? world_texture(wt, p->tex) : NULL;
-        props_draw_matrix(g, pc, p->file, world, p->tint, p->glow, tex, p->tex_tile > 0 ? p->tex_tile : 1.0f, 0);
+        collect_matrix(g, pc, sets, pm, world, p->tint, p->glow, tex, p->tex_tile > 0 ? p->tex_tile : 1.0f, 0);
+    }
+    pc->props_drawn = drawn; pc->props_culled = culled;
+    prof_count(PROF_C_PROPS_DRAWN, drawn); prof_count(PROF_C_PROPS_CULLED, culled);
+}
+
+void props_draw_fallback(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTextures *wt, GfxInstSet set) {
+    if (pc->nfb[set] <= 0) return;
+    pc->wt = wt;
+    for (int k = 0; k < pc->nfb[set]; k++) {
+        const Prop *p = &lv->props[pc->fb[set][k]];
+        Vec3 st = p->stretch.x == 0 && p->stretch.y == 0 && p->stretch.z == 0 ? v3(1, 1, 1) : p->stretch;
+        Vec3 s = v3(p->scale * st.x, p->scale * st.y, p->scale * st.z);
+        const Texture *tex = p->tex >= 0 && wt ? world_texture(wt, p->tex) : NULL;
+        props_draw_matrix(g, pc, p->file, m4_trs(p->pos, p->yaw, s), p->tint, p->glow, tex, p->tex_tile > 0 ? p->tex_tile : 1.0f, 0);
     }
     gfx_set_material(g, NULL);
-    prof_count(PROF_C_PROPS_DRAWN, pc->props_drawn);
-    prof_count(PROF_C_PROPS_CULLED, pc->props_culled);
 }
 
 // FILE.recolor beside a model: lines of `r g b  r2 g2 b2` (0-255) move that paint colour, shading kept.
@@ -122,7 +223,9 @@ int props_hot_reload(Gfx *g, PropCache *pc) {
         long long m = file_mtime(path);
         if (m == 0 || m == pm->mtime) continue;
         if (pm->ok && pm->part) { free(pm->part); pm->part = NULL; } else if (pm->ok) model_destroy(g, &pm->model);
-        pm->ok = false; pm->bsphere = 0;
+        pm->ok = false; pm->bsphere = 0; pm->fallback = 0;
+        for (int k = 0; k < pc->n; k++) pc->models[k].piece_cached = false;   // a reloaded file may be a piece of any part
+        pc->by_prop_lv = NULL;
         load_into(g, pm, pm->file);
         SDL_Log("hot reload: %s", pm->file); n++;
     }

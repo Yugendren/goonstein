@@ -23,6 +23,8 @@
 // ---------------------------------------------------------------- uniform layouts (std140)
 
 typedef struct VSUniforms { Mat4 view_proj, model; Vec4 uv_xform, flags; } VSUniforms;
+// One queued instance: which batch it belongs to, and the bytes the GPU will read (see gfx_instance).
+struct GfxInstItem { int batch; GfxInstance data; };
 typedef struct FrameUniforms {
     Vec4 cam_pos, sun_dir, sun_color, sky_ambient, ground_ambient, fog_color, fog_height, toon;
     Vec4 lights_pos[GFX_MAX_LIGHTS], lights_color[GFX_MAX_LIGHTS];
@@ -230,6 +232,7 @@ typedef struct PipeDesc {
     const SDL_GPUVertexBufferDescription *vb; const SDL_GPUVertexAttribute *attrs; Uint32 nattrs;
     SDL_GPUTextureFormat color_fmt; bool depth_test, depth_write; SDL_GPUCompareOp cmp; SDL_GPUCullMode cull;
     int blend;   // 0 none, 1 alpha, 2 additive
+    Uint32 nvb;  // vertex buffer slots; 0 means 1 (every pipeline but the instanced ones)
 } PipeDesc;
 
 // D3D12 refuses things Metal and Vulkan wave through -- a format, a target combination, a
@@ -259,7 +262,7 @@ static SDL_GPUGraphicsPipeline *make_pipe(Gfx *g, const char *name, const PipeDe
         .depth_stencil_state = { .enable_depth_test = d->depth_test, .enable_depth_write = d->depth_write, .compare_op = d->cmp },
         .target_info = { .color_target_descriptions = &ct, .num_color_targets = 1,
                          .has_depth_stencil_target = d->depth_test, .depth_stencil_format = DEPTH_FMT } };
-    if (d->vb) ci.vertex_input_state = (SDL_GPUVertexInputState){ .vertex_buffer_descriptions = d->vb, .num_vertex_buffers = 1, .vertex_attributes = d->attrs, .num_vertex_attributes = d->nattrs };
+    if (d->vb) ci.vertex_input_state = (SDL_GPUVertexInputState){ .vertex_buffer_descriptions = d->vb, .num_vertex_buffers = d->nvb ? d->nvb : 1, .vertex_attributes = d->attrs, .num_vertex_attributes = d->nattrs };
     SDL_GPUGraphicsPipeline *p = SDL_CreateGPUGraphicsPipeline(g->dev, &ci);
     if (!p) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pipeline '%s' failed: %s", name, SDL_GetError());
     return p;
@@ -291,6 +294,7 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
         .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE, .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE });
 
     SDL_GPUShader *world_vs = load_shader(g, "world.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
+    SDL_GPUShader *world_inst_vs = load_shader(g, "world_inst.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
     SDL_GPUShader *skin_vs = load_shader(g, "skin.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 2);
     SDL_GPUShader *lit_fs = load_shader(g, "lit.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 2);
     SDL_GPUShader *shadow_fs = load_shader(g, "shadow.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0);
@@ -306,7 +310,7 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     SDL_GPUShader *pixcomp_fs = load_shader(g, "pixcomp.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1);
     SDL_GPUShader *ui_vs = load_shader(g, "ui.vert", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
     SDL_GPUShader *ui_fs = load_shader(g, "ui.frag", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0);
-    SDL_GPUShader *all[] = { world_vs, skin_vs, lit_fs, sky_vs, sky_fs, part_vs, part_fs, fs_vs, bright_fs, blur_fs, post_fs, blit_fs, ui_vs, ui_fs, pixcomp_fs, shadow_fs };
+    SDL_GPUShader *all[] = { world_vs, world_inst_vs, skin_vs, lit_fs, sky_vs, sky_fs, part_vs, part_fs, fs_vs, bright_fs, blur_fs, post_fs, blit_fs, ui_vs, ui_fs, pixcomp_fs, shadow_fs };
     for (size_t i = 0; i < sizeof all / sizeof *all; i++) if (!all[i]) return false;
 
     SDL_GPUVertexAttribute world_attrs[] = {
@@ -323,19 +327,36 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
         { .location = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, .offset = 0 }, { .location = 1, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, .offset = 8 },
         { .location = 2, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, .offset = 16 } };
     SDL_GPUVertexBufferDescription world_vb = { .pitch = sizeof(Vertex) }, skin_vb = { .pitch = sizeof(SkinVertex) }, p_vb = { .pitch = sizeof(PVertex) }, ui_vb = { .pitch = sizeof(UIVertex) };
+    // Instanced world draws: slot 0 is the mesh, stepped per vertex; slot 1 is the per-frame
+    // instance stream, stepped per instance. instance_step_rate is left at 0, which SDL3 reserves
+    // and every backend reads as "once per instance".
+    SDL_GPUVertexBufferDescription inst_vbs[2] = {
+        { .slot = 0, .pitch = sizeof(Vertex), .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX },
+        { .slot = 1, .pitch = sizeof(GfxInstance), .input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE } };
+    SDL_GPUVertexAttribute inst_attrs[] = {
+        { .location = 0, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, .offset = 0 },
+        { .location = 1, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, .offset = 12 },
+        { .location = 2, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, .offset = 24 },
+        { .location = 3, .buffer_slot = 0, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, .offset = 32 },
+        { .location = 4, .buffer_slot = 1, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, .offset = 0 },
+        { .location = 5, .buffer_slot = 1, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, .offset = 16 },
+        { .location = 6, .buffer_slot = 1, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, .offset = 32 },
+        { .location = 7, .buffer_slot = 1, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, .offset = 48 },
+        { .location = 8, .buffer_slot = 1, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, .offset = 64 } };
 
-    g->pipe_world = make_pipe(g, "world", &(PipeDesc){ world_vs, lit_fs, &world_vb, world_attrs, 4, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0 });
-    g->pipe_skin = make_pipe(g, "skin", &(PipeDesc){ skin_vs, lit_fs, &skin_vb, skin_attrs, 5, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0 });
-    g->pipe_sky = make_pipe(g, "sky", &(PipeDesc){ sky_vs, sky_fs, NULL, NULL, 0, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS_OR_EQUAL, SDL_GPU_CULLMODE_NONE, 0 });
-    g->pipe_particle_add = make_pipe(g, "particle_add", &(PipeDesc){ part_vs, part_fs, &p_vb, p_attrs, 3, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 2 });
-    g->pipe_particle_alpha = make_pipe(g, "particle_alpha", &(PipeDesc){ part_vs, part_fs, &p_vb, p_attrs, 3, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 1 });
-    g->pipe_bright = make_pipe(g, "bright", &(PipeDesc){ fs_vs, bright_fs, NULL, NULL, 0, HDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
-    g->pipe_blur = make_pipe(g, "blur", &(PipeDesc){ fs_vs, blur_fs, NULL, NULL, 0, HDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
-    g->pipe_post = make_pipe(g, "post", &(PipeDesc){ fs_vs, post_fs, NULL, NULL, 0, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
-    g->pipe_ui = make_pipe(g, "ui", &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1 });
-    g->pipe_ui_swap = make_pipe(g, "ui_swap", &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1 });
-    g->pipe_blit = make_pipe(g, "blit", &(PipeDesc){ fs_vs, blit_fs, NULL, NULL, 0, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0 });
-    g->pipe_pixcomp = make_pipe(g, "pixcomp", &(PipeDesc){ fs_vs, pixcomp_fs, NULL, NULL, 0, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 0 });
+    g->pipe_world = make_pipe(g, "world", &(PipeDesc){ world_vs, lit_fs, &world_vb, world_attrs, 4, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0, 0 });
+    g->pipe_world_inst = make_pipe(g, "world_inst", &(PipeDesc){ world_inst_vs, lit_fs, inst_vbs, inst_attrs, 9, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0, 2 });
+    g->pipe_skin = make_pipe(g, "skin", &(PipeDesc){ skin_vs, lit_fs, &skin_vb, skin_attrs, 5, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0, 0 });
+    g->pipe_sky = make_pipe(g, "sky", &(PipeDesc){ sky_vs, sky_fs, NULL, NULL, 0, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS_OR_EQUAL, SDL_GPU_CULLMODE_NONE, 0, 0 });
+    g->pipe_particle_add = make_pipe(g, "particle_add", &(PipeDesc){ part_vs, part_fs, &p_vb, p_attrs, 3, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 2, 0 });
+    g->pipe_particle_alpha = make_pipe(g, "particle_alpha", &(PipeDesc){ part_vs, part_fs, &p_vb, p_attrs, 3, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 1, 0 });
+    g->pipe_bright = make_pipe(g, "bright", &(PipeDesc){ fs_vs, bright_fs, NULL, NULL, 0, HDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0, 0 });
+    g->pipe_blur = make_pipe(g, "blur", &(PipeDesc){ fs_vs, blur_fs, NULL, NULL, 0, HDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0, 0 });
+    g->pipe_post = make_pipe(g, "post", &(PipeDesc){ fs_vs, post_fs, NULL, NULL, 0, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0, 0 });
+    g->pipe_ui = make_pipe(g, "ui", &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1, 0 });
+    g->pipe_ui_swap = make_pipe(g, "ui_swap", &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1, 0 });
+    g->pipe_blit = make_pipe(g, "blit", &(PipeDesc){ fs_vs, blit_fs, NULL, NULL, 0, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0, 0 });
+    g->pipe_pixcomp = make_pipe(g, "pixcomp", &(PipeDesc){ fs_vs, pixcomp_fs, NULL, NULL, 0, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 0, 0 });
     // depth-only shadow pipelines: no colour target
     {
         SDL_GPUGraphicsPipelineCreateInfo ci = {
@@ -347,6 +368,9 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
             .vertex_input_state = { .vertex_buffer_descriptions = &world_vb, .num_vertex_buffers = 1, .vertex_attributes = world_attrs, .num_vertex_attributes = 4 } };
         g->pipe_shadow = SDL_CreateGPUGraphicsPipeline(g->dev, &ci);
         if (!g->pipe_shadow) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pipeline 'shadow' failed: %s", SDL_GetError());
+        ci.vertex_shader = world_inst_vs; ci.vertex_input_state = (SDL_GPUVertexInputState){ .vertex_buffer_descriptions = inst_vbs, .num_vertex_buffers = 2, .vertex_attributes = inst_attrs, .num_vertex_attributes = 9 };
+        g->pipe_shadow_inst = SDL_CreateGPUGraphicsPipeline(g->dev, &ci);
+        if (!g->pipe_shadow_inst) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pipeline 'shadow_inst' failed: %s", SDL_GetError());
         ci.vertex_shader = skin_vs; ci.vertex_input_state = (SDL_GPUVertexInputState){ .vertex_buffer_descriptions = &skin_vb, .num_vertex_buffers = 1, .vertex_attributes = skin_attrs, .num_vertex_attributes = 5 };
         g->pipe_shadow_skin = SDL_CreateGPUGraphicsPipeline(g->dev, &ci);
         if (!g->pipe_shadow_skin) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pipeline 'shadow_skin' failed: %s", SDL_GetError());
@@ -370,7 +394,8 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
             { "bright", g->pipe_bright, true }, { "blur", g->pipe_blur, true }, { "post", g->pipe_post, true },
             { "ui", g->pipe_ui, true }, { "ui_swap", g->pipe_ui_swap, true }, { "blit", g->pipe_blit, true },
             { "pixcomp", g->pipe_pixcomp, true },
-            { "shadow", g->pipe_shadow, false }, { "shadow_skin", g->pipe_shadow_skin, false },
+            { "shadow", g->pipe_shadow, false }, { "shadow_skin", g->pipe_shadow_skin, false }, { "shadow_inst", g->pipe_shadow_inst, false },
+            { "world_inst", g->pipe_world_inst, false },
         };
         const int nroll = (int)(sizeof roll / sizeof *roll);
         char missing[256]; missing[0] = 0; int nmissing = 0; bool fatal = false;
@@ -396,6 +421,10 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->ui2_vb = SDL_CreateGPUBuffer(g->dev, &(SDL_GPUBufferCreateInfo){ .usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = UI_MAX_VERTS * sizeof(UIVertex) });
     g->ui2_xfer = SDL_CreateGPUTransferBuffer(g->dev, &(SDL_GPUTransferBufferCreateInfo){ .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = UI_MAX_VERTS * sizeof(UIVertex) });
     g->ui2_verts = malloc(UI_MAX_VERTS * sizeof(UIVertex));
+    g->inst_vb = SDL_CreateGPUBuffer(g->dev, &(SDL_GPUBufferCreateInfo){ .usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = GFX_MAX_INSTANCES * (Uint32)sizeof(GfxInstance) });
+    g->inst_xfer = SDL_CreateGPUTransferBuffer(g->dev, &(SDL_GPUTransferBufferCreateInfo){ .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = GFX_MAX_INSTANCES * (Uint32)sizeof(GfxInstance) });
+    g->inst_items = malloc(GFX_MAX_INSTANCES * sizeof *g->inst_items);
+    if (!g->inst_vb || !g->inst_xfer || !g->inst_items) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "no instance stream: props fall back to one draw each");
 
     unsigned char white[4] = {255, 255, 255, 255};
     g->white = gfx_texture_create(g, white, 1, 1);
@@ -432,6 +461,10 @@ void gfx_shutdown(Gfx *g) {
     if (g->tool_shot) SDL_ReleaseGPUTexture(g->dev, g->tool_shot);
     if (g->shadow_tex) SDL_ReleaseGPUTexture(g->dev, g->shadow_tex);
     if (g->pipe_shadow) SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_shadow); if (g->pipe_shadow_skin) SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_shadow_skin);
+    if (g->pipe_shadow_inst) SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_shadow_inst);
+    if (g->pipe_world_inst) SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_world_inst);
+    if (g->inst_xfer) SDL_ReleaseGPUTransferBuffer(g->dev, g->inst_xfer); if (g->inst_vb) SDL_ReleaseGPUBuffer(g->dev, g->inst_vb);
+    free(g->inst_items);
     if (g->por_hdr) SDL_ReleaseGPUTexture(g->dev, g->por_hdr); if (g->por_depth) SDL_ReleaseGPUTexture(g->dev, g->por_depth);
     if (g->por_comp) SDL_ReleaseGPUTexture(g->dev, g->por_comp); if (g->por_comp_depth) SDL_ReleaseGPUTexture(g->dev, g->por_comp_depth);
     if (g->portrait.tex) SDL_ReleaseGPUTexture(g->dev, g->portrait.tex);
@@ -816,6 +849,152 @@ void gfx_draw_box_wire(Gfx *g, Vec3 c, Vec3 s, Vec4 color) {
         gfx_draw(g, &g->cube, &g->white, m4_trs(v3(c.x + a * hx, c.y + b * hy, c.z), 0, v3(th, th, s.z)), color, v4(1, 1, 0, 0));
     }
     g->material = saved;
+}
+
+
+// ---------------------------------------------------------------- instancing
+//
+// The island's 9160 draw calls a frame were not 9160 different things. They were two meshes -- a
+// box and a cylinder from assets/models/shapes -- drawn three thousand times because a palm is a
+// .part file of thirty pieces and the island stands a hundred and fifteen palms. Every one of
+// those pieces differs only in its matrix and its green. That is what an instance is.
+//
+// The whole frame's instances are collected first, into one stream, and uploaded once. They have
+// to be: an upload is a copy pass, a copy pass cannot run inside a render pass, and the frame has
+// two render passes (the sun's and the camera's) with different culled sets. So the collection
+// carries a `set` per instance and the upload happens between the collection and the first pass.
+//
+// Instances arrive in whatever order the level lists its props, but a draw call needs its
+// instances contiguous in the buffer. Rather than sort, this counts: every arriving instance is
+// tagged with its batch and the batch's count goes up; at upload the counts become offsets and
+// each item is scattered straight into its place. One pass to collect, one to place, no compare.
+
+void gfx_instances_begin(Gfx *g) {
+    g->inst_nitems = 0; g->inst_nbatches = 0; g->inst_total = 0; g->inst_overflow = 0;
+    g->inst_ready = false; g->inst_open = g->inst_items != NULL && g->inst_vb != NULL;
+    for (int i = 0; i < GFX_INST_HASH; i++) g->inst_hash[i] = -1;
+}
+
+// The batch key, packed so it can be hashed and compared as six 64-bit words rather than byte by
+// byte: this runs once per instance and the island queues six thousand a frame, which is the one
+// place in the collection where a byte loop showed up in the profile.
+typedef struct InstKey InstKey;   // the layout lives in gfx.h, inside GfxInstBatch
+
+int gfx_instance_batch(Gfx *g, GfxInstSet set, const Mesh *mesh, const Texture *tex, Vec4 uv_xform, bool planar, Vec3 glow) {
+    if (!g->inst_open || !mesh || !mesh->vb || !mesh->index_count) return -1;
+    if (!tex) tex = &g->white;
+    InstKey k;
+    memset(&k, 0, sizeof k);   // no padding garbage: the whole struct is compared
+    k.mesh = mesh; k.tex = tex;
+    k.uv[0] = uv_xform.x; k.uv[1] = uv_xform.y; k.uv[2] = uv_xform.z; k.uv[3] = uv_xform.w;
+    k.glow[0] = glow.x; k.glow[1] = glow.y; k.glow[2] = glow.z;
+    k.set_planar = (Uint32)set | (planar ? 0x100u : 0u);
+
+    Uint64 h = 1469598103934665603ull;
+    const Uint64 *w = (const Uint64 *)(const void *)&k;
+    for (size_t i = 0; i < sizeof k / 8; i++) { h ^= w[i]; h *= 1099511628211ull; }
+
+    // Open addressing, linear probe. The table is at least twice the batch ceiling, so an empty
+    // slot always exists and the loop always ends.
+    int slot = (int)((h ^ (h >> 32)) & (GFX_INST_HASH - 1));
+    for (int probe = 0; probe < GFX_INST_HASH; probe++) {
+        int c = g->inst_hash[slot];
+        if (c < 0) {   // empty: this is where a new batch's index goes
+            if (g->inst_nbatches >= GFX_MAX_INST_BATCHES) { g->inst_overflow++; return -1; }
+            int b = g->inst_nbatches++;
+            g->inst_hash[slot] = b;
+            struct GfxInstBatch *bb = &g->inst_batches[b];
+            bb->key = k; bb->mesh = mesh; bb->tex = tex; bb->uv_xform = uv_xform; bb->glow = glow;
+            bb->set = (Uint8)set; bb->planar = planar ? 1 : 0; bb->count = 0; bb->first = 0;
+            return b;
+        }
+        if (memcmp(&g->inst_batches[c].key, &k, sizeof k) == 0) return c;
+        slot = (slot + 1) & (GFX_INST_HASH - 1);
+    }
+    g->inst_overflow++;
+    return -1;
+}
+
+void gfx_instance_add(Gfx *g, int batch, Mat4 model, Vec4 tint) {
+    if (batch < 0 || !g->inst_open) return;
+    if (g->inst_nitems >= GFX_MAX_INSTANCES) { g->inst_overflow++; return; }
+    g->inst_batches[batch].count++;
+    struct GfxInstItem *it = &g->inst_items[g->inst_nitems++];
+    it->batch = batch;
+    memcpy(it->data.model, model.m, sizeof it->data.model);
+    it->data.tint[0] = tint.x; it->data.tint[1] = tint.y; it->data.tint[2] = tint.z; it->data.tint[3] = tint.w;
+}
+
+void gfx_instance(Gfx *g, GfxInstSet set, const Mesh *mesh, const Texture *tex, Mat4 model, Vec4 tint, Vec4 uv_xform, bool planar, Vec3 glow) {
+    gfx_instance_add(g, gfx_instance_batch(g, set, mesh, tex, uv_xform, planar, glow), model, tint);
+}
+
+void gfx_instances_upload(Gfx *g, Platform *pf) {
+    g->inst_open = false; g->inst_ready = false;
+    if (g->inst_overflow)
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "instances: %u dropped this frame (stream holds %d in %d batches)", g->inst_overflow, GFX_MAX_INSTANCES, GFX_MAX_INST_BATCHES);
+    if (!pf->cmd || !g->inst_nitems || !g->inst_vb || !g->inst_xfer) return;
+
+    Uint32 run = 0;
+    for (int i = 0; i < g->inst_nbatches; i++) { g->inst_batches[i].first = run; run += g->inst_batches[i].count; }
+    g->inst_total = run;
+    static Uint32 cursor[GFX_MAX_INST_BATCHES];   // one frame's write heads; never on the stack
+    for (int i = 0; i < g->inst_nbatches; i++) cursor[i] = g->inst_batches[i].first;
+
+    // cycle: hand back a fresh block rather than wait for last frame's copy to be done with this one.
+    GfxInstance *map = (GfxInstance *)SDL_MapGPUTransferBuffer(g->dev, g->inst_xfer, true);
+    if (!map) { g->inst_total = 0; return; }
+    for (Uint32 i = 0; i < g->inst_nitems; i++) {
+        const struct GfxInstItem *it = &g->inst_items[i];
+        map[cursor[it->batch]++] = it->data;
+    }
+    SDL_UnmapGPUTransferBuffer(g->dev, g->inst_xfer);
+
+    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(pf->cmd);
+    SDL_UploadToGPUBuffer(cp, &(SDL_GPUTransferBufferLocation){ .transfer_buffer = g->inst_xfer },
+                          &(SDL_GPUBufferRegion){ .buffer = g->inst_vb, .size = run * (Uint32)sizeof(GfxInstance) }, true);
+    SDL_EndGPUCopyPass(cp);
+    g->inst_ready = true;
+}
+
+void gfx_instances_draw(Gfx *g, GfxInstSet set) {
+    if (!g->pass || !g->inst_ready) return;
+    SDL_GPUGraphicsPipeline *pipe = g->in_shadow ? g->pipe_shadow_inst : g->pipe_world_inst;
+    if (!pipe) return;
+    Material saved = g->material;
+    for (int i = 0; i < g->inst_nbatches; i++) {
+        const struct GfxInstBatch *b = &g->inst_batches[i];
+        if (b->set != (Uint8)set || b->count == 0) continue;
+        if (!bind_pipe(g, pipe)) break;
+        VSUniforms u = { g->frame.view_proj, m4_identity(), b->uv_xform, v4(b->planar ? 1.0f : 0.0f, 0, 0, 0) };
+        SDL_PushGPUVertexUniformData(g->cmd, 0, &u, sizeof u);
+        if (!g->in_shadow) {
+            // The per-instance tint rides in the vertex colour, so the material's own tint stays
+            // white; only the glow differs from batch to batch, and it is part of the batch key.
+            g->material = material_default(); g->material.emissive = b->glow;
+            push_material(g, v4(1, 1, 1, 1), b->tex);
+        }
+        bind_tex(g, b->tex, g->samp_linear);
+        SDL_GPUBufferBinding vbs[2] = { { .buffer = b->mesh->vb },
+                                        { .buffer = g->inst_vb, .offset = b->first * (Uint32)sizeof(GfxInstance) } };
+        SDL_BindGPUVertexBuffers(g->pass, 0, vbs, 2);
+        SDL_BindGPUIndexBuffer(g->pass, &(SDL_GPUBufferBinding){ .buffer = b->mesh->ib }, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+        SDL_DrawGPUIndexedPrimitives(g->pass, b->mesh->index_count, b->count, 0, 0, 0);
+        g->draw_calls++;
+        prof_count(PROF_C_DRAWS, 1); prof_count(PROF_C_BATCHES, 1);
+        prof_count(PROF_C_INSTANCES, b->count);
+        prof_count(PROF_C_TRIS, b->mesh->index_count / 3 * b->count);
+    }
+    g->material = saved;
+    g->bound_tex = NULL;   // the next plain gfx_draw must rebind: this loop left whatever it liked
+}
+
+void gfx_instances_stats(const Gfx *g, GfxInstSet set, unsigned *batches, unsigned *instances) {
+    unsigned nb = 0, ni = 0;
+    for (int i = 0; i < g->inst_nbatches; i++)
+        if (g->inst_batches[i].set == (Uint8)set && g->inst_batches[i].count) { nb++; ni += g->inst_batches[i].count; }
+    if (batches) *batches = nb;
+    if (instances) *instances = ni;
 }
 
 // ---------------------------------------------------------------- billboards and decals

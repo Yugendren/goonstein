@@ -1,0 +1,82 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct _82
+{
+    float4x4 _m0;
+    float4x4 _m1;
+    float4 _m2;
+    float4 _m3;
+};
+
+struct main0_out
+{
+    float3 m_70 [[user(locn0)]];
+    float3 m_73 [[user(locn1)]];
+    float2 m_125 [[user(locn2)]];
+    float4 m_76 [[user(locn3)]];
+    float4 gl_Position [[position]];
+};
+
+struct main0_in
+{
+    float3 m_48 [[attribute(0)]];
+    float3 m_66 [[attribute(1)]];
+    float2 m_149 [[attribute(2)]];
+    float4 m_77 [[attribute(3)]];
+    float4 m_12 [[attribute(4)]];
+    float4 m_14 [[attribute(5)]];
+    float4 m_16 [[attribute(6)]];
+    float4 m_18 [[attribute(7)]];
+    float4 m_79 [[attribute(8)]];
+};
+
+vertex main0_out main0(main0_in in [[stage_in]], constant _82& _84 [[buffer(0)]])
+{
+    main0_out out = {};
+    float4 _54 = float4x4(in.m_12, in.m_14, in.m_16, in.m_18) * float4(in.m_48, 1.0);
+    float3 _68 = float3x3(in.m_12.xyz, in.m_14.xyz, in.m_16.xyz) * in.m_66;
+    out.m_70 = _54.xyz;
+    out.m_73 = _68;
+    out.m_76 = in.m_77 * in.m_79;
+    if (_84._m3.x > 0.5)
+    {
+        float3 _100 = abs(fast::normalize(_68));
+        float _107 = _100.x;
+        float _110 = _100.y;
+        bool _111 = _107 > _110;
+        bool _120;
+        if (_111)
+        {
+            _120 = _107 > _100.z;
+        }
+        else
+        {
+            _120 = _111;
+        }
+        if (_120)
+        {
+            out.m_125 = _54.zy * _84._m2.x;
+        }
+        else
+        {
+            if (_110 > _100.z)
+            {
+                out.m_125 = _54.xz * _84._m2.x;
+            }
+            else
+            {
+                out.m_125 = _54.xy * _84._m2.x;
+            }
+        }
+    }
+    else
+    {
+        out.m_125 = (in.m_149 * _84._m2.xy) + _84._m2.zw;
+    }
+    out.gl_Position = _84._m0 * _54;
+    return out;
+}
+

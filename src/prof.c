@@ -21,10 +21,11 @@ static const char *COUNTER_NAMES[PROF_C_COUNT] = {
     "draws", "instances", "tris", "props_drawn", "props_culled", "batches",
 };
 
-// Phases the overlay indents under their parent: TICK's children and RENDER's children. A parent's
-// own number already includes its children's cost (prof.h is explicit about this), so this is
+// Phases the overlay indents under the one that contains them: what runs inside TICK and what
+// runs inside RENDER. An outer phase's number already includes them (prof.h is explicit about
+// this), so this is
 // display only -- it does not change what prof_begin/prof_end sum or what the median is taken over.
-static bool phase_is_child(ProfPhase p) {
+static bool phase_is_nested(ProfPhase p) {
     return p == PROF_TICK_PHYS || p == PROF_TICK_ITEMS || p == PROF_TICK_NET || p == PROF_TICK_GAME
         || p == PROF_CULL || p == PROF_SHADOW || p == PROF_WORLD || p == PROF_WATER
         || p == PROF_PARTICLES || p == PROF_POST || p == PROF_UI;
@@ -214,7 +215,7 @@ int prof_overlay_lines(char lines[][96], int max) {
         int filled = (int)(ratio * 10.0f + 0.5f);
         if (filled < 0) filled = 0; if (filled > 10) filled = 10;
         char bar[11]; for (int i = 0; i < 10; i++) bar[i] = i < filled ? '#' : '-'; bar[10] = 0;
-        char name[16]; snprintf(name, sizeof name, "%s%s", phase_is_child((ProfPhase)p) ? "  " : "", prof_phase_name((ProfPhase)p));
+        char name[16]; snprintf(name, sizeof name, "%s%s", phase_is_nested((ProfPhase)p) ? "  " : "", prof_phase_name((ProfPhase)p));
         snprintf(lines[n], 96, "%-13s%.2f ms  p90 %.2f  %s", name, med, p90, bar);
         n++;
     }

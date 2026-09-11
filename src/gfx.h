@@ -56,6 +56,34 @@ typedef struct PostParams {
 #define P_MAX_VERTS  (4096 * 6)
 #define GFX_UI_FONTS 16   // baked VT323 sizes cached at once; the menu wants a few big ones the tool window never asks for
 
+// ---------------------------------------------------------------- instancing
+// One draw per (mesh, texture, uv mapping, glow) instead of one per object. A palm is thirty
+// boxes and cylinders in a .part file and the island stands 115 of them, which used to be 3450
+// draw calls for two meshes and two textures; it is now two.
+//
+// The instance stream is uploaded once a frame, and an upload is a copy pass, and a copy pass
+// cannot run inside a render pass. So the whole frame -- the shadow pass's culled set AND the
+// camera pass's, which are different sets -- has to be collected before either pass opens:
+//
+//     gfx_instances_begin(g);
+//     props_collect(..., GFX_SET_SHADOW, sun_vp, ...);   // fills the two lists
+//     props_collect(..., GFX_SET_WORLD,  view_proj, ...);
+//     gfx_instances_upload(g, pf);                        // one copy pass on the frame's cmd buffer
+//     gfx_shadow_begin(...); gfx_instances_draw(g, GFX_SET_SHADOW); gfx_shadow_end(g);
+//     gfx_begin(...);        gfx_instances_draw(g, GFX_SET_WORLD);  ...
+//
+// Per-instance data is the model matrix and a tint. The tint reaches the fragment shader through
+// the vertex colour, which is exactly where lit.frag already multiplies it in, so an instanced
+// prop and a singly drawn one come out the same colour -- which is the point: this is a draw-call
+// change, not a look change.
+typedef enum GfxInstSet { GFX_SET_SHADOW = 0, GFX_SET_WORLD = 1, GFX_SET_COUNT } GfxInstSet;
+
+#define GFX_MAX_INSTANCES    49152   // ~4 MB of stream; the island's heaviest view uses about 9000
+#define GFX_MAX_INST_BATCHES 1024
+#define GFX_INST_HASH        4096    // power of two, open addressed; must be > 2 * GFX_MAX_INST_BATCHES
+
+typedef struct GfxInstance { float model[16]; float tint[4]; } GfxInstance;
+
 typedef struct Gfx {
     SDL_GPUDevice *dev;
     int iw, ih;                                   // internal render resolution (gfx_set_render_scale)
@@ -93,6 +121,17 @@ typedef struct Gfx {
     unsigned char *ttf;
     SDL_GPUTexture *tool_shot; int tool_shot_w, tool_shot_h; bool want_tool_shot;
     PVertex *p_add, *p_alpha; Uint32 p_add_count, p_alpha_count;
+    // instancing: see gfx_instances_begin. Two pipelines (lit and depth-only), one growable
+    // instance stream, and this frame's batches.
+    SDL_GPUGraphicsPipeline *pipe_world_inst, *pipe_shadow_inst;
+    SDL_GPUBuffer *inst_vb; SDL_GPUTransferBuffer *inst_xfer;
+    struct GfxInstItem *inst_items; Uint32 inst_nitems;   // arrival order, sorted into batches at upload
+    struct GfxInstBatch { struct InstKey { const void *mesh, *tex; float uv[4], glow[3]; Uint32 set_planar; } key;
+                          const Mesh *mesh; const Texture *tex; Vec4 uv_xform; Vec3 glow;
+                          Uint8 set, planar; Uint32 count, first; } inst_batches[GFX_MAX_INST_BATCHES];
+    int inst_nbatches; int inst_hash[GFX_INST_HASH];
+    Uint32 inst_total; bool inst_open, inst_ready;
+    unsigned inst_overflow;   // instances dropped this frame because the stream was full
     Texture white, soft;                          // 1x1 white, soft radial disc
     Mesh cube, quad;
     // per-frame
@@ -136,6 +175,25 @@ void gfx_draw_box(Gfx *g, const Texture *t, Vec3 center, Vec3 size, float yaw, V
 // (the editor's shape .objs have none). Same as gfx_draw_box's uv_tile path.
 void gfx_draw_planar(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, float tile);
 void gfx_draw_box_wire(Gfx *g, Vec3 center, Vec3 size, Vec4 color);
+
+// Start this frame's instance collection. Clears both sets. Call once, before any render pass.
+void gfx_instances_begin(Gfx *g);
+// Queue one instance into `set`. mesh/tex/uv_xform/planar/glow together pick the batch; model and
+// tint are what varies per instance. planar and uv_xform mirror gfx_draw_planar and gfx_draw's
+// uv_xform; glow is the material emissive. Silently drops (and counts) once the stream is full.
+void gfx_instance(Gfx *g, GfxInstSet set, const Mesh *mesh, const Texture *tex, Mat4 model, Vec4 tint, Vec4 uv_xform, bool planar, Vec3 glow);
+// The same in two halves, for a caller that queues many instances into the same batch: find the
+// batch once, then add. -1 means "no batch" and gfx_instance_add ignores it.
+int  gfx_instance_batch(Gfx *g, GfxInstSet set, const Mesh *mesh, const Texture *tex, Vec4 uv_xform, bool planar, Vec3 glow);
+void gfx_instance_add(Gfx *g, int batch, Mat4 model, Vec4 tint);
+// Sort the collected instances into contiguous per-batch runs and upload them, in one copy pass on
+// this frame's command buffer. Must be called after the last gfx_instance and before the first
+// render pass of the frame.
+void gfx_instances_upload(Gfx *g, Platform *pf);
+// Issue one instanced draw per batch of `set`. Call inside the matching open render pass.
+void gfx_instances_draw(Gfx *g, GfxInstSet set);
+// How many batches and instances `set` holds (the F1 overlay and the benchmark report these).
+void gfx_instances_stats(const Gfx *g, GfxInstSet set, unsigned *batches, unsigned *instances);
 // Upright sprite: a quad w x h metres standing on `foot`, turned about Y to face the camera,
 // nearest-sampled, alpha-cutout, lit like everything else. uv is the frame rect (u0 v0 u1 v1).
 void gfx_draw_sprite(Gfx *g, const Texture *t, Vec3 foot, float w, float h, const float *uv, Vec4 tint, bool flip_x);

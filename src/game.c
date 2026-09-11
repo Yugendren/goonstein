@@ -1602,16 +1602,17 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     // First person: the local player's own model is drawn into the sun shadow map (so it still casts)
     // but skipped in the camera passes, because at eye height the camera is inside its head.
     bool fp_self = g->cam.mode == CAM_FIRST;
-    // Sun shadow map: the world drawn once from the sun, fitted around what the camera looks at
-    prof_begin(PROF_SHADOW);
+    // The sun's box, fitted around what the camera looks at. Worked out here rather than inside the
+    // shadow block because the prop culling below needs it before any render pass opens.
+    // R grows with how far the eye is from its target, and its ceiling grows with the level's far
+    // plane, so an 80 m level keeps the 140 m box it always had while a 600 m island can shadow a
+    // third of itself at once. Beyond the box nothing is shadowed at all (the cheap far fallback):
+    // the shader fades the shadow out over the outer 15% of R (see gfx.c's shadow.w), so there is
+    // no hard edge.
+    float sun_strength = SDL_getenv("HOLLOW_NOSHADOW") ? 0 : (SDL_getenv("HOLLOW_SHADOW") ? (float)atof(SDL_getenv("HOLLOW_SHADOW")) : lk->shadow);
+    Mat4 sun_vp;
     {
-        float strength = SDL_getenv("HOLLOW_NOSHADOW") ? 0 : (SDL_getenv("HOLLOW_SHADOW") ? (float)atof(SDL_getenv("HOLLOW_SHADOW")) : lk->shadow);
-        Vec3 sd = v3_norm(lk->sun_dir); if (sd.y > -0.05f) strength = 0;   // sun below the horizon: no shadows
-        // One map, fitted around what the camera looks at: R grows with how far the eye is from
-        // its target, and its ceiling grows with the level's far plane, so an 80 m level keeps the
-        // 140 m box it always had while a 600 m island can shadow a third of itself at once.
-        // Beyond the box nothing is shadowed at all (the cheap far fallback): the shader fades the
-        // shadow out over the outer 15% of R (see gfx.c's shadow.w), so there is no hard edge.
+        Vec3 sd = v3_norm(lk->sun_dir); if (sd.y > -0.05f) sun_strength = 0;   // sun below the horizon: no shadows
         Vec3 target = g->cam.target;
         float R_max = clampf(g->cam.view_far * 0.35f, 140, 320);
         float R = clampf(v3_len(v3_sub(g->cam.target, g->cam.eye)) * 2.2f, 30, R_max);
@@ -1621,12 +1622,24 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         // snap the centre to shadow texels so the map does not swim as the camera moves
         float texel = 2 * R / (float)(x->shadow_size > 0 ? x->shadow_size : 2048);
         view.m[12] = roundf(view.m[12] / texel) * texel; view.m[13] = roundf(view.m[13] / texel) * texel;
-        Mat4 sun_vp = m4_mul(m4_ortho(-R, R, -R, R, 1, back + R * 2.0f + 60), view);
-        gfx_shadow_begin(x, pf, sun_vp, strength, 0.0022f);
+        sun_vp = m4_mul(m4_ortho(-R, R, -R, R, 1, back + R * 2.0f + 60), view);
+    }
+    // Both passes' prop instances, collected and uploaded before either pass opens -- an upload is
+    // a copy pass and a copy pass cannot run inside a render pass. See the instancing block in gfx.h.
+    prof_begin(PROF_CULL);
+    gfx_instances_begin(x);
+    props_collect(x, &g->props, lv, &g->wt, sun_vp, sun_strength > 0, fp.view_proj, g->cam.eye);
+    prof_end(PROF_CULL);
+    gfx_instances_upload(x, pf);
+    // Sun shadow map: the world drawn once from the sun
+    prof_begin(PROF_SHADOW);
+    {
+        gfx_shadow_begin(x, pf, sun_vp, sun_strength, 0.0022f);
         if (x->in_shadow) {
             draw_level(x, lv, &g->wt);
             if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain); }
-            props_draw(x, &g->props, lv, &g->wt, t);
+            gfx_instances_draw(x, GFX_SET_SHADOW);
+            props_draw_fallback(x, &g->props, lv, &g->wt, GFX_SET_SHADOW);
             items_draw(g);
             for (int i = 0; i < NET_MAX_PLAYERS; i++) {
                 if (!g->net.slots[i].active || !g->player_models[i].loaded || g->player_models[i].is_sprite) continue;
@@ -1646,7 +1659,8 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     draw_level(x, lv, &g->wt);
     if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain);
         prof_begin(PROF_WATER); terrain_draw_water(x, &g->terrain); prof_end(PROF_WATER); }
-    props_draw(x, &g->props, lv, &g->wt, t);
+    gfx_instances_draw(x, GFX_SET_WORLD);
+    props_draw_fallback(x, &g->props, lv, &g->wt, GFX_SET_WORLD);
     items_draw(g);
     weapons_draw(g);   // --- weapons --- viewmodel, held and holstered weapons, tracers and flashes
     {
