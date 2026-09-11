@@ -52,8 +52,16 @@ def tri_count(obj):
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:]
-    out_obj, budget, specs = argv[0], int(argv[1]), argv[2:]
+    stage(argv[0], int(argv[1]), argv[2:])
 
+
+def stage(out_obj, budget, specs):
+    """One OBJ out of one or more `material:hexcolour:file.stl` specs. Returns (raw, final).
+
+    Split out of main() so the shell stage (shell_stage.py, which writes one OBJ per material
+    group of a whole building) can drive it several times in a single Blender launch instead of
+    paying Blender's start-up per group.
+    """
     clear()
     objs = []
     for spec in specs:
@@ -114,7 +122,10 @@ def main():
         global_scale=1.0,
         path_mode="AUTO",
     )
-    print("KITSTAGE %s raw=%d final=%d" % (out_obj, raw, tri_count(ob)))
+    final = tri_count(ob)
+    print("KITSTAGE %s raw=%d final=%d" % (out_obj, raw, final))
+    return raw, final
 
 
-main()
+if __name__ == "__main__":
+    main()

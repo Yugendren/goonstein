@@ -1,0 +1,5 @@
+# Hand-placed, not tied to an opening: the lamp beside the door and a teak bench on the porch.
+piece models/own/arch/lamp_bracket.obj   1.150  1.900  -2.180   1.000 1.000 1.000    0.0 0.0 0.0   1.20 1.10 0.95
+piece models/shapes/box.obj              0.000  0.520  -2.900   1.200 0.080 0.350     0.0 0.0 0.0   1.47 1.25 0.88  tex planks_weathered 2.5
+piece models/shapes/box.obj             -0.520  0.120  -2.900   0.080 0.400 0.350     0.0 0.0 0.0   1.47 1.25 0.88  tex planks_weathered 2.5
+piece models/shapes/box.obj              0.520  0.120  -2.900   0.080 0.400 0.350     0.0 0.0 0.0   1.47 1.25 0.88  tex planks_weathered 2.5
