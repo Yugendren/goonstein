@@ -17,6 +17,7 @@
 #include "vendor/stb_truetype.h"
 
 #define HDR_FMT SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT
+#define SMALL_HDR_FMT SDL_GPU_TEXTUREFORMAT_R11G11B10_UFLOAT
 #define LDR_FMT SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM
 #define DEPTH_FMT SDL_GPU_TEXTUREFORMAT_D32_FLOAT
 
@@ -144,16 +145,39 @@ Texture gfx_texture_create(Gfx *g, const unsigned char *rgba, int w, int h) {
         if (n == 0) { n = n_all; sum[0] = sum_all[0]; sum[1] = sum_all[1]; sum[2] = sum_all[2]; }
         if (n > 0) { t.mean[0] = (float)sum[0] / n / 255.0f; t.mean[1] = (float)sum[1] / n / 255.0f; t.mean[2] = (float)sum[2] / n / 255.0f; }
     }
+    // Mip levels. Until now every texture in this game was one level, which meant a 1024-pixel
+    // photoscan on a shrub forty metres away was sampling one texel in twenty from a texture the
+    // cache could not hold: the worst case for bandwidth and the worst case for aliasing at the
+    // same time. Mips are the rare change that is both faster and better looking, so everything
+    // gets them -- and the two samplers that must stay hard-edged (nearest, for pixel art and the
+    // UI; clamp, for the single-level render targets and the shadow map) simply never ask for a
+    // level above zero, so nothing about the pixel look changes.
+    int levels = 1;
+    for (int m = w > h ? w : h; m > 1; m >>= 1) levels++;
     t.tex = SDL_CreateGPUTexture(g->dev, &(SDL_GPUTextureCreateInfo){
-        .type = SDL_GPU_TEXTURETYPE_2D, .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER,
-        .width = (Uint32)w, .height = (Uint32)h, .layer_count_or_depth = 1, .num_levels = 1 });
+        .type = SDL_GPU_TEXTURETYPE_2D, .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+        // GenerateMipmaps renders each level from the one above it, so the texture has to be usable
+        // as a colour target as well as a sampler. That is SDL's rule, not a choice.
+        .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | (levels > 1 ? SDL_GPU_TEXTUREUSAGE_COLOR_TARGET : 0u),
+        .width = (Uint32)w, .height = (Uint32)h, .layer_count_or_depth = 1, .num_levels = (Uint32)levels });
+    if (!t.tex && levels > 1) {   // a driver that will not make it a colour target still gets a texture
+        levels = 1;
+        t.tex = SDL_CreateGPUTexture(g->dev, &(SDL_GPUTextureCreateInfo){
+            .type = SDL_GPU_TEXTURETYPE_2D, .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER,
+            .width = (Uint32)w, .height = (Uint32)h, .layer_count_or_depth = 1, .num_levels = 1 });
+        static bool said = false;
+        if (!said) { said = true; SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "no mipmaps on '%s': %s", SDL_GetGPUDeviceDriver(g->dev), SDL_GetError()); }
+    }
+    t.levels = levels;
     Uint32 size = (Uint32)(w * h * 4);
     SDL_GPUTransferBuffer *xfer = SDL_CreateGPUTransferBuffer(g->dev, &(SDL_GPUTransferBufferCreateInfo){ .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = size });
     void *map = SDL_MapGPUTransferBuffer(g->dev, xfer, false); memcpy(map, rgba, size); SDL_UnmapGPUTransferBuffer(g->dev, xfer);
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(g->dev);
     SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
     SDL_UploadToGPUTexture(cp, &(SDL_GPUTextureTransferInfo){ .transfer_buffer = xfer }, &(SDL_GPUTextureRegion){ .texture = t.tex, .w = (Uint32)w, .h = (Uint32)h, .d = 1 }, false);
-    SDL_EndGPUCopyPass(cp); SDL_SubmitGPUCommandBuffer(cmd); SDL_ReleaseGPUTransferBuffer(g->dev, xfer);
+    SDL_EndGPUCopyPass(cp);
+    if (levels > 1) SDL_GenerateMipmapsForGPUTexture(cmd, t.tex);
+    SDL_SubmitGPUCommandBuffer(cmd); SDL_ReleaseGPUTransferBuffer(g->dev, xfer);
     return t;
 }
 
@@ -268,6 +292,9 @@ static SDL_GPUGraphicsPipeline *make_pipe(Gfx *g, const char *name, const PipeDe
     return p;
 }
 
+static bool g_want_small_hdr = false;
+void gfx_request_small_hdr(bool on) { g_want_small_hdr = on; }
+
 bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     memset(g, 0, sizeof *g);
     g->dev = pf->gpu; g->iw = iw; g->ih = ih; g->bw = iw / 4; g->bh = ih / 4;
@@ -275,21 +302,34 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->render_scale = 1.0f;
     SDL_Log("gfx: %dx%d internal on GPU driver '%s'", iw, ih, SDL_GetGPUDeviceDriver(g->dev));
     log_format_support(g, "HDR colour target (RGBA16F)", HDR_FMT, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
+    log_format_support(g, "HDR colour target, small (R11G11B10)", SMALL_HDR_FMT, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
+    g->hdr_fmt = HDR_FMT;
+    if (g_want_small_hdr && SDL_GPUTextureSupportsFormat(g->dev, SMALL_HDR_FMT, SDL_GPU_TEXTURETYPE_2D, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER))
+        g->hdr_fmt = SMALL_HDR_FMT;
+    SDL_Log("gfx: HDR target format enum %d (%s)", (int)g->hdr_fmt, g->hdr_fmt == HDR_FMT ? "RGBA16F" : "R11G11B10");
     log_format_support(g, "LDR colour target (RGBA8)", LDR_FMT, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
     log_format_support(g, "depth, sampled for shadows (D32F)", DEPTH_FMT, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
-    g->hdr = make_target(g, HDR_FMT, iw, ih, false);
+    g->hdr = make_target(g, g->hdr_fmt, iw, ih, false);
     g->depth = make_target(g, DEPTH_FMT, iw, ih, true);
     g->ldr = make_target(g, LDR_FMT, iw, ih, false);
-    g->bloom_a = make_target(g, HDR_FMT, g->bw, g->bh, false);
-    g->bloom_b = make_target(g, HDR_FMT, g->bw, g->bh, false);
+    g->bloom_a = make_target(g, g->hdr_fmt, g->bw, g->bh, false);
+    g->bloom_b = make_target(g, g->hdr_fmt, g->bw, g->bh, false);
     if (!g->hdr || !g->depth || !g->ldr || !g->bloom_a || !g->bloom_b) return false;
     g->swap_format = SDL_GetGPUSwapchainTextureFormat(g->dev, pf->window);
     SDL_Log("gfx: swapchain format enum %d", (int)g->swap_format);
 
     g->samp_nearest = SDL_CreateGPUSampler(g->dev, &(SDL_GPUSamplerCreateInfo){ .min_filter = SDL_GPU_FILTER_NEAREST, .mag_filter = SDL_GPU_FILTER_NEAREST,
         .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT, .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT });
+    // The world sampler. mipmap_mode was already LINEAR, but max_lod defaults to 0, which pins
+    // every fetch to level 0 -- so trilinear was asked for and never happened, because there was
+    // nothing below level 0 to blend with. Both halves are here now, plus anisotropy, which is what
+    // keeps a path or a wall seen at a grazing angle from going to mush once mips exist.
     g->samp_linear = SDL_CreateGPUSampler(g->dev, &(SDL_GPUSamplerCreateInfo){ .min_filter = SDL_GPU_FILTER_LINEAR, .mag_filter = SDL_GPU_FILTER_LINEAR,
-        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR, .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT, .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT });
+        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR, .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT, .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .min_lod = 0.0f, .max_lod = 1000.0f, .enable_anisotropy = true, .max_anisotropy = 8 });
+    // No mip_lod_bias here: Metal's sampler does not have one and SDL drops it, so a bias set on
+    // the sampler would quietly mean two different pictures on two platforms. lit.frag biases the
+    // fetch instead, which all three backends spell the same way.
     g->samp_clamp = SDL_CreateGPUSampler(g->dev, &(SDL_GPUSamplerCreateInfo){ .min_filter = SDL_GPU_FILTER_LINEAR, .mag_filter = SDL_GPU_FILTER_LINEAR,
         .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE, .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE });
 
@@ -344,19 +384,19 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
         { .location = 7, .buffer_slot = 1, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, .offset = 48 },
         { .location = 8, .buffer_slot = 1, .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, .offset = 64 } };
 
-    g->pipe_world = make_pipe(g, "world", &(PipeDesc){ world_vs, lit_fs, &world_vb, world_attrs, 4, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0, 0 });
-    g->pipe_world_inst = make_pipe(g, "world_inst", &(PipeDesc){ world_inst_vs, lit_fs, inst_vbs, inst_attrs, 9, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0, 2 });
-    g->pipe_skin = make_pipe(g, "skin", &(PipeDesc){ skin_vs, lit_fs, &skin_vb, skin_attrs, 5, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0, 0 });
-    g->pipe_sky = make_pipe(g, "sky", &(PipeDesc){ sky_vs, sky_fs, NULL, NULL, 0, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS_OR_EQUAL, SDL_GPU_CULLMODE_NONE, 0, 0 });
-    g->pipe_particle_add = make_pipe(g, "particle_add", &(PipeDesc){ part_vs, part_fs, &p_vb, p_attrs, 3, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 2, 0 });
-    g->pipe_particle_alpha = make_pipe(g, "particle_alpha", &(PipeDesc){ part_vs, part_fs, &p_vb, p_attrs, 3, HDR_FMT, true, false, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 1, 0 });
-    g->pipe_bright = make_pipe(g, "bright", &(PipeDesc){ fs_vs, bright_fs, NULL, NULL, 0, HDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0, 0 });
-    g->pipe_blur = make_pipe(g, "blur", &(PipeDesc){ fs_vs, blur_fs, NULL, NULL, 0, HDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0, 0 });
+    g->pipe_world = make_pipe(g, "world", &(PipeDesc){ world_vs, lit_fs, &world_vb, world_attrs, 4, g->hdr_fmt, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0, 0 });
+    g->pipe_world_inst = make_pipe(g, "world_inst", &(PipeDesc){ world_inst_vs, lit_fs, inst_vbs, inst_attrs, 9, g->hdr_fmt, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0, 2 });
+    g->pipe_skin = make_pipe(g, "skin", &(PipeDesc){ skin_vs, lit_fs, &skin_vb, skin_attrs, 5, g->hdr_fmt, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_BACK, 0, 0 });
+    g->pipe_sky = make_pipe(g, "sky", &(PipeDesc){ sky_vs, sky_fs, NULL, NULL, 0, g->hdr_fmt, true, false, SDL_GPU_COMPAREOP_LESS_OR_EQUAL, SDL_GPU_CULLMODE_NONE, 0, 0 });
+    g->pipe_particle_add = make_pipe(g, "particle_add", &(PipeDesc){ part_vs, part_fs, &p_vb, p_attrs, 3, g->hdr_fmt, true, false, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 2, 0 });
+    g->pipe_particle_alpha = make_pipe(g, "particle_alpha", &(PipeDesc){ part_vs, part_fs, &p_vb, p_attrs, 3, g->hdr_fmt, true, false, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 1, 0 });
+    g->pipe_bright = make_pipe(g, "bright", &(PipeDesc){ fs_vs, bright_fs, NULL, NULL, 0, g->hdr_fmt, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0, 0 });
+    g->pipe_blur = make_pipe(g, "blur", &(PipeDesc){ fs_vs, blur_fs, NULL, NULL, 0, g->hdr_fmt, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0, 0 });
     g->pipe_post = make_pipe(g, "post", &(PipeDesc){ fs_vs, post_fs, NULL, NULL, 0, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0, 0 });
     g->pipe_ui = make_pipe(g, "ui", &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, LDR_FMT, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1, 0 });
     g->pipe_ui_swap = make_pipe(g, "ui_swap", &(PipeDesc){ ui_vs, ui_fs, &ui_vb, ui_attrs, 3, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 1, 0 });
     g->pipe_blit = make_pipe(g, "blit", &(PipeDesc){ fs_vs, blit_fs, NULL, NULL, 0, g->swap_format, false, false, SDL_GPU_COMPAREOP_ALWAYS, SDL_GPU_CULLMODE_NONE, 0, 0 });
-    g->pipe_pixcomp = make_pipe(g, "pixcomp", &(PipeDesc){ fs_vs, pixcomp_fs, NULL, NULL, 0, HDR_FMT, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 0, 0 });
+    g->pipe_pixcomp = make_pipe(g, "pixcomp", &(PipeDesc){ fs_vs, pixcomp_fs, NULL, NULL, 0, g->hdr_fmt, true, true, SDL_GPU_COMPAREOP_LESS, SDL_GPU_CULLMODE_NONE, 0, 0 });
     // depth-only shadow pipelines: no colour target
     {
         SDL_GPUGraphicsPipelineCreateInfo ci = {
@@ -554,8 +594,8 @@ void gfx_portrait_begin(Gfx *g, Platform *pf, const FrameParams *fp, int size, V
         if (g->por_hdr) SDL_ReleaseGPUTexture(g->dev, g->por_hdr); if (g->por_depth) SDL_ReleaseGPUTexture(g->dev, g->por_depth);
         if (g->por_comp) SDL_ReleaseGPUTexture(g->dev, g->por_comp); if (g->por_comp_depth) SDL_ReleaseGPUTexture(g->dev, g->por_comp_depth);
         if (g->portrait.tex) SDL_ReleaseGPUTexture(g->dev, g->portrait.tex);
-        g->por_hdr = make_target(g, HDR_FMT, size, size, false);
-        g->por_comp = make_target(g, HDR_FMT, size, size, false);
+        g->por_hdr = make_target(g, g->hdr_fmt, size, size, false);
+        g->por_comp = make_target(g, g->hdr_fmt, size, size, false);
         g->portrait.tex = make_target(g, LDR_FMT, size, size, false); g->portrait.w = g->portrait.h = size;
         SDL_GPUTextureCreateInfo di = { .type = SDL_GPU_TEXTURETYPE_2D, .format = DEPTH_FMT, .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
                                         .width = (Uint32)size, .height = (Uint32)size, .layer_count_or_depth = 1, .num_levels = 1 };
@@ -617,7 +657,7 @@ void gfx_set_pixel_look(Gfx *g, int scale, float levels, float outline, float pa
         g->pixel_scale = scale;
         if (scale > 0) {
             g->pw = g->iw / scale; g->ph = g->ih / scale;
-            g->pix = make_target(g, HDR_FMT, g->pw, g->ph, false);
+            g->pix = make_target(g, g->hdr_fmt, g->pw, g->ph, false);
             g->pix_depth = SDL_CreateGPUTexture(g->dev, &(SDL_GPUTextureCreateInfo){
                 .type = SDL_GPU_TEXTURETYPE_2D, .format = DEPTH_FMT, .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
                 .width = (Uint32)g->pw, .height = (Uint32)g->ph, .layer_count_or_depth = 1, .num_levels = 1 });
@@ -700,6 +740,21 @@ void gfx_pixel_end(Gfx *g) {
 void gfx_set_material(Gfx *g, const Material *m) { g->material = m ? *m : material_default(); }
 void gfx_set_sprite_lean(Gfx *g, float lean) { g->sprite_lean = lean; }
 void gfx_set_texture_cap(Gfx *g, int cap) { g->tex_cap = cap; }
+
+int gfx_set_shadow_size(Gfx *g, int size) {
+    if (size < 256) size = 256;
+    if (size > 4096) size = 4096;
+    if (size == g->shadow_size && g->shadow_tex) return g->shadow_size;
+    SDL_WaitForGPUIdle(g->dev);   // the old map may still be bound in a frame in flight
+    if (g->shadow_tex) SDL_ReleaseGPUTexture(g->dev, g->shadow_tex);
+    g->shadow_tex = SDL_CreateGPUTexture(g->dev, &(SDL_GPUTextureCreateInfo){ .type = SDL_GPU_TEXTURETYPE_2D, .format = DEPTH_FMT,
+        .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER, .width = (Uint32)size, .height = (Uint32)size, .layer_count_or_depth = 1, .num_levels = 1 });
+    if (!g->shadow_tex) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "shadow map %d: %s", size, SDL_GetError()); g->shadow_size = 0; return 0; }
+    g->shadow_size = size;
+    g->shadow_valid = false;
+    SDL_Log("shadow map: %dx%d", size, size);
+    return size;
+}
 void gfx_set_flat(Gfx *g, float amount) { g->flat = clampf(amount, 0, 1); }
 
 // Internal render resolution, independent of the fixed uiw/uih the UI is laid out in. SDL_GPU
@@ -714,11 +769,11 @@ void gfx_set_render_scale(Gfx *g, float scale, bool nearest) {
     SDL_ReleaseGPUTexture(g->dev, g->hdr); SDL_ReleaseGPUTexture(g->dev, g->depth); SDL_ReleaseGPUTexture(g->dev, g->ldr);
     SDL_ReleaseGPUTexture(g->dev, g->bloom_a); SDL_ReleaseGPUTexture(g->dev, g->bloom_b);
     g->iw = w; g->ih = h; g->bw = w / 4; g->bh = h / 4;
-    g->hdr = make_target(g, HDR_FMT, w, h, false);
+    g->hdr = make_target(g, g->hdr_fmt, w, h, false);
     g->depth = make_target(g, DEPTH_FMT, w, h, true);
     g->ldr = make_target(g, LDR_FMT, w, h, false);
-    g->bloom_a = make_target(g, HDR_FMT, g->bw, g->bh, false);
-    g->bloom_b = make_target(g, HDR_FMT, g->bw, g->bh, false);
+    g->bloom_a = make_target(g, g->hdr_fmt, g->bw, g->bh, false);
+    g->bloom_b = make_target(g, g->hdr_fmt, g->bw, g->bh, false);
     // the pixel-art layer is sized off g->iw/scale inside gfx_set_pixel_look, which early-outs
     // when its scale argument is unchanged: force a rebuild at the new size.
     if (g->pix) { SDL_ReleaseGPUTexture(g->dev, g->pix); g->pix = NULL; }

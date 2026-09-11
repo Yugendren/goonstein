@@ -13,7 +13,7 @@ typedef struct PVertex { float pos[3], uv[2], color[4]; } PVertex;      // parti
 typedef struct UIVertex { float pos[2], uv[2], color[4]; } UIVertex;
 
 typedef struct Mesh { SDL_GPUBuffer *vb, *ib; Uint32 index_count; } Mesh;
-typedef struct Texture { SDL_GPUTexture *tex; int w, h; float mean[3]; } Texture;   // mean = average sRGB colour, for `look flat`
+typedef struct Texture { SDL_GPUTexture *tex; int w, h, levels; float mean[3]; } Texture;   // mean = average sRGB colour, for `look flat`; levels = mip count
 
 #define GFX_MAX_LIGHTS 16
 typedef struct PointLight { Vec3 pos; float radius; Vec3 color; float intensity; } PointLight;
@@ -93,6 +93,7 @@ typedef struct Gfx {
     float flat;                                    // gfx_set_flat: 0..1 blend of every material toward its texture's mean colour
     Texture paper;                                 // repeating paper grain for the sketch look (assets/textures/paper.png)
     SDL_GPUTexture *hdr, *depth, *ldr, *bloom_a, *bloom_b;
+    SDL_GPUTextureFormat hdr_fmt;                 // RGBA16F, or R11G11B10 after gfx_request_small_hdr
     int bw, bh;                                   // bloom resolution
     // pixel-art character layer: a small target whose texels become art pixels (see gfx_pixel_begin)
     SDL_GPUTexture *pix, *pix_depth; int pw, ph, pixel_scale;
@@ -153,6 +154,17 @@ void gfx_set_render_scale(Gfx *g, float scale, bool nearest);
 // Caps every subsequently loaded texture's longest edge; 0 disables the cap. A memory/bandwidth
 // lever for weak hardware, not a look.
 void gfx_set_texture_cap(Gfx *g, int cap);
+// Sun shadow map resolution: 2048, 1024 or 512. The map is fitted around what the camera looks at
+// (see game_render_at), so this is metres per texel as much as it is pixels: at the island's widest
+// fit, 320 m across, 2048 is 31 cm a texel and 512 is 125 cm. Rebuilds the texture, so only call it
+// between frames. Returns the size actually in use.
+int gfx_set_shadow_size(Gfx *g, int size);
+// Ask the NEXT gfx_init for the cheaper HDR target format. RGBA16F is 8 bytes a pixel and the
+// world pass writes it, the bright pass reads it and the post pass reads it again; R11G11B10 is 4,
+// which on a laptop chip sharing system memory with the CPU is the difference the frame is made of.
+// It has no alpha (nothing uses the HDR target's alpha) and less mantissa (the sky can band), so it
+// is the potato tier's choice, not the default. Ignored where the driver does not support it.
+void gfx_request_small_hdr(bool on);
 // `look flat`: blend every lit material toward its bound texture's mean colour, 0..1.
 void gfx_set_flat(Gfx *g, float amount);
 

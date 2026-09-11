@@ -36,7 +36,13 @@ void main() {
     // At flatc.a 1 the texture contributes nothing but its silhouette and its average colour,
     // which is the Roblox/Peak reading of a material -- everything a solid, and the tint and
     // vertex colour still telling one thing from another.
-    vec4 s = texture(tex, v_uv);
+    // Half a mip level toward sharper. Textures have mips now (see gfx_texture_create), and without
+    // this the ground detail -- tiled at a few repeats per metre and multiplied over the biome
+    // colour -- averages to its own mean by the middle distance and the beach goes flat cream. That
+    // is correct mip behaviour and it is not the look this game had. The bias lives here rather
+    // than on the sampler because Metal's sampler has no LOD bias at all; a fetch bias is the one
+    // spelling all three backends understand.
+    vec4 s = texture(tex, v_uv, -0.5);
     vec4 t = vec4(mix(s.rgb, flatc.rgb, flatc.a), s.a) * v_color * tint;
     if (t.a < 0.5) discard;
     t.rgb = pow(t.rgb, vec3(2.2));   // albedo is sRGB; light in linear
