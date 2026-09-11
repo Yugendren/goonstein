@@ -60,7 +60,8 @@ MATERIALS = {
     "trim":  (0.88, 0.88, 0.86),   # a shade brighter than paint, for mouldings caught by the sun
     "dark":  (0.09, 0.10, 0.12),   # the inside of a recess; reads as an opening, never as a wall
     "glass": (0.13, 0.16, 0.20),   # the same near-black the hand-placed window rectangles use
-    "wood":  (0.42, 0.31, 0.20),   # teak shutters, pergola beams, dock timber
+    "wood":  (0.54, 0.40, 0.25),   # teak shutters, pergola beams, dock timber, lifted so a shutter
+                                   # still reads as wood once a cream plaster texture multiplies it
     "gold":  (0.95, 0.78, 0.32),   # the temple only
     "blue":  (0.18, 0.36, 0.74),   # the temple's cobalt stripe
     "metal": (0.35, 0.36, 0.40),   # brackets, rails, the cistern cap
@@ -150,10 +151,13 @@ def arch_profile(width, pier, height, rise, depth):
     """
     opening = width - 2 * pier
     plate = box(width, depth, height + rise + pier)
+    # The XZ workplane's normal is -Y, so extruding runs from y = 0 back to y = -3*depth.
+    # Push it forward by 2*depth and the tool straddles the plate's own 0..depth instead of
+    # sitting entirely behind it, where cutting with it was a silent no-op.
     cut = (cq.Workplane("XZ").moveTo(-opening / 2, 0).lineTo(-opening / 2, height)
            .threePointArc((0, height + rise), (opening / 2, height))
            .lineTo(opening / 2, 0).close()
-           .extrude(depth * 3).translate((0, -depth, 0)))
+           .extrude(depth * 3).translate((0, depth * 2, 0)))
     return plate.cut(cut)
 
 
