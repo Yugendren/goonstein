@@ -3,15 +3,18 @@
 
 Writes, relative to the repo root:
 
-    assets/levels/island_terrain_h.png   129x129 RGBA8, 16-bit height packed as R<<8|G
-    assets/levels/island_terrain_c.png   129x129 RGBA8, vertex colours
+    assets/levels/island_terrain_h.png   257x257 RGBA8, 16-bit height packed as R<<8|G
+    assets/levels/island_terrain_c.png   257x257 RGBA8, vertex colours
     assets/levels/island_terrain.txt     sidecar: cell / origin / water
 
 and prints (with --scatter) a block of level `prop` lines for the vegetation and rocks, and
 (with --report) the terrain height at every named site so props can be placed on the ground.
 
-The engine's terrain grid is fixed at 129x129 vertices (TERRAIN_N) and indexes as
-`height[z * 129 + x]`, i.e. **image column = x index, image row = z index**.
+The engine's terrain grid is 257x257 vertices here (see src/terrain.h: the grid size is per
+terrain now, 65 / 129 / 257, and the mesh is split into four chunks because 257*257 vertices do
+not fit 16-bit indices). It indexes as `height[z * n + x]`, i.e. **image column = x index, image
+row = z index**. 1.75 m cells are what let the flanks carry gullies and outcrops at all: at the
+old 3.5 m nothing narrower than a seven-metre trench could exist.
 Heights are packed as `h in [-64, 192)` -> `[0, 65535]` (see src/terrain_io.c).
 
 Island axes, once and for all:
@@ -37,8 +40,8 @@ import sys
 
 from PIL import Image
 
-N = 129                       # TERRAIN_N
-CELL = 3.5                    # metres per cell -> 448 m of world
+N = 257                       # grid vertices per side; the engine takes 65, 129 or 257 (TERRAIN_N)
+CELL = 1.75                   # metres per cell -> 448 m of world, the same span at four times the detail
 ORIGIN = (-224.0, 0.0, -224.0)
 WATER = 0.0
 H_MIN, H_RANGE = -64.0, 256.0
@@ -253,6 +256,105 @@ def island_height(x, z):
     return h
 
 
+# --------------------------------------------------------------------------- relief
+
+# The shape above is a dome with a coastline: correct, and completely smooth, which is exactly what
+# reads as cheap when you stand on it. This pass cuts drainage into the flanks.
+#
+# The trick that makes it look like water did it, rather than like noise: gullies run DOWNHILL, so
+# the noise has to be stretched along the downhill direction and squeezed across it. Taking a local
+# frame from the gradient and dotting world position into it does not work -- the frame rotates, so
+# the effective frequency wanders and the result is high-frequency mush. Instead the two
+# coordinates are fields that are already continuous everywhere:
+#
+#     across the slope  = z, the island's long axis, which its contours run along on both flanks
+#     down the slope    = the height itself, which is by definition the downhill coordinate
+#
+# so `noise(z / 10.5, h / 16)` varies every ten metres along the shore and only every sixteen
+# metres of climb: a comb of gullies down the hillside. A ridged transform (1 - |2n-1|) turns the
+# zero crossings into V-shaped gullies with rounded spurs between them, which is the shape of an
+# eroded slope. A large offset per side of the spine keeps the north and south flanks from coming
+# out as mirror images of each other.
+#
+# On top of that: limestone outcrops where the windward faces are steep, and one octave of fine
+# roughness everywhere so no surface is ever flat under your feet. All three fade out on the
+# beaches and below the waterline, where smooth sand is the correct answer, and they fade in with
+# slope so the built shelf and the saddle stay walkable.
+
+RELIEF_GULLY = 3.4            # metres, depth of the drainage creases on a full-strength flank
+RELIEF_OUTCROP = 5.2          # metres, how far a limestone knob stands out of the hill
+RELIEF_ROUGH = 0.62           # metres, the everywhere-roughness that keeps the ground from ironing flat
+
+
+def windward(x, z):
+    """The weather comes from the east and south, so that is where the ground is chewed up."""
+    east = smoothstep(-60.0, 60.0, z)
+    south = smoothstep(-10.0, 30.0, x)
+    return 0.42 + 0.58 * max(east, 0.55 * south)
+
+
+def beach_flat(x, z):
+    """1 inside a named beach, falling off over 12 m: sand aprons stay smooth."""
+    worst = 0.0
+    for _n, x0, x1, z0, z1, _w, _r in BEACHES:
+        dx = max(x0 - x, 0.0, x - x1)
+        dz = max(z0 - z, 0.0, z - z1)
+        worst = max(worst, 1.0 - smoothstep(0.0, 12.0, math.hypot(dx, dz)))
+    return worst
+
+
+def apply_relief(h):
+    """Add the drainage, the outcrops and the roughness to a finished base heightfield."""
+    add = [[0.0] * N for _ in range(N)]
+    for zi in range(N):
+        wz = ORIGIN[2] + zi * CELL
+        for xi in range(N):
+            hh = h[zi][xi]
+            if hh < 0.4:
+                continue
+            wx = ORIGIN[0] + xi * CELL
+            # slope from the base field, in metres per metre
+            hl = h[zi][max(0, xi - 1)]
+            hr = h[zi][min(N - 1, xi + 1)]
+            hd = h[max(0, zi - 1)][xi]
+            hu = h[min(N - 1, zi + 1)][xi]
+            slope = math.hypot(hr - hl, hu - hd) / (2 * CELL)
+
+            gate = (1.0 - beach_flat(wx, wz)) * smoothstep(0.8, 5.0, hh) * windward(wx, wz)
+            if gate <= 0.001:
+                continue
+            side = 137.0 if wx >= spine_x(wz) else -211.0        # the two flanks are not mirrors
+
+            # --- drainage: creases down the slope, only where there is a slope to drain ---
+            gs = smoothstep(0.16, 0.52, slope)
+            if gs > 0.001:
+                u = wz + side + 9.0 * (fbm(SEED + 301, wx / 62.0, wz / 62.0, 2) - 0.5) * 2.0
+                n1 = fbm(SEED + 201, u / 10.5, hh / 16.0, 3)
+                crease = (1.0 - abs(2.0 * n1 - 1.0)) ** 1.35
+                n2 = fbm(SEED + 211, u / 27.0, hh / 34.0, 2)
+                broad = (n2 - 0.5) * 2.0
+                add[zi][xi] += (-crease * 0.85 + broad * 0.62) * RELIEF_GULLY * gs * gate
+
+            # --- outcrops: knobs of bare limestone pushing out of the steep windward faces ---
+            os_ = smoothstep(0.55, 1.15, slope)
+            if os_ > 0.001:
+                k = fbm(SEED + 401, wx / 12.5, wz / 12.5, 3)
+                add[zi][xi] += max(0.0, k - 0.56) * RELIEF_OUTCROP * 2.6 * os_ * gate
+
+            # --- roughness: one octave at seven metres, so nothing is ever a billiard table ---
+            r = fbm(SEED + 501, wx / 7.0, wz / 7.0, 2) - 0.5
+            add[zi][xi] += r * 2.0 * RELIEF_ROUGH * gate * (0.35 + 0.65 * smoothstep(0.05, 0.45, slope))
+
+    for zi in range(N):
+        for xi in range(N):
+            if add[zi][xi]:
+                wasland = h[zi][xi] > 0.8
+                h[zi][xi] += add[zi][xi]
+                if wasland and h[zi][xi] < 0.3:
+                    h[zi][xi] = 0.3          # erosion may not dig a pond in the middle of the island
+    return h
+
+
 # --------------------------------------------------------------------------- named sites
 
 # name, x, z, radius, height, kind
@@ -307,6 +409,8 @@ def build():
             wx = ORIGIN[0] + xi * CELL
             h[zi][xi] = island_height(wx, wz)
 
+    apply_relief(h)
+
     # --- pads: level ground for everything that is built ---
     for name, px, pz, r, ph, kind, rect in PADS:
         for zi in range(N):
@@ -351,19 +455,32 @@ def build():
         for (x, z), hh in zip(dense, hs):
             road_pts.append((x, z, hh, width * 0.5))
 
+    # A road point only ever reaches about eleven metres, so bucket them into a coarse grid and
+    # look at the nine buckets around each cell instead of all seven hundred points. At 257 the
+    # brute-force version was forty-six million distance tests and most of a minute.
+    BUCKET = 16.0
+    buckets = {}
+    for rp in road_pts:
+        key = (int(math.floor(rp[0] / BUCKET)), int(math.floor(rp[1] / BUCKET)))
+        buckets.setdefault(key, []).append(rp)
+
     road_mask = [[0.0] * N for _ in range(N)]
     for zi in range(N):
         wz = ORIGIN[2] + zi * CELL
+        bz = int(math.floor(wz / BUCKET))
         for xi in range(N):
             wx = ORIGIN[0] + xi * CELL
+            bx = int(math.floor(wx / BUCKET))
             best_t, best_h = 0.0, 0.0
-            for rx, rz, rh, hw in road_pts:
-                if abs(rx - wx) > hw + 6 or abs(rz - wz) > hw + 6:
-                    continue
-                d = math.hypot(rx - wx, rz - wz)
-                t = 1.0 - smoothstep(hw, hw + 5.0, d)
-                if t > best_t:
-                    best_t, best_h = t, rh
+            for ddz in (-1, 0, 1):
+                for ddx in (-1, 0, 1):
+                    for rx, rz, rh, hw in buckets.get((bx + ddx, bz + ddz), ()):
+                        if abs(rx - wx) > hw + 6 or abs(rz - wz) > hw + 6:
+                            continue
+                        d = math.hypot(rx - wx, rz - wz)
+                        t = 1.0 - smoothstep(hw, hw + 5.0, d)
+                        if t > best_t:
+                            best_t, best_h = t, rh
             if best_t > 0:
                 h[zi][xi] = lerp(h[zi][xi], best_h, best_t * 0.92)
                 road_mask[zi][xi] = best_t
@@ -373,15 +490,24 @@ def build():
 
 # --------------------------------------------------------------------------- colour
 
-SAND = (0.86, 0.80, 0.64)
-WET_SAND = (0.64, 0.58, 0.46)
-SEABED = (0.28, 0.32, 0.30)
+# Palette. Everything is sRGB 0..1 and is a TINT: the engine multiplies these vertex colours by
+# the ground detail map (assets/textures/ground_detail, world-planar at 0.45 repeats per metre)
+# before lighting, so they carry the island's colour and the map carries its grain.
+SAND = (0.88, 0.82, 0.66)             # dry sand in the sun
+SAND_WARM = (0.83, 0.73, 0.54)        # the warmer dune tone it varies against
+SURF_SAND = (0.78, 0.74, 0.63)        # bleached, just above the waterline
+WET_SAND = (0.54, 0.48, 0.39)         # the damp band the tide keeps dark
+SEABED = (0.30, 0.36, 0.33)
+SHALLOW_BED = (0.62, 0.66, 0.56)      # pale sand under two metres of water: the turquoise ring
 DEEP = (0.10, 0.14, 0.18)
 SCRUB_LOW = (0.38, 0.50, 0.27)
-SCRUB_HIGH = (0.32, 0.42, 0.24)
-DRY_GRASS = (0.50, 0.50, 0.30)
-ROCK = (0.42, 0.40, 0.36)
-DARK_ROCK = (0.30, 0.29, 0.27)
+SCRUB_HIGH = (0.30, 0.40, 0.23)
+SCRUB_DARK = (0.22, 0.31, 0.17)       # thicket in the damp hollows
+DRY_GRASS = (0.55, 0.53, 0.32)
+ROCK = (0.52, 0.49, 0.42)             # bleached limestone
+ROCK_WARM = (0.60, 0.54, 0.44)        # the warmer band in the strata
+DARK_ROCK = (0.33, 0.31, 0.28)
+CLIFF_SHADOW = (0.34, 0.32, 0.30)
 LAWN = (0.33, 0.48, 0.25)
 PAVING = (0.70, 0.68, 0.63)
 ROAD = (0.60, 0.58, 0.53)
@@ -395,32 +521,78 @@ LAWNS = [(-16, -68, 30), (14, -50, 22)]
 
 
 def colourise(h, road_mask):
+    """Paint the grid.
+
+    Four things decide a vertex's colour, and the first three are why the old pass read as
+    contour bands on a smooth dome:
+
+    1. **Every boundary is noisy.** The sand-to-scrub line and the scrub-to-rock line are not
+       heights and slopes but heights and slopes plus a few metres of fbm, so the edge between two
+       materials wanders the way a real one does instead of tracing a contour.
+    2. **Cliffs have strata.** Steep faces take a limestone banding keyed to elevation with a
+       warped phase, so a cliff reads as layered rock rather than one grey wall, and the steepest
+       of it goes dark.
+    3. **Curvature is baked in.** The Laplacian of the height field darkens the hollows and lifts
+       the spurs by about a tenth, which is the ambient occlusion the renderer never computes and
+       is what makes the new gullies read as gullies at two hundred metres.
+    4. The shore is a real sequence -- deep, turquoise shallows, wet sand, bleached surf line, dry
+       sand -- instead of one blend from blue to beige.
+    """
     col = [[(0, 0, 0)] * N for _ in range(N)]
     for zi in range(N):
         wz = ORIGIN[2] + zi * CELL
         for xi in range(N):
             wx = ORIGIN[0] + xi * CELL
             hh = h[zi][xi]
-            # slope, in metres per metre
             hl = h[zi][max(0, xi - 1)]
             hr = h[zi][min(N - 1, xi + 1)]
             hd = h[max(0, zi - 1)][xi]
             hu = h[min(N - 1, zi + 1)][xi]
             slope = math.hypot(hr - hl, hu - hd) / (2 * CELL)
+            lap = (hl + hr + hd + hu - 4.0 * hh) / (CELL * CELL)
 
-            if hh < -8:
-                c = mix(SEABED, DEEP, smoothstep(-8, -22, hh))
-            elif hh < 0:
-                c = mix(WET_SAND, SEABED, smoothstep(0, -8, hh))
-            elif hh < 1.8:
-                c = mix(WET_SAND, SAND, smoothstep(0.0, 0.9, hh))
+            if hh < -7.0:
+                c = mix(SEABED, DEEP, smoothstep(-7.0, -20.0, hh))
+            elif hh < -0.35:
+                # the ring of pale sand the sea goes turquoise over
+                c = mix(SHALLOW_BED, SEABED, smoothstep(-0.5, -6.0, hh))
             else:
+                wet = 1.0 - smoothstep(-0.35, 0.85, hh)
+                # where the vegetation starts: two to five metres up, and never a straight line
+                veg_line = 2.4 + 2.8 * fbm(SEED + 131, wx / 9.0, wz / 9.0, 3)
+                sandy = 1.0 - smoothstep(veg_line - 1.3, veg_line + 1.6, hh)
+
+                dune = fbm(SEED + 141, wx / 16.0, wz / 16.0, 3)
+                sand = mix(SAND, SAND_WARM, smoothstep(0.42, 0.72, dune))
+                sand = mix(sand, SURF_SAND, smoothstep(2.6, 0.9, hh) * 0.7)
+
+                moist = fbm(SEED + 77, wx / 26.0, wz / 26.0, 3)     # the same field the bushes clump on
                 veg = mix(SCRUB_LOW, SCRUB_HIGH, smoothstep(6.0, 26.0, hh))
+                veg = mix(veg, SCRUB_DARK, smoothstep(0.52, 0.86, moist) * 0.75)
                 dry = fbm(SEED + 3, wx / 40.0, wz / 40.0, 3)
-                veg = mix(veg, DRY_GRASS, smoothstep(0.50, 0.80, dry) * 0.40)
-                rock = mix(ROCK, DARK_ROCK, smoothstep(0.8, 1.6, slope))
-                c = mix(veg, rock, smoothstep(0.42, 0.95, slope))
-                c = mix(SAND, c, smoothstep(1.8, 3.2, hh))
+                veg = mix(veg, DRY_GRASS, smoothstep(0.50, 0.80, dry) * 0.45)
+
+                # limestone, banded by elevation with a warped phase so the strata are not level
+                phase = hh * 1.25 + 2.4 * fbm(SEED + 61, wx / 24.0, wz / 24.0, 2)
+                band = 0.5 + 0.5 * math.sin(phase)
+                rock = mix(ROCK, ROCK_WARM, band)
+                rock = mix(rock, DARK_ROCK, smoothstep(0.18, 0.02, band) * 0.8)
+                rock = mix(rock, CLIFF_SHADOW, smoothstep(2.2, 4.2, slope) * 0.75)
+
+                # Where bare rock starts. The numbers are read off the finished heightfield rather
+                # than guessed: the median land slope is 0.53, the 80th percentile 1.0 and the 90th
+                # 1.5, so rock beginning at 0.7..1.4 and going solid at 1.55..2.25 leaves the
+                # hillsides green and bares the cliffs. The old thresholds (0.44 to 0.86) were set
+                # against a 3.5 m grid that averaged every slope down, and at 1.75 m they turned two
+                # thirds of the island into bare limestone.
+                edge = 1.05 + 0.35 * (fbm(SEED + 151, wx / 11.0, wz / 11.0, 3) - 0.5) * 2.0
+                c = mix(veg, rock, smoothstep(edge, edge + 0.85, slope))
+                c = mix(c, sand, sandy)
+                c = mix(c, WET_SAND, wet * 0.92)
+
+            # curvature: hollows darker, spurs brighter. This is the only ambient occlusion the
+            # island gets, and it is what makes the drainage read from the far side of the water.
+            shade = 1.0 - 0.13 * clamp(lap * 2.2, -1.0, 1.0)
 
             for lx, lz, lr in LAWNS:
                 t = 1.0 - smoothstep(lr * 0.55, lr, math.hypot(wx - lx, wz - lz))
@@ -431,7 +603,6 @@ def colourise(h, road_mask):
             if rm > 0 and hh > 1.0:
                 c = mix(c, ROAD, smoothstep(0.55, 0.95, rm))
 
-            # pale paving on the built pads
             for name, px, pz, r, _ph, kind, rect in PADS:
                 if kind != "circle" or name in ("cove_beach",):
                     continue
@@ -439,9 +610,14 @@ def colourise(h, road_mask):
                 if t > 0:
                     c = mix(c, PAVING, t * 0.55)
 
-            n = fbm(SEED + 11, wx / 7.0, wz / 7.0, 2) - 0.5
-            c = tuple(clamp(v * (1.0 + n * 0.10), 0.0, 1.0) for v in c)
-            col[zi][xi] = c
+            # Albedo variation at two scales. The detail map is tiled at half a metre and mips
+            # away to its own mean by the middle distance, so whatever keeps the ground from
+            # being one flat colour at fifty metres has to live in these vertex colours -- which
+            # at 1.75 m spacing can carry features down to about four metres.
+            n = fbm(SEED + 11, wx / 5.0, wz / 5.0, 2) - 0.5
+            broad = fbm(SEED + 19, wx / 21.0, wz / 21.0, 3) - 0.5
+            shade *= 1.0 + n * 0.15 + broad * 0.22
+            col[zi][xi] = tuple(clamp(v * shade, 0.0, 1.0) for v in c)
     return col
 
 
@@ -450,6 +626,9 @@ def colourise(h, road_mask):
 def encode(hv):
     t = (hv - H_MIN) / H_RANGE * 65535.0
     return int(clamp(t + 0.5, 0, 65535))
+
+
+OUT_DIR = os.path.join(ROOT, "assets/levels")
 
 
 def write_terrain(h, col):
@@ -462,19 +641,55 @@ def write_terrain(h, col):
             hp[xi, zi] = (v >> 8, v & 0xFF, 0, 255)
             c = col[zi][xi]
             cp[xi, zi] = (int(c[0] * 255 + 0.5), int(c[1] * 255 + 0.5), int(c[2] * 255 + 0.5), 255)
-    him.save(os.path.join(ROOT, "assets/levels/island_terrain_h.png"))
-    cim.save(os.path.join(ROOT, "assets/levels/island_terrain_c.png"))
-    with open(os.path.join(ROOT, "assets/levels/island_terrain.txt"), "w") as f:
+    os.makedirs(OUT_DIR, exist_ok=True)
+    him.save(os.path.join(OUT_DIR, "island_terrain_h.png"))
+    cim.save(os.path.join(OUT_DIR, "island_terrain_c.png"))
+    with open(os.path.join(OUT_DIR, "island_terrain.txt"), "w") as f:
         f.write("# Goonstein Island -- generated by tools/island_terrain.py, do not hand-edit\n")
         f.write("cell %g\n" % CELL)
         f.write("origin %g %g %g\n" % ORIGIN)
         f.write("water %g\n" % WATER)
 
 
+# The level file keeps the scatter in one block at the end, under a banner nothing else uses, so
+# regenerating the vegetation is a truncate-and-append rather than a merge. Everything above the
+# banner -- the look lines, the buildings, the triggers, the y values snapped by island_snap.py --
+# is left exactly as it was.
+SCATTER_BANNER = "# ================================================================ vegetation"
+
+
+def write_scatter_into(level_path, lines):
+    with open(level_path) as f:
+        text = f.read().splitlines()
+    cut = None
+    for i, l in enumerate(text):
+        if l.strip() == SCATTER_BANNER:
+            cut = i
+            break
+    if cut is None:
+        raise SystemExit("scatter: %s has no vegetation banner to replace\n  expected a line: %s"
+                         % (level_path, SCATTER_BANNER))
+    head = text[:cut]
+    while head and not head[-1].strip():
+        head.pop()
+    body = [
+        "",
+        SCATTER_BANNER,
+        "# Generated by `python3 tools/island_terrain.py --scatter-into assets/levels/island.txt`.",
+        "# Everything below this banner is rewritten wholesale by that command; edit the generator,",
+        "# not these lines. Palms and card bushes are ours (tools/palm/, one glTF each, 32 to 1736",
+        "# triangles); the photoscans are kept for the roadside, where you walk past them.",
+    ] + lines + [""]
+    with open(level_path, "w") as f:
+        f.write("\n".join(head + body))
+    print("scatter: %d props written into %s (%d lines above the banner kept)"
+          % (len(lines), level_path, len(head)))
+
+
 def write_preview(h, col, path, annotate=True):
     """Hill-shaded top-down map. The engine's camera far plane is 80 m, so this is currently the
     only way to see the whole island at once (see ISLAND_BUILD.md, "Needs code")."""
-    S = 5
+    S = 3
     W = N * S
     im = Image.new("RGB", (W, W))
     p = im.load()
@@ -488,7 +703,10 @@ def write_preview(h, col, path, annotate=True):
             else:                                     # cheap hillshade
                 hl = h[zi][max(0, xi - 1)]
                 hu = h[min(N - 1, zi + 1)][xi]
-                sh = clamp(0.72 + (hl - hh) * 0.10 + (hu - hh) * 0.06, 0.35, 1.35)
+                # the shading has to be per METRE of ground, not per cell, or halving the cell
+                # size halves the relief on the map and the preview lies about the island
+                k = 3.5 / CELL
+                sh = clamp(0.72 + (hl - hh) * 0.10 * k + (hu - hh) * 0.06 * k, 0.35, 1.35)
                 c = tuple(clamp(v * sh, 0, 1) for v in c)
             rgb = (int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
             for dz in range(S):
@@ -534,16 +752,29 @@ def write_preview(h, col, path, annotate=True):
 # old stylised piece used to occupy -- a 1.4 m scan of a bush at 1.3 reads as a 1.8 m bush.
 PH = "models/polyhaven/"
 
-PALMS_TALL = [("models/own/palm_tall.part", 0.85, 1.22)]
-PALMS_BENT = [("models/own/palm_bent.part", 0.85, 1.22)]
+# The three palms, built by tools/palm/make_palm.py: one glTF each, two materials, about 1700
+# triangles. `palm_a` is the standard tree, `palm_b` leans over the water, `palm_c` is the tall
+# one on the high ground. The .part wrapper around each exists only to carry the trunk collider.
+PALM_A = ("models/own/palm_a.part", 0.88, 1.16)
+PALM_B = ("models/own/palm_b.part", 0.86, 1.14)
+PALM_C = ("models/own/palm_c.part", 0.80, 1.06)
+# The eight-triangle imposter, for the empty island across the cut that nobody ever lands on.
+PALM_FAR = ("models/own/palm_far.glb", 0.85, 1.25)
 
-# Coastal thicket: sea-grape-scale bushes, 1.0 to 2.2 m as scanned.
-BUSHES = [(PH + "shrub_02/shrub_02_a.gltf", 1.05, 1.90),
-          (PH + "shrub_02/shrub_02_b.gltf", 1.15, 2.10),
-          (PH + "shrub_02/shrub_02_c.gltf", 0.95, 1.70),
-          (PH + "shrub_02/shrub_02_d.gltf", 1.20, 2.20),
-          (PH + "pachira_aquatica_01/pachira_aquatica_01_b.gltf", 1.60, 2.90),
-          (PH + "pachira_aquatica_01/pachira_aquatica_01_c.gltf", 1.30, 2.40)]
+# Coastal thicket. Two pools: our own card bushes (tools/palm/make_bush.py, 32 to 88 triangles)
+# for the mass of the island, and the photoscans where you actually walk past them. A scanned
+# `shrub_02` is 27254 triangles and a `pachira_aquatica` 76914, for a plant that is forty pixels
+# tall from the road, and scanned temperate scrub reads as a handful of red twigs on a limestone
+# cay -- which is what it looked like before this pass.
+BUSHES_CARD = [("models/own/bush_a.glb", 0.70, 1.10),
+               ("models/own/bush_b.glb", 0.70, 1.10),
+               ("models/own/bush_c.glb", 0.70, 1.15)]
+BUSHES = [(PH + "shrub_02/shrub_02_a.gltf", 0.95, 1.55),
+          (PH + "shrub_02/shrub_02_b.gltf", 1.00, 1.65),
+          (PH + "shrub_02/shrub_02_c.gltf", 0.85, 1.40),
+          (PH + "shrub_02/shrub_02_d.gltf", 1.05, 1.70),
+          (PH + "pachira_aquatica_01/pachira_aquatica_01_b.gltf", 1.15, 1.90),
+          (PH + "pachira_aquatica_01/pachira_aquatica_01_c.gltf", 1.00, 1.70)]
 
 # Agave-scale succulents on the dry high ground, where the stylised saguaro used to stand:
 # a 0.5 m scan at 3x is a 1.5 m rosette, which is what actually grows on a limestone cay.
@@ -597,6 +828,15 @@ def near_road(wx, wz, road_mask):
     u = int(round(clamp((wx - ORIGIN[0]) / CELL, 0, N - 1)))
     v = int(round(clamp((wz - ORIGIN[2]) / CELL, 0, N - 1)))
     return road_mask[v][u] > 0.35
+
+
+def beside_path(wx, wz, road_mask):
+    """Right at the edge of a road or a built pad -- three or four metres, the width of what you
+    brush past walking. The road mask falls off over five metres beyond the carriageway, so 0.45
+    of it is about the verge."""
+    u = int(round(clamp((wx - ORIGIN[0]) / CELL, 0, N - 1)))
+    v = int(round(clamp((wz - ORIGIN[2]) / CELL, 0, N - 1)))
+    return road_mask[v][u] > 0.62 or near_pad(wx, wz, 2.0)
 
 
 def near_pad(wx, wz, extra=0.0):
@@ -669,9 +909,14 @@ def scatter(h, road_mask):
         return w
 
     def palm_pick(rng, x, z, y):
-        bent = y < 5.0 and rng.random() < 0.45
-        pool = PALMS_BENT if bent else PALMS_TALL
-        f, lo, hi = pool[0]
+        # the bent one leans out over the beaches, the tall one stands on the high ground, and
+        # everything in between is the standard tree
+        if y < 5.0 and rng.random() < 0.55:
+            f, lo, hi = PALM_B
+        elif y > 11.0 and rng.random() < 0.50:
+            f, lo, hi = PALM_C
+        else:
+            f, lo, hi = PALM_A
         return (f, rng.uniform(lo, hi), "")
 
     n_palm = sow(104, 60000, 6.0, palm_pick, palm_w)
@@ -686,11 +931,20 @@ def scatter(h, road_mask):
         w = 0.85 * (1.0 - smoothstep(0.6, 1.05, sl))
         # thickets, not lawn: a moisture field so the bushes clump and leave clearings between
         w *= 0.20 + 1.15 * smoothstep(0.34, 0.72, fbm(SEED + 77, x / 26.0, z / 26.0, 3))
+        # bushes used to be all but banned from the roadside; they are allowed back, because the
+        # roadside is the one place the photoscans earn their triangles
         if near_road(x, z, road_mask):
-            w *= 0.10
+            w *= 0.34
         if near_pad(x, z, 0.5):
             w *= 0.18
         return w
+
+    def bush_pick(rng, x, z, y):
+        # even on the verge only three in five are scans: a solid hedge of them is both the
+        # triangles this pass is trying not to spend and a repeated plant you notice
+        pool = BUSHES if (beside_path(x, z, road_mask) and rng.random() < 0.45) else BUSHES_CARD
+        f, lo, hi = pool[rng.randrange(len(pool))]
+        return (f, rng.uniform(lo, hi), "")
 
     # --- agaves on the dry, steep, high ground (where the stylised cactus used to be) ---
     def agave_w(x, z, y):
@@ -719,7 +973,7 @@ def scatter(h, road_mask):
 
     n_rock = sow(70, 50000, 5.5, from_pool(ROCKS, ROCK_TINT), rock_w)
 
-    n_scrub = sow(480, 200000, 2.6, from_pool(BUSHES), scrub_w)
+    n_scrub = sow(480, 200000, 2.6, bush_pick, scrub_w)
 
     # --- ground cover: tufts and weeds in the gaps the bushes left ---
     def ground_w(x, z, y):
@@ -736,8 +990,29 @@ def scatter(h, road_mask):
 
     n_ground = sow(150, 90000, 1.9, from_pool(GROUND), ground_w)
 
-    print("scatter: %d palms, %d bushes, %d agaves, %d rocks, %d ground cover (%d props)"
-          % (n_palm, n_scrub, n_cact, n_rock, n_ground, len(out)))
+    # --- Great Goonstein, the empty neighbour across the cut: imposters only. Nothing ever gets
+    #     within two hundred metres of it, and eight triangles is the whole tree. ---
+    n_far = 0
+    nx, nz, nr, _peak = NEIGHBOUR
+    for _ in range(8000):
+        if n_far >= 46:
+            break
+        x = rng.uniform(nx - nr, nx + nr)
+        z = rng.uniform(nz - nr, nz + nr)
+        if math.hypot(x - nx, z - nz) > nr:
+            continue
+        y = sample(h, x, z)
+        if y < 2.5 or y > 25.0 or slope_sample(h, x, z) > 0.9:
+            continue
+        if not free(x, z, 9.0):
+            continue
+        f, lo, hi = PALM_FAR
+        put(f, x, z, rng.uniform(0, 360), rng.uniform(lo, hi), 9.0)
+        n_far += 1
+
+    print("scatter: %d palms (+%d imposters on the neighbour), %d bushes, %d agaves, %d rocks, "
+          "%d ground cover (%d props)"
+          % (n_palm, n_far, n_scrub, n_cact, n_rock, n_ground, len(out)))
     return out
 
 
@@ -767,7 +1042,13 @@ def main():
     ap.add_argument("--report", action="store_true")
     ap.add_argument("--scatter", metavar="FILE")
     ap.add_argument("--preview", metavar="FILE")
+    ap.add_argument("--out-dir", metavar="DIR", help="write the three terrain files somewhere else (A/B runs)")
+    ap.add_argument("--scatter-into", metavar="LEVEL",
+                    help="replace the vegetation block at the end of a level file in place")
     args = ap.parse_args()
+    if args.out_dir:
+        global OUT_DIR
+        OUT_DIR = args.out_dir
 
     h, road_mask = build()
     col = colourise(h, road_mask)
@@ -788,12 +1069,15 @@ def main():
         for name, x, z in REPORT_POINTS:
             print("%-26s %8.1f %8.1f %8.2f" % (name, x, z, sample(h, x, z)))
 
-    if args.scatter:
+    if args.scatter or args.scatter_into:
         lines = scatter(h, road_mask)
-        with open(args.scatter, "w") as f:
-            f.write("# generated by tools/island_terrain.py --scatter -- do not hand-edit\n")
-            f.write("\n".join(lines) + "\n")
-        print("scatter: %d props -> %s" % (len(lines), args.scatter))
+        if args.scatter:
+            with open(args.scatter, "w") as f:
+                f.write("# generated by tools/island_terrain.py --scatter -- do not hand-edit\n")
+                f.write("\n".join(lines) + "\n")
+            print("scatter: %d props -> %s" % (len(lines), args.scatter))
+        if args.scatter_into:
+            write_scatter_into(args.scatter_into, lines)
 
 
 if __name__ == "__main__":

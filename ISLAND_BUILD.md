@@ -86,9 +86,11 @@ The temple's stripes are ten full-plan boxes stacked with alternating tints, whi
 ### `tools/island_terrain.py`
 
 Writes `assets/levels/island_terrain_h.png` (16-bit height packed as `R<<8|G`, range
-`[-64, 192)`), `_c.png` (biome colours) and `island_terrain.txt` (cell 3.5, origin -224 0 -224,
-water 0). The engine's grid is a fixed 129 x 129, so 3.5 m per cell buys 448 m of world with the
-island in the middle and open sea to the horizon.
+`[-64, 192)`), `_c.png` (biome colours) and `island_terrain.txt` (cell 1.75, origin -224 0 -224,
+water 0). The grid is 257 x 257 and the engine takes its size from the PNG (65, 129 or 257 --
+see `src/terrain.h`), so 1.75 m per cell buys the same 448 m of world at four times the detail,
+with the island in the middle and open sea to the horizon. See section 6 for what that detail is
+spent on.
 
 The island is a spine: a centreline `SPINE_X(z)`, a half-width `HALF_W(z)`, a crest height
 `CREST(z)` and an inland slope `SLOPE(z)`, plus fbm coastline wobble that is stronger on the
@@ -97,15 +99,18 @@ slope)`; offshore it falls away exponentially to about -26 m. `BEACHES` widens t
 cove, the north beach and the dock shelf; `HARD_SHORE` doubles the slope where cliffs are wanted.
 `PADS` levels the built ground (circles and rectangles, each with its own blend); `PATHS` samples
 the ground along each golf-cart road, smooths the profile and cuts the corridor in. Then
-`--scatter` rejection-samples 104 palms, 255 scrub, 38 cactus and 70 boulders by height, slope,
-moisture noise and distance from roads and pads.
+`--scatter` rejection-samples 104 palms (three variants by height and slope), 480 bushes, 38
+agaves, 70 boulders and 150 tufts of ground cover by height, slope, moisture noise and distance
+from roads and pads, plus 46 palm imposters on the empty neighbour island.
 
     python3 tools/island_terrain.py --report --preview /tmp/island.png \
-        --scatter /tmp/scatter.txt
+        --scatter-into assets/levels/island.txt
 
 `--report` prints the ground height at every named site; `--preview` writes a hill-shaded
-top-down map, which is currently the **only** way to see the whole island (see "Needs code").
-The scatter block is pasted at the bottom of `island.txt` under its own comment banner.
+top-down map. `--scatter-into` replaces the block below the `vegetation` banner in a level file
+in place (`--scatter FILE` still just writes it out); `--out-dir` puts the three terrain files
+somewhere else, for A/B runs. After any run that changes the heights, follow it with
+`tools/island_resnap.py` (section 6).
 
 ### `tools/island_snap.py`
 
@@ -126,8 +131,9 @@ that is the one sharp edge, and it is why the terrain was frozen before the comp
 
 ### Rebuilding from scratch
 
-    python3 tools/island_terrain.py --scatter /tmp/scatter.txt
-    # paste /tmp/scatter.txt under the "vegetation" banner at the end of island.txt
+    git show HEAD:assets/levels/island_terrain_h.png > /tmp/old_h.png   # before you regenerate
+    python3 tools/island_terrain.py --scatter-into assets/levels/island.txt
+    python3 tools/island_resnap.py assets/levels/island.txt --old /tmp/old_h.png --old-cell 1.75 --write
     python3 tools/island_snap.py assets/levels/island.txt      # only if there are tildes left
 
 ---
@@ -257,7 +263,110 @@ sharing the `.bin`; `tools/blender/decimate.py` took four scans over 50k triangl
 (`dead_tree_trunk` 101802 -> 17999, `modular_wooden_pier` 84780 -> 23994, `boulder_01` 66122 ->
 14000, `concrete_road_barrier` 60928 -> 9999).
 
-## 6. Deliberately not done yet
+## 6. The vegetation pass
+
+Two things fill every frame on this island: the ground and the palms. Both were cheap in the
+specific sense that you could see what they were made of.
+
+### The palms
+
+Twenty-nine boxes and cylinders per tree, with each frond a pair of flat green planks. They now
+come out of `tools/palm/make_palm.py` in headless Blender: three variants (`palm_a` the standard
+9.5 m tree, `palm_b` leaning over the water at 7 m, `palm_c` the tall one at 12 m), about 1700
+triangles each, and each is ONE glTF with exactly two materials, which is what lets the prop
+instancer collapse a hundred and four of them into two batches.
+
+A frond is a five-segment card strip folded into a shallow drooping V -- rib, two mid-wing, two
+edge -- carrying a cut-out texture drawn by `tools/palm/make_frond.py`: two hundred leaflets a
+side off a tapering rib, seven per cent of them missing, one in ten torn short, green at the root
+and dry yellow at the tip, each leaflet multiplied by its own brightness so neighbours differ.
+
+Three decisions in there are worth keeping in mind if you touch any of it:
+
+- **The card's outline is the frond's outline.** Its half width follows the same `env(t)` envelope
+  the texture is drawn with, and the UVs map to the matching band. This is not tidiness: the
+  shadow pass has no alpha test (`shadow.frag` writes depth and nothing else), so a rectangular
+  card would throw a rectangular shadow. Because the card is frond-shaped, the palm lays a
+  palm-shaped shadow across the sand.
+- **Both faces of a frond carry the same normal**, pointing out of the middle of the crown and
+  tilted up rather than off the face of the card. That is two-sided foliage lighting done in the
+  asset: the underside of a frond lights like the top of a dome, and back-face culling never has
+  to be turned off.
+- **The wind weight is the vertex colour's ALPHA, inverted.** 1 is rigid -- which is what every
+  other mesh in the game says, and what glTF says when a mesh has no COLOR_0 at all -- and 0 sways
+  the most. `world.vert` and `world_inst.vert` read it and bend the vertex by a gust field keyed
+  to world position and `flags.y` (the frame's time); `lit.frag` no longer takes opacity from the
+  vertex colour, so the channel is free. It had to be a vertex channel and not a material flag or
+  a level keyword, because the instancer batches by mesh and texture and a per-batch flag would
+  have had to join that key.
+
+`assets/models/own/palm_far.glb` is the same tree rendered to a texture by Blender on transparent
+film and mapped onto two crossed cards: eight triangles. It is not wired to a distance -- 1700
+triangles is already a stand-in, and `props.c` picks its own LODs by file name -- it is used
+directly for the forty-six palms on Great Goonstein, which nobody ever lands on.
+
+### The bushes
+
+The 480 scanned bushes were the wrong plant and the wrong cost: `shrub_02` is 27254 triangles and
+`pachira_aquatica` 76914, for something a metre across and forty pixels tall from the road, and
+scanned temperate scrub reads as a handful of red twigs on a limestone cay. `tools/palm/make_bush.py`
+builds three card-cluster bushes -- six to eleven quads on a squashed hemisphere, each carrying one
+patch of the four-patch leaf atlas from `tools/palm/make_leafpatch.py`, every card written twice so
+it is visible from both sides, every vertex normal pointing out of the middle of the clump. Thirty
+to eighty-eight triangles. The photoscans are kept where you walk past them: a bush within about
+four metres of a road or a built pad is a scan with 45% probability, everything else is a card.
+
+### The ground
+
+`tools/island_terrain.py` now writes a **257 x 257** grid at 1.75 m cells -- the same 448 m of
+world at four times the detail (`src/terrain.h`: the grid size is a per-terrain number now, and the
+mesh is split into four chunks because 66049 vertices do not fit 16-bit indices). What that detail
+is spent on:
+
+- **Drainage.** A ridged noise cut into the flanks, stretched along the downhill direction and
+  squeezed across it. The trick is the choice of coordinates: taking a local frame from the
+  gradient does not work, because the frame rotates and the effective frequency wanders into mush.
+  Instead the two axes are fields that are continuous everywhere -- `z`, the island's long axis,
+  which its contours run along on both flanks, and the height itself, which is by definition the
+  downhill coordinate. `noise(z / 10.5, h / 16)` is a comb of gullies down the hillside, and a
+  ridged transform turns its zero crossings into V-shaped cuts with rounded spurs between them.
+- **Outcrops** of limestone where the windward faces are steep, and one octave of roughness
+  everywhere, both fading out on the beaches and below the waterline where smooth sand is correct.
+  Everything is applied BEFORE the pads and the roads, so the built ground and the cart tracks are
+  untouched.
+- **A surface, not a contour map.** Every material boundary is noisy: the sand-to-scrub line is a
+  height plus a few metres of fbm, so it wanders like a real one. Cliffs take limestone strata
+  keyed to elevation with a warped phase. The Laplacian of the height darkens the hollows and
+  lifts the spurs by about a tenth, which is the only ambient occlusion the island gets and is what
+  makes the new gullies read from the far side of the water. The rock thresholds are read off the
+  finished field rather than guessed -- the median land slope is 0.53 and the 90th percentile 1.5,
+  so rock starts around 1.0; the old numbers were set against a 3.5 m grid that averaged every
+  slope down, and at 1.75 m they turned two thirds of the island into bare limestone.
+- **De-tiling in the shader.** `terrain_draw` sets `material.water = 2` -- the sea is 1, one bit
+  does not deserve a new uniform -- and `lit.frag` answers by multiplying in a second, much slower
+  sample of the same detail map, normalised by its own mean (which `push_material` already uploads
+  as `flatc.rgb`). One extra fetch, on the one surface that fills the bottom of every frame, and
+  the half-metre tiling stops repeating.
+
+### The sharp edge, blunted
+
+ISLAND_BUILD used to warn that regenerating the terrain silently leaves five hundred props hanging
+in the air, because `island_snap.py` turns `~` into a number once and then the file is just
+numbers. `tools/island_resnap.py` is the other half: given the old heightmap and the new one, it
+re-applies each placement's offset above the ground to the new ground, and only for things that
+were resting on it (`--above` / `--below`). It moves `prop` and `npc` lines and deliberately not
+`block` or `collider` -- those are pieces of a structure the author levelled by hand, and moving
+each by its own local ground delta turns a straight wall into a staircase. Forty-nine placements
+moved when the 257 grid went in; every one is printed, and it writes nothing without `--write`.
+
+    git show HEAD:assets/levels/island_terrain_h.png > /tmp/old_h.png
+    python3 tools/island_terrain.py --scatter-into assets/levels/island.txt
+    python3 tools/island_resnap.py assets/levels/island.txt --old /tmp/old_h.png --old-cell 3.5 --write
+
+`--scatter-into` replaces everything below the `vegetation` banner in the level file in place, so
+regenerating the scatter is no longer a copy and paste.
+
+## 7. Deliberately not done yet
 
 - First person. `view first` does not exist; the level is `view third` until it does.
 - The descent. The Culvert stops at a steel door and the Music Room's hatch is sealed: both are

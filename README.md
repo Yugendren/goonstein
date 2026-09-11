@@ -812,6 +812,15 @@ Two scripts in `tools/blender`, run from the repo root:
     blender -b --python tools/blender/variant.py -- assets/models/kaykit/Knight.glb assets/models/characters/knight_big.glb --height 1.15 --width 1.2 --head 1.3
     blender -b --python tools/blender/decimate.py -- scan.obj assets/models/import/scan.glb --target 20000
 
+`tools/palm/` is a third set, and the one that made the island's own plants: `make_frond.py` and
+`make_leafpatch.py` draw cut-out foliage textures with Pillow (a whole palm frond, and a four-patch
+atlas of leaf clumps) and `make_palm.py` / `make_bush.py` build the meshes that carry them in
+Blender -- three palms of about 1700 triangles, three card-cluster bushes of thirty to ninety, and
+an eight-triangle imposter palm rendered from the real one. See ISLAND_BUILD.md section 6.
+
+    blender -b --python tools/palm/make_palm.py -- --variant a --out assets/models/own/palm_a.glb
+    blender -b --python tools/palm/make_bush.py -- --variant a --out assets/models/own/bush_a.glb
+
 `variant.py` makes proportion variants of a KayKit character (taller, wider, bigger head, longer
 arms or legs); weights and all 76 clips are kept, so the result is a new body with the full
 animation set (`assets/characters/knight_big.txt` is one). `decimate.py` brings a heavy scan or CAD

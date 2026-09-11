@@ -121,10 +121,21 @@ void terrain_draw(Gfx *g, Terrain *t) {
     if (!t->present) return;
     terrain_update_mesh(g, t);
     if (!t->mesh_ok) return;
-    for (int i = 0; i < t->nmesh; i++) {
-        if (t->detail) gfx_draw_planar(g, &t->mesh[i], t->detail, m4_identity(), v4(t->detail_gain.x, t->detail_gain.y, t->detail_gain.z, 1), t->detail_tile);
-        else gfx_draw(g, &t->mesh[i], &g->white, m4_identity(), v4(1, 1, 1, 1), v4(1, 1, 0, 0));
+    if (!t->detail) {
+        for (int i = 0; i < t->nmesh; i++) gfx_draw(g, &t->mesh[i], &g->white, m4_identity(), v4(1, 1, 1, 1), v4(1, 1, 0, 0));
+        return;
     }
+    // material.water = 2 says "this is the ground" to lit.frag, which answers it by breaking up
+    // the detail map's tiling (see the shader). It rides on the same number the sea already uses
+    // -- 1 is the sea, 2 is the ground -- because one bit does not deserve a new uniform, and
+    // because the material is the only channel that reaches the fragment stage per draw without
+    // touching the instancer's batch key.
+    Material m = material_default();
+    m.water = 2.0f;
+    gfx_set_material(g, &m);
+    for (int i = 0; i < t->nmesh; i++)
+        gfx_draw_planar(g, &t->mesh[i], t->detail, m4_identity(), v4(t->detail_gain.x, t->detail_gain.y, t->detail_gain.z, 1), t->detail_tile);
+    gfx_set_material(g, NULL);
 }
 
 // How far past the grid the sea is carried. Any level's far plane cuts the skirt long before its

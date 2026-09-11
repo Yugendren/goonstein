@@ -43,6 +43,17 @@ void main() {
     // than on the sampler because Metal's sampler has no LOD bias at all; a fetch bias is the one
     // spelling all three backends understand.
     vec4 s = texture(tex, v_uv, -0.5);
+    // The ground (material.water == 2, set by terrain_draw). A detail map at half a metre repeats
+    // nine hundred times across this island and the eye finds the period long before the fog does.
+    // Multiplying in a second, much slower sample of the SAME map -- normalised by its own mean,
+    // which push_material already hands us as flatc.rgb -- kills the period without a second
+    // texture, a second sampler or a second pass: one extra fetch, on the one surface that fills
+    // the bottom of every frame. The offset keeps the two samples from lining up at the origin.
+    if (water.x > 1.5) {
+        vec3 broad = texture(tex, v_uv * 0.137 + vec2(0.37, 0.61), -0.5).rgb / max(flatc.rgb, vec3(0.04));
+        broad = vec3(1.0) + (broad - vec3(1.0)) * 1.9;   // the map's own contrast is too polite to read at sixteen metres a tile
+        s.rgb *= mix(vec3(1.0), broad, 0.75);
+    }
     // Alpha-tested cut-out, which is what makes a leaf card a leaf. Opacity is the texture's alpha
     // times the material's, and deliberately NOT the vertex colour's: that channel now carries the
     // wind weight the vertex shaders read (see world.vert). It was 1 on every mesh in the game, so
@@ -67,7 +78,7 @@ void main() {
     // specular highlight at all: with a high sun the half vector sits near the water's own normal,
     // so any exponent smears the highlight along whole crests instead of glittering.
     float sea_shallow = 0.0, sea_foam = 0.0, sea_swell = 0.0;
-    bool sea = water.x > 0.5;
+    bool sea = water.x > 0.5 && water.x < 1.5;   // 1 = the sea, 2 = the ground (above)
     if (sea) {
         float wt = toon.w;
         vec2 p = v_wpos.xz;
