@@ -1,0 +1,45 @@
+# villa_facade -- the CAD kit laid over villa.part's shell. Placed in island.txt at the villa's
+# own origin and yaw, so every coordinate here is the villa's local frame: walls at x +/-10 and
+# z +/-6 rising from y 0.2, the colonnade at z -7.4, the courtyard side facing -z.
+#
+# Nothing is cut. The shell's flat black window rectangles stay where they are and end up inside
+# these frames' reveals, where they read as the dark of the room beyond. Columns are the kit's
+# wall_column scaled 1.5 across so its 0.46 shaft comfortably swallows the shell's 0.62 cylinder.
+
+# front colonnade, -z: eight columns from the stylobate at y 0.5 to the architrave at y 5.1
+piece models/own/arch/wall_column.obj   -8.400  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj   -6.000  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj   -3.600  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj   -1.200  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    1.200  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    3.600  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    6.000  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    8.400  0.500  -7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+
+# back colonnade, +z: five columns on the wider spacing the shell uses
+piece models/own/arch/wall_column.obj   -8.000  0.500   7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj   -4.000  0.500   7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    0.000  0.500   7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    4.000  0.500   7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/wall_column.obj    8.000  0.500   7.400   1.500 1.000 1.500   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+
+# front windows, -z wall face at z = -6.0. The shell's rects are 1.0 x 1.6 centred on y 2.5, and
+# window_large's own opening is 1.2 x 1.9 with its centre 1.2 above the base, so y = 2.5 - 1.2.
+piece models/own/arch/window_large.obj  -7.200  1.300  -6.000   1.000 1.000 1.000   0.0 0.0 0.0   1.62 1.68 1.78  tex plaster_smooth 0.8
+piece models/own/arch/window_large.obj  -4.800  1.300  -6.000   1.000 1.000 1.000   0.0 0.0 0.0   1.62 1.68 1.78  tex plaster_smooth 0.8
+piece models/own/arch/window_large.obj  -2.400  1.300  -6.000   1.000 1.000 1.000   0.0 0.0 0.0   1.62 1.68 1.78  tex plaster_smooth 0.8
+piece models/own/arch/window_large.obj   2.400  1.300  -6.000   1.000 1.000 1.000   0.0 0.0 0.0   1.62 1.68 1.78  tex plaster_smooth 0.8
+piece models/own/arch/window_large.obj   4.800  1.300  -6.000   1.000 1.000 1.000   0.0 0.0 0.0   1.62 1.68 1.78  tex plaster_smooth 0.8
+piece models/own/arch/window_large.obj   7.200  1.300  -6.000   1.000 1.000 1.000   0.0 0.0 0.0   1.62 1.68 1.78  tex plaster_smooth 0.8
+
+# back windows, +z wall face at z = 6.0, so the frames need turning round
+piece models/own/arch/window_large.obj  -4.000  1.300   6.000   1.000 1.000 1.000 180.0 0.0 0.0   1.62 1.68 1.78  tex plaster_smooth 0.8
+piece models/own/arch/window_large.obj   4.000  1.300   6.000   1.000 1.000 1.000 180.0 0.0 0.0   1.62 1.68 1.78  tex plaster_smooth 0.8
+
+# the front door. The shell's opening is 2.2 x 3.0 from y 0.2 and the french door's is 1.6 x 2.6,
+# so it is scaled 1.38 across and 1.16 up to cover it exactly rather than leaving a black margin.
+piece models/own/arch/french_door.obj    0.000  0.000  -6.000   1.380 1.160 1.000   0.0 0.0 0.0   1.58 1.62 1.70  tex plaster_smooth 0.8
+
+# a lantern each side of the door, on the wall rather than on the columns
+piece models/own/arch/lamp_bracket.obj  -1.900  2.300  -6.000   1.000 1.000 1.000   0.0 0.0 0.0   1.20 1.10 0.95
+piece models/own/arch/lamp_bracket.obj   1.900  2.300  -6.000   1.000 1.000 1.000   0.0 0.0 0.0   1.20 1.10 0.95

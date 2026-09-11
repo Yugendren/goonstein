@@ -1,0 +1,27 @@
+# pool_edge -- a bullnose coping ring round the Oval. Placed in island.txt at the pool's own
+# centre and at the deck's top, so these are local coordinates about the middle of the water.
+#
+# The pool is an ellipse, and a 1 m coping run is straight, so the ring is twenty chords: each
+# run is scaled to its own chord and turned so its rounded edge faces the water. Twenty is where
+# the faceting stops reading as facets from the deck. They all share one mesh and one texture, so
+# the whole ring is a single instanced draw.
+piece models/own/arch/pool_coping_run.obj    9.268  0.000   0.927   2.026 1.000 1.000   84.3 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj    8.360  0.000   2.690   2.278 1.000 1.000   72.2 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj    6.635  0.000   4.190   2.635 1.000 1.000   57.7 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj    4.260  0.000   5.280   2.949 1.000 1.000   38.9 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj    1.468  0.000   5.853   3.127 1.000 1.000   14.1 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj   -1.468  0.000   5.853   3.127 1.000 1.000  -14.1 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj   -4.260  0.000   5.280   2.949 1.000 1.000  -38.9 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj   -6.635  0.000   4.190   2.635 1.000 1.000  -57.7 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj   -8.360  0.000   2.690   2.278 1.000 1.000  -72.2 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj   -9.268  0.000   0.927   2.026 1.000 1.000  -84.3 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj   -9.268  0.000  -0.927   2.026 1.000 1.000  -95.7 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj   -8.360  0.000  -2.690   2.278 1.000 1.000 -107.8 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj   -6.635  0.000  -4.190   2.635 1.000 1.000 -122.3 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj   -4.260  0.000  -5.280   2.949 1.000 1.000 -141.1 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj   -1.468  0.000  -5.853   3.127 1.000 1.000 -165.9 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj    1.468  0.000  -5.853   3.127 1.000 1.000  165.9 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj    4.260  0.000  -5.280   2.949 1.000 1.000  141.1 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj    6.635  0.000  -4.190   2.635 1.000 1.000  122.3 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj    8.360  0.000  -2.690   2.278 1.000 1.000  107.8 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8
+piece models/own/arch/pool_coping_run.obj    9.268  0.000  -0.927   2.026 1.000 1.000   95.7 0.0 0.0   1.77 1.96 2.26  tex paving_stone 0.8

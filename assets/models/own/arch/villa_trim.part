@@ -1,0 +1,65 @@
+# villa_trim -- the roofline half of the villa's dress: the cornice that finishes every wall, the
+# balustrade that turns the colonnade's top into a roof terrace, and the pantile course along the
+# two side eaves where the hipped roof is seen end-on from the courtyard.
+#
+# Placed at the villa's own origin and yaw, so these are villa.part's local coordinates. The
+# cornice and the balustrade are both 1 m kit runs, but only one of them may be stretched: a
+# cornice's section is the same at every point along it, while a balustrade has balusters that
+# would smear. So the cornices are single scaled pieces and the balustrade is twenty separate
+# metres, cut to butt with no half-baluster at either end.
+
+# cornice on the front colonnade's architrave (its face is at z -7.85) and on the other three walls
+piece models/own/arch/cornice_run.obj    0.000  5.650  -7.850  21.000 1.000 1.000   0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/cornice_run.obj    0.000  5.650   7.850  21.000 1.000 1.000 180.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/cornice_run.obj  -10.000  5.550   0.000  12.000 1.000 1.000  90.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/cornice_run.obj   10.000  5.550   0.000  12.000 1.000 1.000 270.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+
+# the roof terrace balustrade, sitting on that cornice at y 5.99, with the middle left open
+# so the little pediment over the door still reads
+piece models/own/arch/balustrade_run.obj    -9.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj    -8.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj    -7.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj    -6.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj    -5.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj    -4.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj    -3.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj    -2.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj     2.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj     3.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj     4.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj     5.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj     6.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj     7.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj     8.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_run.obj     9.500  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_post.obj  -10.150  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_post.obj   -2.000  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_post.obj    2.000  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+piece models/own/arch/balustrade_post.obj   10.150  5.990  -7.850   1.000 1.000 1.000    0.0 0.0 0.0   1.67 1.73 1.83  tex plaster_smooth 0.8
+
+# pantiles along the two side eaves of the hipped roof, at x +/-10.9 where the roof is
+# seen end-on from the courtyard; the front eaves are hidden behind the parapet above
+piece models/own/arch/roof_edge_run.obj     10.900  5.700  -5.500   1.000 1.000 1.000  270.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj     10.900  5.700  -4.500   1.000 1.000 1.000  270.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj     10.900  5.700  -3.500   1.000 1.000 1.000  270.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj     10.900  5.700  -2.500   1.000 1.000 1.000  270.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj     10.900  5.700  -1.500   1.000 1.000 1.000  270.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj     10.900  5.700  -0.500   1.000 1.000 1.000  270.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj     10.900  5.700   0.500   1.000 1.000 1.000  270.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj     10.900  5.700   1.500   1.000 1.000 1.000  270.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj     10.900  5.700   2.500   1.000 1.000 1.000  270.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj     10.900  5.700   3.500   1.000 1.000 1.000  270.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj     10.900  5.700   4.500   1.000 1.000 1.000  270.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj     10.900  5.700   5.500   1.000 1.000 1.000  270.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj    -10.900  5.700  -5.500   1.000 1.000 1.000   90.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj    -10.900  5.700  -4.500   1.000 1.000 1.000   90.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj    -10.900  5.700  -3.500   1.000 1.000 1.000   90.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj    -10.900  5.700  -2.500   1.000 1.000 1.000   90.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj    -10.900  5.700  -1.500   1.000 1.000 1.000   90.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj    -10.900  5.700  -0.500   1.000 1.000 1.000   90.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj    -10.900  5.700   0.500   1.000 1.000 1.000   90.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj    -10.900  5.700   1.500   1.000 1.000 1.000   90.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj    -10.900  5.700   2.500   1.000 1.000 1.000   90.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj    -10.900  5.700   3.500   1.000 1.000 1.000   90.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj    -10.900  5.700   4.500   1.000 1.000 1.000   90.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
+piece models/own/arch/roof_edge_run.obj    -10.900  5.700   5.500   1.000 1.000 1.000   90.0 0.0 0.0   0.42 1.53 1.97  tex roof_tile 1.2
