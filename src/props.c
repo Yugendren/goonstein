@@ -1,5 +1,6 @@
 #include "props.h"
 #include "render_world.h"
+#include "prof.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -74,6 +75,8 @@ void props_draw(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTextur
         props_draw_matrix(g, pc, p->file, world, p->tint, p->glow, tex, p->tex_tile > 0 ? p->tex_tile : 1.0f, 0);
     }
     gfx_set_material(g, NULL);
+    prof_count(PROF_C_PROPS_DRAWN, pc->props_drawn);
+    prof_count(PROF_C_PROPS_CULLED, pc->props_culled);
 }
 
 // FILE.recolor beside a model: lines of `r g b  r2 g2 b2` (0-255) move that paint colour, shading kept.

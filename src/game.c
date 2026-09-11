@@ -3,6 +3,7 @@
 #include "audio.h"
 #include "debug.h"
 #include "daylight.h"
+#include "prof.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1307,6 +1308,16 @@ static void draw_debug_overlay(Game *g, Platform *pf) {
             snprintf(bl, sizeof bl, "mouse %.0f %.0f held %d  hit_t %.2f %.2f %.2f", mx, my, pf->input.mouse_held, b->hit_t[0], b->hit_t[1], b->hit_t[2]);
             gfx_ui_text(x, 8, 8 + (n + 1) * 11, 1.0f, v4(1, 0.9f, 0.6f, 1), bl);
         }
+        // Profiler: a bar per phase with a non-zero median, left side, below the lines above (see prof.h)
+        {
+            char pl[24][96]; int pn = prof_overlay_lines(pl, 24);
+            if (pn > 0) {
+                int py = 8 + n * 11 + 14;
+                float pw2 = 0; for (int i = 0; i < pn; i++) { float w = gfx_ui_text_width(1.0f, pl[i]); if (w > pw2) pw2 = w; }
+                gfx_ui_rect(x, 4, py - 6, pw2 + 12, pn * 11 + 10, v4(0, 0, 0, 0.55f));
+                for (int i = 0; i < pn; i++) gfx_ui_text(x, 8, py + i * 11, 1.0f, v4(0.8f, 0.9f, 1, 1), pl[i]);
+            }
+        }
         // event log, newest at the bottom (the \ console shows more)
         int total = pf->console ? 0 : dbg_line_count(), show = total < 18 ? total : 18;
         gfx_ui_rect(x, 860, 90, 412, 12 + show * 11 + 14, v4(0, 0, 0, 0.55f));
@@ -1592,6 +1603,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     // but skipped in the camera passes, because at eye height the camera is inside its head.
     bool fp_self = g->cam.mode == CAM_FIRST;
     // Sun shadow map: the world drawn once from the sun, fitted around what the camera looks at
+    prof_begin(PROF_SHADOW);
     {
         float strength = SDL_getenv("HOLLOW_NOSHADOW") ? 0 : (SDL_getenv("HOLLOW_SHADOW") ? (float)atof(SDL_getenv("HOLLOW_SHADOW")) : lk->shadow);
         Vec3 sd = v3_norm(lk->sun_dir); if (sd.y > -0.05f) strength = 0;   // sun below the horizon: no shadows
@@ -1626,12 +1638,14 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             gfx_shadow_end(x);
         }
     }
+    prof_end(PROF_SHADOW);
     render_portrait(g, pf, &fp);
     gfx_set_flat(x, lk->flat);   // `look flat`: every material blends toward its texture's mean colour
+    prof_begin(PROF_WORLD);
     gfx_begin(x, pf, &fp);
     draw_level(x, lv, &g->wt);
     if (g->terrain.present) { terrain_update_mesh(x, &g->terrain); terrain_draw(x, &g->terrain);
-        terrain_draw_water(x, &g->terrain); }
+        prof_begin(PROF_WATER); terrain_draw_water(x, &g->terrain); prof_end(PROF_WATER); }
     props_draw(x, &g->props, lv, &g->wt, t);
     items_draw(g);
     weapons_draw(g);   // --- weapons --- viewmodel, held and holstered weapons, tracers and flashes
@@ -1704,7 +1718,10 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     }
     if (g->state == GS_BATTLE) battle_draw_world(&g->battle, x);
     if (g->tool_mode == 2 && g->leveled.open) leveled_draw_world(&g->leveled, &g->level, x, &g->props);
+    prof_end(PROF_WORLD);
+    prof_begin(PROF_PARTICLES);
     if (!SDL_getenv("HOLLOW_NOPART")) particles_draw(&g->particles, x);
+    prof_end(PROF_PARTICLES);
 
     if (pf->debug) {
         gfx_draw_box_wire(x, v3(pc->pos.x, pc->pos.y + pc->height * 0.5f, pc->pos.z), v3(pc->radius * 2, pc->height, pc->radius * 2), v4(0.3f, 1, 0.3f, 1));
@@ -1727,7 +1744,9 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         for (int i = 0; i < lv->nblocks; i++) if (lv->blocks[i].tex < 0) gfx_draw_box_wire(x, lv->blocks[i].center, lv->blocks[i].size, v4(0.6f, 0.4f, 1, 1));
         for (int i = 0; i < lv->nlights; i++) gfx_draw_box_wire(x, lv->lights[i].pos, v3(0.2f, 0.2f, 0.2f), v4(lv->lights[i].color.x, lv->lights[i].color.y, lv->lights[i].color.z, 1));
     }
+    prof_begin(PROF_UI);
     if (!SDL_getenv("HOLLOW_NOHUD")) draw_hud(g, pf);   // capture aid: the style sheets want the frame, not the prompts
+    prof_end(PROF_UI);
     PostParams pp = { .grain = lk->grain, .vignette = lk->vignette, .fade = g->fade, .flash_color = g->flash_color, .flash = g->flash,
                       .exposure = lk->exposure, .saturation = lk->saturation, .contrast = lk->contrast, .bloom = lk->bloom,
                       .lift = lk->lift, .gain = lk->gain, .bloom_threshold = lk->bloom_threshold, .bloom_knee = 0.5f,
@@ -1735,7 +1754,9 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
                       .ink_width = lk->ink_width, .ink_wobble = lk->ink_wobble, .ink_luma = lk->ink_luma, .paper = lk->paper,
                       .chroma = lk->chroma, .dither = lk->dither, .hatch = lk->hatch };
     if (SDL_getenv("HOLLOW_STYLE")) sscanf(SDL_getenv("HOLLOW_STYLE"), "%f %f %f %f", &pp.style_snap, &pp.style_outline, &pp.style_levels, &pp.style_pixel);   // tuning override
+    prof_begin(PROF_POST);
     gfx_end(x, pf, &pp, g->time);
+    prof_end(PROF_POST);
 }
 
 bool game_shot_moment(Game *g, const char *when) {

@@ -1,4 +1,5 @@
 #include "gfx.h"
+#include "prof.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -659,6 +660,7 @@ void gfx_pixel_end(Gfx *g) {
     SDL_BindGPUFragmentSamplers(g->pass, 0, sb, 2);
     SDL_DrawGPUPrimitives(g->pass, 3, 1, 0, 0);
     g->draw_calls++;
+    prof_count(PROF_C_DRAWS, 1); prof_count(PROF_C_INSTANCES, 1);   // a full-screen triangle, no Mesh to count tris from
     repush_frame(g);   // the composite's uniforms sat in the frame slot
 }
 
@@ -719,6 +721,7 @@ void gfx_draw(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, Ve
     SDL_BindGPUIndexBuffer(g->pass, &(SDL_GPUBufferBinding){ .buffer = m->ib }, SDL_GPU_INDEXELEMENTSIZE_16BIT);
     SDL_DrawGPUIndexedPrimitives(g->pass, m->index_count, 1, 0, 0, 0);
     g->draw_calls++;
+    prof_count(PROF_C_DRAWS, 1); prof_count(PROF_C_INSTANCES, 1); prof_count(PROF_C_TRIS, m->index_count / 3);
 }
 
 void gfx_draw_skinned(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 tint, const Mat4 *joints, int njoints) {
@@ -736,6 +739,7 @@ void gfx_draw_skinned(Gfx *g, const Mesh *m, const Texture *t, Mat4 model, Vec4 
     SDL_BindGPUIndexBuffer(g->pass, &(SDL_GPUBufferBinding){ .buffer = m->ib }, SDL_GPU_INDEXELEMENTSIZE_16BIT);
     SDL_DrawGPUIndexedPrimitives(g->pass, m->index_count, 1, 0, 0, 0);
     g->draw_calls++;
+    prof_count(PROF_C_DRAWS, 1); prof_count(PROF_C_INSTANCES, 1); prof_count(PROF_C_TRIS, m->index_count / 3);
 }
 
 Texture gfx_texture_load_exact(Gfx *g, const char *path) {
@@ -783,6 +787,7 @@ void gfx_draw_sprite(Gfx *g, const Texture *t, Vec3 foot, float w, float h, cons
     SDL_BindGPUIndexBuffer(g->pass, &(SDL_GPUBufferBinding){ .buffer = g->quad.ib }, SDL_GPU_INDEXELEMENTSIZE_16BIT);
     SDL_DrawGPUIndexedPrimitives(g->pass, 6, 1, 0, 0, 0);
     g->draw_calls++;
+    prof_count(PROF_C_DRAWS, 1); prof_count(PROF_C_INSTANCES, 1); prof_count(PROF_C_TRIS, g->quad.index_count / 3);
 }
 
 void gfx_draw_box(Gfx *g, const Texture *t, Vec3 center, Vec3 size, float yaw, Vec4 tint, float uv_tile) {

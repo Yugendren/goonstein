@@ -10,6 +10,7 @@
 
 #include "platform.h"
 #include "game.h"
+#include "prof.h"
 #include "camera.h"   // camera_set_mouse_sens: settings.txt owns the sensitivity
 #include "audio.h"
 #include "voice.h"   // --- voice ---
@@ -154,6 +155,7 @@ int main(int argc, char **argv) {
     Uint64 real_prev = prev;
 
     while (running) {
+        prof_frame_begin();   // closes the previous frame's PROF_FRAME and pushes its phase totals into the history ring
         Uint64 now = SDL_GetPerformanceCounter();
         double frame_dt = fixed_frame > 0 ? fixed_frame : fixed_step ? TICK_DT : (double)(now - prev) / (double)freq;
         prev = now;
@@ -161,14 +163,18 @@ int main(int argc, char **argv) {
         accumulator += frame_dt;
 
         // Input is polled once per frame; the sim consumes the latest state each tick.
+        prof_begin(PROF_INPUT);
         running = platform_poll(&pf);
+        prof_mark_input();   // the newest input state is ready now; input->present latency starts here
         if (pf.want_quit) running = false;
 
         // Mouse look happens HERE: at the frame rate, before the ticks that read the view yaw, so a
         // 144 Hz screen turns 144 times a second and the movement direction the sim uses is the one
         // the mouse asked for this frame rather than up to 16.7 ms ago (Half-Life does the same).
         game_view_look(&game, &pf, (float)frame_dt);
+        prof_end(PROF_INPUT);
 
+        prof_begin(PROF_TICK);
         while (accumulator >= TICK_DT) {
             voice_update(&game, &pf.input, (float)TICK_DT);   // --- voice --- before the tick, so a
             // frame captured now rides out on this tick's input packet instead of the next one
@@ -176,6 +182,7 @@ int main(int argc, char **argv) {
             platform_clear_edges(&pf);   // each press is seen by exactly one tick
             accumulator -= TICK_DT;
         }
+        prof_end(PROF_TICK);
 
         { Uint64 rn = SDL_GetPerformanceCounter();
           if (perf_n < PERF_MAX) perf_ms[perf_n++] = (float)((double)(rn - real_prev) * 1000.0 / (double)freq);
@@ -183,10 +190,17 @@ int main(int argc, char **argv) {
         double alpha = accumulator / TICK_DT;  // for render interpolation
         game.frame_wall = (double)now / (double)freq;
         game.render_frame_dt = (float)frame_dt;   // the pacing clock: stamped where frame_dt is measured, not after the GPU has been waited on
+        prof_begin(PROF_PRESENT_WAIT);
         platform_begin_frame(&pf);
+        prof_end(PROF_PRESENT_WAIT);
         if (tool_shot) gfx_tool_screenshot_request(&game.gfx, pf.tool_w > 0 ? pf.tool_w : 720, pf.tool_h > 0 ? pf.tool_h : 820);
+        prof_begin(PROF_RENDER);
         game_render(&game, &pf, (float)alpha);
+        prof_end(PROF_RENDER);
+        prof_mark_present();   // handed to the driver now: how old the newest input is at this point
+        prof_begin(PROF_SUBMIT);
         platform_end_frame(&pf);
+        prof_end(PROF_SUBMIT);
         platform_clear_frame_edges(&pf);
         if (shot_every > 0 && game.frames_total % shot_every == 0) { char sp[640]; snprintf(sp, sizeof sp, "%s/f%06u.png", shot_every_dir, game.frames_total); game_screenshot(&game, sp); }
         game.frames_total++;
@@ -206,6 +220,7 @@ int main(int argc, char **argv) {
             free(v);
         }
     }
+    prof_dump(game.level_path[0] ? game.level_path : "run");
     SDL_Log("stats: battle=%d enemy_hp=%d round=%d | state=%d parries=%u hits_taken=%u deaths=%u boss_hp=%.0f player_hp=%.0f player_yaw=%.0f flash=%.2f t=%.3f player=(%.1f %.1f %.1f) boss=(%.1f %.1f %.1f) cam=(%.1f %.1f %.1f) dist=%.1f",
             game.battle.state, game.battle.enemy_hp, game.battle.round, game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, PLAYER(&game).c.hp, PLAYER(&game).c.yaw / DEG2RAD, game.flash, game.time,
             PLAYER(&game).c.pos.x, PLAYER(&game).c.pos.y, PLAYER(&game).c.pos.z, game.boss.c.pos.x, game.boss.c.pos.y, game.boss.c.pos.z, game.cam.eye.x, game.cam.eye.y, game.cam.eye.z, game.cam.cur_dist);

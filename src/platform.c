@@ -1,5 +1,6 @@
 #include "platform.h"
 #include "debug.h"
+#include "prof.h"
 #include <stdio.h>    // sscanf: Apple's headers pull this in for free, glibc does not
 #include <string.h>
 
@@ -315,10 +316,12 @@ void platform_end_frame(Platform *pf) {
     pf->cmd = NULL;
     pf->swapchain = NULL;
     if (pf->fps_cap > 0) {   // frame cap: sleep the remainder of the period
+        prof_begin(PROF_CAP_SLEEP);
         Uint64 period = SDL_NS_PER_SECOND / (Uint64)pf->fps_cap, now = SDL_GetTicksNS();
         if (pf->next_frame_ns == 0 || now > pf->next_frame_ns + period * 4) pf->next_frame_ns = now;
         pf->next_frame_ns += period;
         if (pf->next_frame_ns > now) SDL_DelayPrecise(pf->next_frame_ns - now);
+        prof_end(PROF_CAP_SLEEP);
     }
 }
 
