@@ -50,7 +50,11 @@ void main() {
     // texture, a second sampler or a second pass: one extra fetch, on the one surface that fills
     // the bottom of every frame. The offset keeps the two samples from lining up at the origin.
     if (water.x > 1.5) {
-        vec3 broad = texture(tex, v_uv * 0.137 + vec2(0.37, 0.61), -0.5).rgb / max(flatc.rgb, vec3(0.04));
+        // +2 mip levels on the slow sample. It is a low-frequency term by construction, so the
+        // detail is worth nothing, and a sixteenth-size fetch stays in cache instead of thrashing
+        // it: the full-resolution version cost 0.7 ms on a summit view where the ground fills the
+        // frame, which is most of what this whole pass saved.
+        vec3 broad = texture(tex, v_uv * 0.137 + vec2(0.37, 0.61), 2.0).rgb / max(flatc.rgb, vec3(0.04));
         broad = vec3(1.0) + (broad - vec3(1.0)) * 1.9;   // the map's own contrast is too polite to read at sixteen metres a tile
         s.rgb *= mix(vec3(1.0), broad, 0.75);
     }
