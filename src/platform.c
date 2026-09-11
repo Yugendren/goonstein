@@ -132,10 +132,13 @@ bool platform_poll(Platform *pf) {
             dbg_log("[in] key %s", SDL_GetScancodeName(e.key.scancode));
             switch (e.key.scancode) {
             // --- menu --- Esc is an ordinary key now: the in-game menu owns quitting (src/menu.c)
+            // The function keys are the whole tool row: F1 overlay, F2 world editor, F3 character
+            // builder, F4 debugger, F5 reload, F6 pause, F7 look, F8 snapshot, F9 step. The ones
+            // that open a tool are read straight out of key_down by game.c.
             case SDL_SCANCODE_F1: in->debug_toggle = true; pf->debug = !pf->debug; break;
-            case SDL_SCANCODE_F2: in->pause_toggle = true; break;
-            case SDL_SCANCODE_F3: in->step = true; break;
             case SDL_SCANCODE_F5: in->reload = true; break;
+            case SDL_SCANCODE_F6: in->pause_toggle = true; break;
+            case SDL_SCANCODE_F9: in->step = true; break;
             case SDL_SCANCODE_RETURN: in->skip = true; break;
             // Sekiro PC layout: LMB attack, RMB deflect, Shift step/sprint, MMB or Q lock-on, E interact.
             case SDL_SCANCODE_LSHIFT: case SDL_SCANCODE_RSHIFT: in->dodge = true; break;

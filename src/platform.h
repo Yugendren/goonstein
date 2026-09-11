@@ -53,7 +53,7 @@ typedef struct Platform {
     Input input;
     bool want_quit;
     bool debug;
-    bool console;    // the \ debugger
+    bool console;    // the F4 debugger
     bool editing;    // an editor owns the game window: Esc deselects instead of quitting
     SDL_Window *console_win; SDL_GPUTexture *console_swap; Uint32 console_w, console_h;   // separate tool window (debugger, editors)
     int tool_w, tool_h;   // its logical size in points (the UI coordinate space)

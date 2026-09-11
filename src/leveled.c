@@ -89,7 +89,7 @@ void leveled_open(LevelEd *e, const Level *lv, const Camera *cam) {
     Vec3 f = v3_norm(v3_sub(cam->target, cam->eye));
     e->cam_yaw = atan2f(f.x, f.z); e->cam_pitch = asinf(clampf(f.y, -1, 1));
     e->sel_prop = e->sel_light = e->sel_emitter = -1; e->dragging = false;
-    say(e, "editor: WASD fly, hold right mouse to look, left click places, R rotates, [ ] scale, X deletes, Ctrl+Z undo, Ctrl+S save, F6 leaves");
+    say(e, "editor: WASD fly, hold right mouse to look, left click places, R rotates, [ ] scale, X deletes, Ctrl+Z undo, Ctrl+S save, F2 leaves");
 }
 
 // ---------------------------------------------------------------- undo

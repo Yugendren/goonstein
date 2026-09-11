@@ -983,15 +983,16 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
         gfx_set_render_scale(&g->gfx, g->level.look.render_scale, g->level.look.render_nearest > 0.5f);
         char m[64]; snprintf(m, sizeof m, "look: %s  (F7 cycles)", LOOKS[g->look_cycle]); say(g, m);
     }
-    // Keys typed into the game window open the tools: [ world editor, ] character builder,
-    // \ debugger. Keys typed into a tool window belong to that tool (tool_key_down), except \ and
-    // Esc which close it. Inside the environment editor the brackets scale the piece instead.
+    // Every tool is a function key, in the game window and in the tool window alike: F2 the world
+    // editor, F3 the character builder, F4 the debugger. Any other key typed into a tool window
+    // belongs to that tool (tool_key_down) and never reaches the game; the tool's own key and Esc
+    // close it. The brackets are the editor's scale keys again and nothing else (src/leveled.c).
     if (g->tool_mode != 0 && !g->pf->console && !SDL_getenv("HOLLOW_CONSOLE_INLINE")) game_set_tool(g, 0);   // window closed with its close button
-    bool tool_esc = in->tool_key_down[SDL_SCANCODE_ESCAPE], tool_bs = in->tool_key_down[SDL_SCANCODE_BACKSLASH] || in->tool_key_down[SDL_SCANCODE_GRAVE];
-    if (in->key_down[SDL_SCANCODE_BACKSLASH] || in->key_down[SDL_SCANCODE_GRAVE] || tool_bs) game_set_tool(g, 1);
-    if (g->tool_mode != 2 && in->key_down[SDL_SCANCODE_LEFTBRACKET]) game_set_tool(g, 2);
-    if (g->tool_mode != 2 && in->key_down[SDL_SCANCODE_RIGHTBRACKET]) game_set_tool(g, 4);
-    if (in->key_down[SDL_SCANCODE_F6] || (in->ctrl && (in->key_down[SDL_SCANCODE_E] || in->tool_key_down[SDL_SCANCODE_E]))) game_set_tool(g, 2);
+    bool tool_esc = in->tool_key_down[SDL_SCANCODE_ESCAPE];
+    if (in->key_down[SDL_SCANCODE_F4] || in->tool_key_down[SDL_SCANCODE_F4]) game_set_tool(g, 1);
+    if (in->key_down[SDL_SCANCODE_F3] || in->tool_key_down[SDL_SCANCODE_F3]) game_set_tool(g, 4);
+    if (in->key_down[SDL_SCANCODE_F2] || in->tool_key_down[SDL_SCANCODE_F2]
+        || (in->ctrl && (in->key_down[SDL_SCANCODE_E] || in->tool_key_down[SDL_SCANCODE_E]))) game_set_tool(g, 2);
     if ((in->key_down[SDL_SCANCODE_ESCAPE] || tool_esc) && g->tool_mode != 0) {
         bool selected = g->tool_mode == 2 && (g->leveled.sel_prop >= 0 || g->leveled.sel_light >= 0 || g->leveled.sel_emitter >= 0);
         if (!selected) game_set_tool(g, g->tool_mode);   // same mode again closes it
@@ -1024,7 +1025,7 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
         return;
     }
     { static GState last = (GState)-1; if (g->state != last) { dbg_log("state -> %s", GS_NAMES[g->state]); last = g->state; } }
-    if (in->pause_toggle) { g->paused = !g->paused; say(g, g->paused ? "paused (F3 steps one tick)" : "resumed"); }
+    if (in->pause_toggle) { g->paused = !g->paused; say(g, g->paused ? "paused (F9 steps one tick)" : "resumed"); }
     if (in->step) g->step_once = true;
     if (in->reload || (in->ctrl && in->key_down[SDL_SCANCODE_R])) {
         bool ok = load_defs(g);
@@ -1169,7 +1170,7 @@ static void draw_console(Game *g, Platform *pf) {
     if (!windowed) { gfx_ui_rect(x, px, 0, pw, ph, v4(0.02f, 0.02f, 0.04f, 0.9f)); gfx_ui_rect(x, px, 0, 2, ph, v4(0.5f, 0.8f, 1, 0.8f)); }
     Vec4 head = v4(0.6f, 0.9f, 1, 1), txt = v4(0.85f, 0.9f, 0.95f, 1), dim = v4(0.55f, 0.6f, 0.65f, 1), red = v4(1, 0.45f, 0.4f, 1), amber = v4(1, 0.85f, 0.5f, 1), green = v4(0.75f, 0.95f, 0.8f, 1);
     float y = 10, lx = px + 12; char l[240];
-    ctext(x, lx, y, pw - 24, 1.4f, head, windowed ? "DEBUGGER     \\ closes     Ctrl+G / F8 copies everything to the clipboard" : "DEBUGGER  (window failed, inline)   \\ closes   F8 copies"); y += gfx_ui_line_h(1.4f) + 10;
+    ctext(x, lx, y, pw - 24, 1.4f, head, windowed ? "DEBUGGER     F4 closes     Ctrl+G / F8 copies everything to the clipboard" : "DEBUGGER  (window failed, inline)   F4 closes   F8 copies"); y += gfx_ui_line_h(1.4f) + 10;
     if (windowed) {   // frame rate: cap buttons and vsync, saved to settings.txt
         UiInput uin = { .mx = pf->input.tool_mx, .my = pf->input.tool_my, .down = pf->input.tool_down, .pressed = pf->input.tool_pressed, .released = pf->input.tool_released, .wheel = pf->input.tool_wheel };
         ui_begin(&g->ui, x, uin);
@@ -1277,7 +1278,7 @@ static void draw_debug_overlay(Game *g, Platform *pf) {
         const BossMove *m = &g->boss.def.moves[g->boss.move];
         snprintf(l[n++], 160, "boss %s t=%.2f move %s  hp %.0f  posture %.0f  %s", BS[g->boss.state], g->boss.t, m->name, g->boss.c.hp, g->boss.c.posture, g->boss.phase2 ? "PHASE2" : "");
         if (g->state == GS_SCENE) snprintf(l[n++], 160, "scene t=%.2f next %d/%d  fade %.2f", g->scene.time, g->scene.next, g->scene.n, g->scene.fade);
-        snprintf(l[n++], 160, "F1 debug  F2 pause  F3 step  F5 reload  F8 snapshot  Enter skip scene  Esc quit");
+        snprintf(l[n++], 160, "F1 debug  F5 reload  F6 pause  F9 step  F8 snapshot  Enter skip scene  Esc quit");
         for (int i = 0; i < n; i++) gfx_ui_text(x, 8, 8 + i * 11, 1.0f, v4(0.7f, 1, 0.7f, 1), l[i]);
         if (g->state == GS_BATTLE) {
             const Battle *b = &g->battle; char bl[200];
@@ -1404,7 +1405,7 @@ static void draw_hud(Game *g, Platform *pf) {
     if (g->hint_t > 0 && g->state == GS_EXPLORE) {
         float a = fminf(1, g->hint_t);
         text_center(x, W * 0.5f, 30, 1.0f, v4(0.85f, 0.85f, 0.8f, a), "WASD move   Shift sprint   E interact   walk the path");
-        text_center(x, W * 0.5f, 44, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "[ environment editor   ] character builder   \\ debugger   Esc menu");
+        text_center(x, W * 0.5f, 44, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "F2 environment editor   F3 character builder   F4 debugger   Esc menu");
     }
     if (g->state == GS_FIGHT && g->cam.locked && g->boss.state != BS_DEAD) {
         // lock-on marker: a small diamond over the boss, projected

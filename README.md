@@ -69,15 +69,21 @@ and what is verified versus untested.
 | Push to talk  | V (hold)                  | LB (hold)        |
 | Skip cutscene | Enter                     | Start            |
 | Debug overlay | F1                        | Back / Select    |
-| Art-style preview | F7 cycles plain / camcorder / flat / ink |          |
-| Pause / step  | F2 / F3                   |                  |
+| World editor  | F2                        |                  |
+| Character builder | F3                    |                  |
+| Debugger      | F4                        |                  |
 | Reload data   | F5                        |                  |
+| Pause / step  | F6 / F9                   |                  |
+| Art-style preview | F7 cycles plain / camcorder / flat / ink |          |
+| Debug snapshot | F8                       |                  |
 | Menu (pause)  | Esc                       |                  |
 | Player list   | hold Tab                  |                  |
 
 The layout follows Sekiro on PC. Level files also hot-reload on save while the game is running.
 Starting the game with no flags opens the main menu; Esc during play opens the in-game menu
-instead of quitting. A tool window (`[`, `]`, `\`) still takes Esc for itself while it is open.
+instead of quitting. A tool window (F2, F3, F4) still takes Esc for itself while it is open, and
+its own function key closes it from either window. Every tool and debug key is a function key: no
+game key is ever a punctuation mark you might type at a menu.
 
 Three views, chosen per level. `view top` (the default) is the fixed camera from the level's
 `camera` line. `view third` (the slice) plays behind the hero with mouse look. `view first` is
@@ -356,7 +362,7 @@ rebuild.
 ## Testing and debugging
 
 `assets/settings.txt` holds personal defaults (volume, debug overlay, hero, `mouse_sens`); flags override it.
-`--quiet` sets volume to 0.15 and `--volume 0` mutes. `\` (or the backtick) opens the debugger:
+`--quiet` sets volume to 0.15 and `--volume 0` mutes. F4 opens the debugger:
 a side panel with the state summary and a live stream of raw inputs (every key, mouse and pad
 press with position) interleaved with the actions the game took. F1 toggles the wireframe overlay: state
 machines, timers, mouse position, card hover/drag/target, parry press and judgement offsets,
@@ -366,8 +372,8 @@ so a bug report is: press F8 when it happens, paste.
 
 ## Tools (second window, live in the game)
 
-Three tools, one key each: `[` the world editor (terrain, placing, look), `]` the character
-builder, `\` the debugger. `Esc` closes the open tool (with nothing selected in it), and Esc quits
+Three tools, one function key each: F2 the world editor (terrain, placing, look), F3 the character
+builder, F4 the debugger. `Esc` closes the open tool (with nothing selected in it), and Esc quits
 only when no tool is open. On a Mac, Cmd works in place of Ctrl. Also `Ctrl+D` wireframes,
 `Ctrl+R` reload data, `Ctrl+G` snapshot. Command line: `--tool 2` (world editor) / `--tool 4` (builder).
 
@@ -378,7 +384,7 @@ Keys typed into a tool window go only to that tool; keys typed into the game win
 the game. `--tool-shot PATH` saves a PNG of the tool window; `HOLLOW_TOOL_SIZE="w h"` fixes its
 size for headless layout checks.
 
-### World editor (`[`)
+### World editor (F2)
 
 The game window becomes a fly camera (WASD and Q/E, hold the right mouse button to look, wheel
 changes speed). Three tabs:
@@ -410,7 +416,7 @@ UNGROUP takes it apart again. A part works as a prop and as a character attachme
 
 **LOOK.** Every lighting, fog, sky, grading and pixel-look value on a slider.
 
-### Character builder (`]`)
+### Character builder (F3)
 
 Makes a character from a rigged model without drawing anything. BODY & PARTS lists every rigged
 `.glb` under `assets/models/kaykit`, `characters` and `import` (KayKit knight, barbarian, mage,
