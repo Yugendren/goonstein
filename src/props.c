@@ -1,6 +1,7 @@
 #include "props.h"
 #include "render_world.h"
 #include "prof.h"
+#include "quality.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -169,6 +170,17 @@ void props_collect(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTex
         bool in_sun = want_shadow, in_cam = true, cam_lod = true;
         Vec3 lc; float lr;
         if (prop_sphere(g, pc, pm, &lc, &lr)) {   // no bounds (a missing piece): always drawn
+            // Scatter thinning at a lower quality tier: pm->lod_ok means somebody baked a far
+            // stand-in for this file at all, which only ever happens for the profuse stuff --
+            // plants, grass, small rocks -- worth giving one; brad < 3m keeps that to genuinely
+            // small props even if a building someday grows a LOD by accident (the boat and the
+            // pavilion are both well over this). The hash is of the prop's INDEX in the level, not
+            // its position or the frame number, so the same props disappear every frame and on
+            // every run -- a hash of position or a per-frame roll would flicker instead of thin.
+            if (pm->lod_ok && pm->brad < 3.0f && quality_scatter_keep() < 1.0f) {
+                unsigned h = (unsigned)i * 2654435761u; h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
+                if ((h & 0xffffu) / 65535.0f >= quality_scatter_keep()) { culled++; continue; }   // thinned out; counted as culled rather than adding a third counter
+            }
             Vec3 c = m4_mul_point(world, lc);
             float r = lr * fmaxf(fabsf(s.x), fmaxf(fabsf(s.y), fabsf(s.z)));   // yaw keeps lengths
             // The sun set needs no distance cut of its own: game.c fits the sun's box around what

@@ -1,0 +1,848 @@
+# netbench.txt -- lantern with the item list filled to 64, for measuring the host tick and the snapshot.
+# ruined arena up the north path. Dawn turning to morning; the scenes move the clock on.
+# The player spawns on the path south of the village (0 0 -4) facing +Z, walks north
+# through the plaza (z ~32) past the shrine (z 46) and on to the arena (z 72).
+# Ground is the terrain heightmap levels/lantern_terrain: the whole route is carved flat
+# at y = 0 and the forested slopes climb away on either side. See README.md.
+
+# --- look: dawn light, light palette snap, inked edges, pixel-art characters ---
+sun      0.35 -0.62 0.42   1.05   1.00 0.94 0.84
+ambient  0.38 0.44 0.56   0.14 0.15 0.11
+fogv     0.55 0.66 0.80   0.0034   0.0  0.05  0.45  14
+sky      0.24 0.44 0.78   0.68 0.78 0.88   0.26 0.28 0.24   0.55  0.0  0.55
+toon     0.14 0.30 3.0
+grade    1.22 1.14 1.00 0.30 1.05
+lift     0.010 0.012 0.020
+gain     0.98 1.00 1.03
+shadow   1
+style    0.35 0.45 0 1
+pixel    3 8 1 1 0.6
+daytime  7.5
+view     third
+combat   realtime
+
+terrain levels/lantern_terrain
+
+# --- beats ---
+scene intro lantern_intro.txt
+scene town lantern_town.txt
+scene crisis lantern_crisis.txt
+scene boss lantern_boss.txt
+scene victory lantern_victory.txt
+
+spawn 0 0 -4 0
+boss  0 0 74 180
+arena -11 0 61 11 6 83
+
+# --- the road: spawn -> plaza -> shrine -> arena gate ---
+prop models/kaykit/halloween/path_A.gltf -0.50 0.02 -20.00 -3.7 0.95
+prop models/kaykit/halloween/path_B.gltf -0.38 0.02 -18.10 -3.1 0.95
+prop models/kaykit/halloween/path_A.gltf -0.30 0.02 -16.20 -1.0 0.95
+prop models/kaykit/halloween/path_B.gltf -0.31 0.02 -14.30 1.7 0.95
+prop models/kaykit/halloween/path_A.gltf -0.41 0.02 -12.40 3.8 0.95
+prop models/kaykit/halloween/path_B.gltf -0.56 0.02 -10.50 4.4 0.95
+prop models/kaykit/halloween/path_A.gltf -0.69 0.02 -8.60 3.0 0.95
+prop models/kaykit/halloween/path_B.gltf -0.74 0.02 -6.70 -0.1 0.95
+prop models/kaykit/halloween/path_A.gltf -0.68 0.02 -4.80 -4.0 0.95
+prop models/kaykit/halloween/path_B.gltf -0.48 0.02 -2.90 -7.6 0.95
+prop models/kaykit/halloween/path_A.gltf -0.18 0.02 -1.00 -9.8 0.95
+prop models/kaykit/halloween/path_B.gltf 0.16 0.02 0.90 -9.9 0.95
+prop models/kaykit/halloween/path_A.gltf 0.46 0.02 2.80 -7.8 0.95
+prop models/kaykit/halloween/path_B.gltf 0.67 0.02 4.70 -4.2 0.95
+prop models/kaykit/halloween/path_A.gltf 0.74 0.02 6.60 -0.3 0.95
+prop models/kaykit/halloween/path_B.gltf 0.69 0.02 8.50 2.9 0.95
+prop models/kaykit/halloween/path_A.gltf 0.56 0.02 10.40 4.4 0.95
+prop models/kaykit/halloween/path_B.gltf 0.42 0.02 12.30 3.9 0.95
+prop models/kaykit/halloween/path_A.gltf 0.32 0.02 14.20 1.8 0.95
+prop models/kaykit/halloween/path_B.gltf 0.30 0.02 16.10 -0.9 0.95
+prop models/kaykit/halloween/path_A.gltf 0.37 0.02 18.00 -3.3 0.95
+prop models/kaykit/halloween/path_B.gltf 0.51 0.02 19.90 -4.8 0.95
+prop models/kaykit/halloween/path_A.gltf 0.69 0.02 21.80 -6.0 0.95
+prop models/kaykit/halloween/path_B.gltf 0.92 0.02 23.70 -8.6 0.95
+prop models/kaykit/halloween/path_A.gltf 1.28 0.02 25.60 -12.9 0.95
+prop models/kaykit/halloween/path_B.gltf 1.79 0.02 27.50 -15.9 0.95
+prop models/kaykit/halloween/path_A.gltf 2.30 0.02 29.40 -11.9 0.95
+prop models/kaykit/halloween/path_B.gltf 2.51 0.02 31.30 1.2 0.95
+prop models/kaykit/halloween/path_A.gltf 2.21 0.02 33.20 15.0 0.95
+prop models/kaykit/halloween/path_B.gltf 1.58 0.02 35.10 18.2 0.95
+prop models/kaykit/halloween/path_A.gltf 1.08 0.02 37.00 7.9 0.95
+prop models/kaykit/halloween/path_B.gltf 1.11 0.02 38.90 -9.6 0.95
+prop models/kaykit/halloween/path_A.gltf 1.68 0.02 40.80 -21.6 0.95
+prop models/kaykit/halloween/path_B.gltf 2.51 0.02 42.70 -22.6 0.95
+prop models/kaykit/halloween/path_A.gltf 3.17 0.02 44.60 -12.8 0.95
+prop models/kaykit/halloween/path_B.gltf 3.32 0.02 46.50 4.3 0.95
+prop models/kaykit/halloween/path_A.gltf 2.90 0.02 48.40 19.2 0.95
+prop models/kaykit/halloween/path_B.gltf 2.07 0.02 50.30 25.7 0.95
+prop models/kaykit/halloween/path_A.gltf 1.15 0.02 52.20 24.0 0.95
+prop models/kaykit/halloween/path_B.gltf 0.43 0.02 54.10 16.5 0.95
+prop models/kaykit/halloween/path_A.gltf 0.04 0.02 56.00 6.4 0.95
+prop models/kaykit/halloween/path_B.gltf -0.02 0.02 57.90 -2.2 0.95
+prop models/kaykit/halloween/path_A.gltf 0.16 0.02 59.80 -7.2 0.95
+
+# --- six houses around the plaza, each turned to face the square ---
+prop models/own/house_b.part -12.50 0 37.00 287.7 1.0 collide 3.0
+prop models/own/house_a.part -12.50 0 25.50 250.2 1.0 collide 3.0
+prop models/own/house_a.part 12.50 0 27.00 107.7 1.0 collide 3.0
+prop models/own/house_c.part 12.00 0 37.50 73.7 1.0 collide 3.0
+prop models/own/house_a.part -11.00 0 45.00 311.2 1.0 collide 3.0
+prop models/own/house_c.part 11.50 0 43.00 51.3 1.0 collide 3.0
+
+# --- hearth smoke over the chimneys ---
+emitter smoke -14.00 6.30 35.27   0.12 0.15 0.12   1.6   0.72 0.72 0.70   0.35   3.5
+emitter smoke -12.32 5.40 27.37   0.12 0.15 0.12   1.6   0.72 0.72 0.70   0.35   3.5
+emitter smoke 11.22 5.40 25.62   0.12 0.15 0.12   1.6   0.72 0.72 0.70   0.35   3.5
+emitter smoke -9.28 5.40 45.75   0.12 0.15 0.12   1.6   0.72 0.72 0.70   0.35   3.5
+
+# --- the plaza: the well at its centre, two market stalls, goods around them ---
+prop models/own/well.part 0 0 32 0 1.0 collide 1.3
+prop models/own/market_stall.part -7.20 0 27.50 238.0 1.0
+prop models/own/market_stall.part 7.40 0 34.50 71.3 1.0
+prop models/polyhaven/barrel_03/barrel_03_1k.gltf -8.90 0 29.30 25 1.0
+prop models/polyhaven/barrel_03/barrel_03_1k.gltf -9.50 0 28.40 -60 1.0
+prop models/polyhaven/old_military_crate/old_military_crate_1k.gltf -8.60 0 26.00 -12 1.0
+prop models/polyhaven/old_military_crate/old_military_crate_1k.gltf 9.10 0 33.10 55 1.0
+prop models/polyhaven/barrel_03/barrel_03_1k.gltf 9.30 0 36.10 -20 1.0
+prop models/kaykit/dungeon/crates_stacked.gltf.glb 8.80 0 30.20 -25 0.6 tint 0.72 0.58 0.40
+prop models/kaykit/dungeon/box_stacked.gltf.glb -10.10 0 40.60 40 0.6 tint 0.72 0.58 0.40
+prop models/kaykit/dungeon/barrel_large.gltf.glb 6.40 0 23.60 15 0.55 tint 0.70 0.56 0.38
+prop models/kaykit/dungeon/barrel_small.gltf.glb 7.20 0 24.30 -30 0.6 tint 0.70 0.56 0.38
+
+# --- fences edging the square and the road ---
+prop models/kaykit/halloween/fence.gltf -9.50 0 23.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence.gltf -9.50 0 27.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence.gltf -9.50 0 31.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence.gltf -9.50 0 39.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence.gltf 9.50 0 23.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence.gltf 9.50 0 27.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence.gltf 9.50 0 35.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence.gltf 9.50 0 39.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence_gate.gltf -9.50 0 35.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence_gate.gltf 9.50 0 31.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence_broken.gltf -4.60 0 15.00 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence.gltf -4.60 0 19.00 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence.gltf 4.60 0 17.00 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence_broken.gltf 4.60 0 21.00 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence.gltf -5.20 0 43.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence.gltf -5.20 0 47.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence.gltf 7.60 0 43.50 90 1.0 tint 0.62 0.52 0.40
+prop models/kaykit/halloween/fence_broken.gltf 7.80 0 47.50 90 1.0 tint 0.62 0.52 0.40
+
+# --- lantern posts beside the road: the lanterns the count is counting ---
+prop models/own/lantern_post.part -4.32 0 -8.00 0 1.0
+light -4.32 3.15 -8.00   1.0 0.75 0.4   6 2.5 flicker 0.3
+emitter ember -4.32 3.05 -8.00   0.07 0.10 0.07   2.4   1.0 0.62 0.22   0.05   1.1
+prop models/own/lantern_post.part 3.85 0 2.00 0 1.0
+light 3.85 3.15 2.00   1.0 0.75 0.4   6 2.5 flicker 0.3
+emitter ember 3.85 3.05 2.00   0.07 0.10 0.07   2.4   1.0 0.62 0.22   0.05   1.1
+prop models/own/lantern_post.part -3.16 0 12.00 0 1.0
+light -3.16 3.15 12.00   1.0 0.75 0.4   6 2.5 flicker 0.3
+emitter ember -3.16 3.05 12.00   0.07 0.10 0.07   2.4   1.0 0.62 0.22   0.05   1.1
+prop models/own/lantern_post.part 4.21 0 21.00 0 1.0
+light 4.21 3.15 21.00   1.0 0.75 0.4   6 2.5 flicker 0.3
+emitter ember 4.21 3.05 21.00   0.07 0.10 0.07   2.4   1.0 0.62 0.22   0.05   1.1
+prop models/own/lantern_post.part -1.59 0 29.00 0 1.0
+light -1.59 3.15 29.00   1.0 0.75 0.4   6 2.5 flicker 0.3
+emitter ember -1.59 3.05 29.00   0.07 0.10 0.07   2.4   1.0 0.62 0.22   0.05   1.1
+prop models/own/lantern_post.part 5.10 0 36.00 0 1.0
+light 5.10 3.15 36.00   1.0 0.75 0.4   6 2.5 flicker 0.3
+emitter ember 5.10 3.05 36.00   0.07 0.10 0.07   2.4   1.0 0.62 0.22   0.05   1.1
+prop models/own/lantern_post.part -1.16 0 43.00 0 1.0
+light -1.16 3.15 43.00   1.0 0.75 0.4   6 2.5 flicker 0.3
+emitter ember -1.16 3.05 43.00   0.07 0.10 0.07   2.4   1.0 0.62 0.22   0.05   1.1
+prop models/own/lantern_post.part 5.08 0 51.50 0 1.0
+light 5.08 3.15 51.50   1.0 0.75 0.4   6 2.5 flicker 0.3
+emitter ember 5.08 3.05 51.50   0.07 0.10 0.07   2.4   1.0 0.62 0.22   0.05   1.1
+prop models/own/lantern_post.part -3.61 0 58.00 0 1.0
+light -3.61 3.15 58.00   1.0 0.75 0.4   6 2.5 flicker 0.3
+emitter ember -3.61 3.05 58.00   0.07 0.10 0.07   2.4   1.0 0.62 0.22   0.05   1.1
+
+# --- the shrine at the north edge of the village ---
+prop models/own/shrine_lantern.part 0 0 46 180 1.0 collide 1.6
+light 0 1.95 46   1.0 0.78 0.42   7 3.0 flicker 0.25
+emitter ember 0 1.90 46   0.10 0.12 0.10   3.0   1.0 0.66 0.26   0.05   1.3
+prop models/kaykit/halloween/lantern_standing.gltf -2.20 0 45.00 25 1.0
+light -2.20 0.90 45.00   1.0 0.75 0.40   5 1.8 flicker 0.3
+prop models/kaykit/halloween/lantern_standing.gltf 2.20 0 45.00 -25 1.0
+light 2.20 0.90 45.00   1.0 0.75 0.40   5 1.8 flicker 0.3
+prop models/kaykit/dungeon/candle_triple.gltf.glb -1.30 0 47.40 30 1.0
+light -1.30 0.70 47.40   1.0 0.70 0.35   4 1.4 flicker 0.35
+prop models/kaykit/dungeon/candle_lit.gltf.glb 1.40 0 47.30 -20 1.0
+light 1.40 0.70 47.30   1.0 0.70 0.35   4 1.4 flicker 0.35
+prop models/kaykit/halloween/gravemarker_A.gltf -3.60 0 47.80 200 1.0 tint 0.62 0.60 0.56
+prop models/kaykit/halloween/gravemarker_B.gltf 3.70 0 47.60 160 1.0 tint 0.62 0.60 0.56
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_1k.gltf -6.20 0 48.60 40 1.0
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_1k.gltf 6.60 0 49.20 -110 0.8
+
+# --- village dressing: stumps, logs and moss rocks off the verges ---
+prop models/polyhaven/tree_stump_01/tree_stump_01_1k.gltf -11.00 0 31.00 30 1.00
+prop models/polyhaven/tree_stump_01/tree_stump_01_1k.gltf 8.20 0 22.60 150 0.90
+prop models/polyhaven/tree_stump_01/tree_stump_01_1k.gltf -6.50 0 20.00 75 1.10
+prop models/polyhaven/tree_stump_01/tree_stump_01_1k.gltf 5.60 0 41.50 -40 1.00
+prop models/polyhaven/dead_tree_trunk/dead_tree_trunk_1k.glb -8.00 0 17.50 20 1.00
+prop models/polyhaven/dead_tree_trunk/dead_tree_trunk_1k.glb 7.40 0 53.50 -65 1.00
+prop models/polyhaven/dead_tree_trunk/dead_tree_trunk_1k.glb -7.20 0 55.00 110 0.90
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_1k.gltf -9.00 0 13.00 60 0.90
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_1k.gltf 8.60 0 11.00 -30 1.10
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_1k.gltf -6.80 0 -10.00 130 1.00
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_1k.gltf 6.00 0 -14.00 20 0.85
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_1k.gltf 10.50 0 42.00 95 0.80
+
+# --- the ruined arena: a broken wall ring at radius 12 around 0 0 72 ---
+prop models/kaykit/dungeon/wall_doorway.glb 0.00 0 60.00 180.0 1.0 tint 0.50 0.48 0.52
+collider 0 4.5 60 6 3 1.2   # lintel over the gate: the camera cannot peek over the arch
+prop models/kaykit/dungeon/wall_arched.gltf.glb -3.90 0 60.65 198.9 1.0 tint 0.55 0.53 0.56 collide 2.0
+prop models/kaykit/dungeon/wall_window_open.gltf.glb -7.37 0 62.53 217.9 1.0 tint 0.55 0.53 0.56 collide 2.0
+prop models/kaykit/dungeon/wall_half.gltf.glb -10.05 0 65.44 236.8 1.0 tint 0.52 0.50 0.54 collide 2.0
+prop models/kaykit/dungeon/pillar.gltf.glb -11.63 0 69.05 255.8 1.0 tint 0.48 0.46 0.50 collide 0.8
+prop models/kaykit/dungeon/pillar.gltf.glb -11.96 0 72.99 274.7 1.0 tint 0.48 0.46 0.50 collide 0.8
+prop models/kaykit/dungeon/wall.gltf.glb -10.99 0 76.82 293.7 1.0 tint 0.55 0.53 0.56 collide 2.0
+prop models/kaykit/dungeon/wall_window_open.gltf.glb -8.83 0 80.13 312.6 1.0 tint 0.55 0.53 0.56 collide 2.0
+prop models/kaykit/dungeon/wall.gltf.glb -5.71 0 82.55 331.6 1.0 tint 0.55 0.53 0.56 collide 2.0
+prop models/kaykit/dungeon/wall.gltf.glb -1.98 0 83.84 350.5 1.0 tint 0.55 0.53 0.56 collide 2.0
+prop models/kaykit/dungeon/wall_half.gltf.glb 1.98 0 83.84 369.5 1.0 tint 0.52 0.50 0.54 collide 2.0
+prop models/kaykit/dungeon/wall.gltf.glb 5.71 0 82.55 388.4 1.0 tint 0.55 0.53 0.56 collide 2.0
+prop models/kaykit/dungeon/wall_window_open.gltf.glb 8.83 0 80.13 407.4 1.0 tint 0.55 0.53 0.56 collide 2.0
+prop models/kaykit/dungeon/pillar.gltf.glb 10.99 0 76.82 426.3 1.0 tint 0.48 0.46 0.50 collide 0.8
+prop models/kaykit/dungeon/wall.gltf.glb 11.96 0 72.99 445.3 1.0 tint 0.55 0.53 0.56 collide 2.0
+prop models/kaykit/dungeon/wall.gltf.glb 11.63 0 69.05 464.2 1.0 tint 0.55 0.53 0.56 collide 2.0
+prop models/kaykit/dungeon/wall.gltf.glb 10.05 0 65.44 483.2 1.0 tint 0.55 0.53 0.56 collide 2.0
+prop models/kaykit/dungeon/wall_window_open.gltf.glb 7.37 0 62.53 502.1 1.0 tint 0.55 0.53 0.56 collide 2.0
+prop models/kaykit/dungeon/wall.gltf.glb 3.90 0 60.65 521.1 1.0 tint 0.55 0.53 0.56 collide 2.0
+
+# corner pillars flanking the gate, and the ruined floor
+prop models/kaykit/dungeon/pillar_decorated.gltf.glb -3.10 0 58.20 0 1.0 tint 0.48 0.46 0.50 collide 0.7
+prop models/kaykit/dungeon/pillar_decorated.gltf.glb 3.10 0 58.20 0 1.0 tint 0.48 0.46 0.50 collide 0.7
+prop models/kaykit/dungeon/floor_tile_large.gltf.glb 0 0.02 72 0 2.6 tint 0.46 0.45 0.48
+
+# rubble and fallen stone inside the ring
+prop models/kaykit/dungeon/rubble_large.gltf.glb -7.40 0 66.20 30 1.0 tint 0.50 0.48 0.50
+prop models/kaykit/dungeon/rubble_half.gltf.glb 6.90 0 65.00 200 1.0 tint 0.50 0.48 0.50
+prop models/kaykit/dungeon/rubble_half.gltf.glb -8.60 0 77.00 115 1.0 tint 0.50 0.48 0.50
+prop models/kaykit/dungeon/rubble_large.gltf.glb 7.80 0 78.40 340 1.0 tint 0.50 0.48 0.50
+prop models/kaykit/dungeon/rubble_large.gltf.glb -2.40 0 81.60 65 1.0 tint 0.50 0.48 0.50
+prop models/kaykit/dungeon/rubble_half.gltf.glb 3.60 0 82.00 250 1.0 tint 0.50 0.48 0.50
+prop models/kaykit/dungeon/rubble_half.gltf.glb 9.60 0 71.50 15 1.0 tint 0.50 0.48 0.50
+prop models/kaykit/dungeon/rubble_large.gltf.glb -9.80 0 72.40 190 1.0 tint 0.50 0.48 0.50
+prop models/kaykit/dungeon/column.gltf.glb -6.20 0 79.60 0 1.0 tint 0.48 0.46 0.50 collide 0.6
+prop models/kaykit/dungeon/column.gltf.glb 6.40 0 79.20 0 1.0 tint 0.48 0.46 0.50 collide 0.6
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_1k.gltf -10.6 0 63.5 70 1.0
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_1k.gltf 10.2 0 62.8 -140 0.9
+
+# a cool skylight fill over the ring: the walls shut the low sun out entirely
+light 0 7.0 72   0.72 0.78 0.95   26 2.2
+light 0 2.0 72   1.0 0.86 0.62   16 1.1
+
+# arena torches
+prop models/kaykit/dungeon/torch_lit.gltf.glb -6.50 0 62.50 0 1.15
+light -6.50 1.35 62.50   1.0 0.70 0.35   8 3.0 flicker 0.35
+emitter ember -6.50 1.15 62.50   0.08 0.10 0.08   3.0   1.0 0.65 0.25   0.06   1.1
+prop models/kaykit/dungeon/torch_lit.gltf.glb 6.50 0 62.50 0 1.15
+light 6.50 1.35 62.50   1.0 0.70 0.35   8 3.0 flicker 0.35
+emitter ember 6.50 1.15 62.50   0.08 0.10 0.08   3.0   1.0 0.65 0.25   0.06   1.1
+prop models/kaykit/dungeon/torch_lit.gltf.glb -9.50 0 76.50 0 1.15
+light -9.50 1.35 76.50   1.0 0.70 0.35   8 3.0 flicker 0.35
+emitter ember -9.50 1.15 76.50   0.08 0.10 0.08   3.0   1.0 0.65 0.25   0.06   1.1
+prop models/kaykit/dungeon/torch_lit.gltf.glb 9.50 0 76.50 0 1.15
+light 9.50 1.35 76.50   1.0 0.70 0.35   8 3.0 flicker 0.35
+emitter ember 9.50 1.15 76.50   0.08 0.10 0.08   3.0   1.0 0.65 0.25   0.06   1.1
+prop models/kaykit/dungeon/torch_lit.gltf.glb -11.00 0 69.00 0 1.15
+light -11.00 1.35 69.00   1.0 0.70 0.35   8 3.0 flicker 0.35
+emitter ember -11.00 1.15 69.00   0.08 0.10 0.08   3.0   1.0 0.65 0.25   0.06   1.1
+prop models/kaykit/dungeon/torch_lit.gltf.glb 11.00 0 69.00 0 1.15
+light 11.00 1.35 69.00   1.0 0.70 0.35   8 3.0 flicker 0.35
+emitter ember 11.00 1.15 69.00   0.08 0.10 0.08   3.0   1.0 0.65 0.25   0.06   1.1
+prop models/kaykit/dungeon/torch_lit.gltf.glb -4.00 0 64.00 0 1.15
+light -4.00 1.35 64.00   1.0 0.70 0.35   8 3.0 flicker 0.35
+emitter ember -4.00 1.15 64.00   0.08 0.10 0.08   3.0   1.0 0.65 0.25   0.06   1.1
+prop models/kaykit/dungeon/torch_lit.gltf.glb 4.00 0 64.00 0 1.15
+light 4.00 1.35 64.00   1.0 0.70 0.35   8 3.0 flicker 0.35
+emitter ember 4.00 1.15 64.00   0.08 0.10 0.08   3.0   1.0 0.65 0.25   0.06   1.1
+prop models/kaykit/dungeon/torch_lit.gltf.glb -7.50 0 80.00 0 1.15
+light -7.50 1.35 80.00   1.0 0.70 0.35   8 3.0 flicker 0.35
+emitter ember -7.50 1.15 80.00   0.08 0.10 0.08   3.0   1.0 0.65 0.25   0.06   1.1
+prop models/kaykit/dungeon/torch_lit.gltf.glb 7.50 0 80.00 0 1.15
+light 7.50 1.35 80.00   1.0 0.70 0.35   8 3.0 flicker 0.35
+emitter ember 7.50 1.15 80.00   0.08 0.10 0.08   3.0   1.0 0.65 0.25   0.06   1.1
+
+# --- air: fireflies at the shrine and the well, mist in the arena, leaves over the village ---
+emitter firefly 0 1.3 46   4.5 1.6 3.0   2.4   2.5 3.0 1.2   0.10   8
+emitter firefly -3 1.2 48   2.5 1.4 2.5   1.6   1.2 2.6 2.0   0.10   8
+emitter firefly 0 1.2 32   5.0 1.6 4.0   2.0   2.5 3.0 1.2   0.10   8
+emitter firefly -6 1.2 36   2.5 1.4 2.5   1.4   1.0 2.5 2.0   0.10   8
+emitter mist 0 0.25 72   11 0.3 11   1.8   0.44 0.54 0.66   2.2   11
+emitter mist 0 0.25 56   6 0.3 8   1.1   0.48 0.57 0.68   2.0   9
+emitter leaf 0 7 30   16 4 22   1.0   0.42 0.40 0.22   0.16   9
+emitter leaf 0 7 -6   12 4 18   0.6   0.42 0.40 0.22   0.16   9
+emitter spore 0 1.0 20   10 1.2 16   0.8   1.4 1.6 1.0   0.06   7
+
+# --- villagers ---
+npc Elder elder -4 0 30 140 lantern_elder.txt 3
+npc Smith smith 6 0 28 220 lantern_smith.txt 3
+
+# --- beats fire as the player walks north ---
+trigger intro -3 -1 -6 3 3 -2 once
+trigger town -10 -1 21 10 3 23 once
+trigger crisis -4 -1 43 4 3 45 once
+trigger boss_door -6 -1 57 6 3 59 once
+
+# --- generated mountain forest (seed 20603), thinned and cleared of the play area ---
+prop models/kaykit/hex/rock_single_E.gltf -47.376 26.676 -92.448 134.000 1.116
+prop models/kaykit/hex/trees_B_small.gltf -2.808 31.926 -92.568 38.000 2.176 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 2.064 32.802 -93.864 155.000 2.192 collide 0.600
+prop models/kaykit/hex/hills_A_trees.gltf 81.672 32.725 -92.568 62.000 1.108
+prop models/kaykit/hex/mountain_B.gltf -77.952 38.829 -89.520 126.000 1.160
+prop models/kaykit/hex/rock_single_E.gltf -57.552 32.665 -89.280 67.000 1.072
+prop models/kaykit/hex/trees_A_medium.gltf 32.952 26.971 -89.064 208.000 1.928 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 47.208 24.641 -89.832 98.000 1.752 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 49.968 25.809 -91.128 323.000 1.824 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 69.984 30.365 -90.696 44.000 2.072 collide 0.600
+prop models/kaykit/hex/rock_single_D.gltf 80.064 29.624 -91.080 19.000 1.032
+prop models/kaykit/hex/trees_A_medium.gltf -12.840 29.540 -87.624 201.000 1.904 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 36.384 26.319 -86.520 194.000 1.824 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 41.592 25.558 -86.928 30.000 2.296 collide 0.600
+prop models/kaykit/hex/rock_single_C.gltf -66.216 38.835 -84.288 97.000 0.872
+prop models/kaykit/hex/hill_single_C.gltf -33.384 21.819 -83.064 341.000 1.012
+prop models/kaykit/hex/trees_B_medium.gltf 27.936 26.613 -83.304 328.000 1.896 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 38.256 25.643 -83.832 18.000 1.800 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 71.712 29.256 -83.376 269.000 2.056 collide 0.600
+prop models/kaykit/hex/rock_single_A.gltf -93.312 40.321 -81.528 18.000 1.028
+prop models/kaykit/hex/trees_B_medium.gltf -26.688 20.686 -80.256 125.000 1.952 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -13.080 28.923 -81.672 349.000 2.088 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 56.304 23.804 -80.304 277.000 1.640 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 64.800 28.246 -81.984 37.000 2.304 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 71.856 29.461 -81.864 247.000 1.768 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -67.128 34.711 -78.696 64.000 1.712 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -58.056 32.995 -77.952 19.000 2.176 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -44.448 23.679 -78.264 246.000 1.672 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 35.280 24.405 -77.856 135.000 2.048 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 86.592 28.047 -79.200 297.000 2.344 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -60.216 33.847 -74.784 208.000 2.336 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -39.672 20.562 -73.944 271.000 1.656 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -3.000 27.299 -74.376 208.000 1.848 collide 0.600
+prop models/kaykit/hex/hill_single_A.gltf 4.152 31.783 -74.160 178.000 1.076
+prop models/kaykit/hex/tree_single_B.gltf 57.384 26.548 -74.016 279.000 1.856 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 75.264 31.677 -74.352 162.000 2.184 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -73.200 30.209 -72.840 38.000 2.304 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -47.136 25.630 -71.208 265.000 1.816 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -36.768 18.830 -70.944 271.000 1.600 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -8.544 24.081 -71.208 110.000 1.824 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 60.216 30.101 -71.016 158.000 2.008 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -87.024 32.251 -70.032 201.000 1.936 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -39.024 19.997 -70.128 88.000 2.288 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 9.552 26.369 -68.280 206.000 1.936 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 11.592 26.922 -68.544 329.000 2.224 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 78.816 30.019 -68.256 114.000 2.128 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 80.208 29.217 -69.936 184.000 1.872 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -91.968 33.466 -66.960 82.000 2.176 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -3.456 23.037 -65.976 305.000 2.056 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 0.456 23.051 -65.664 93.000 2.376 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 3.312 23.905 -66.768 309.000 2.064 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 29.448 28.424 -66.648 217.000 1.632 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 37.872 29.675 -67.104 332.000 2.032 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 77.136 31.094 -66.624 66.000 1.616 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 81.768 27.989 -66.600 61.000 1.664 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -89.136 31.242 -62.352 282.000 1.624 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -28.008 14.495 -63.840 334.000 2.040 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 1.800 21.608 -63.672 146.000 1.736 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 4.872 20.470 -62.688 282.000 2.200 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 17.424 23.025 -62.880 224.000 1.960 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 50.760 32.123 -62.880 13.000 2.368 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 78.768 29.102 -62.328 92.000 2.312 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -91.176 31.983 -59.472 332.000 2.008 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -85.128 29.887 -60.960 31.000 1.752 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -74.904 30.390 -59.688 289.000 2.336 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -26.400 13.362 -60.912 41.000 1.800 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 16.944 22.386 -58.992 11.000 1.760 collide 0.600
+prop models/kaykit/hex/mountain_B.gltf 24.336 25.567 -59.040 109.000 0.932
+prop models/kaykit/hex/trees_A_small.gltf 84.336 27.944 -59.880 219.000 2.040 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -89.472 30.662 -56.472 146.000 1.904 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -68.352 27.823 -56.664 6.000 1.688 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -55.872 19.933 -56.592 137.000 2.112 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -23.064 11.821 -57.720 192.000 2.224 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 0.432 18.715 -56.496 341.000 2.152 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 10.920 18.773 -56.520 302.000 2.152 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 14.472 20.990 -57.792 204.000 1.928 collide 0.600
+prop models/kaykit/hex/hill_single_B.gltf 61.992 39.064 -56.280 324.000 1.040
+prop models/kaykit/hex/trees_B_large.gltf 76.008 31.182 -57.576 105.000 1.624 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -84.840 29.509 -53.256 128.000 2.208 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -75.984 31.850 -54.168 350.000 2.056 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -33.576 12.226 -54.288 267.000 2.392 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -23.928 11.205 -55.128 232.000 1.824 collide 0.600
+prop models/kaykit/hex/rock_single_B.gltf 20.064 22.867 -54.528 127.000 1.124
+prop models/kaykit/hex/rock_single_B.gltf 33.096 27.511 -54.984 3.000 1.080
+prop models/kaykit/hex/tree_single_B.gltf 71.616 34.849 -54.000 15.000 2.392 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -58.968 20.199 -52.080 7.000 2.232 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -48.528 17.010 -50.064 191.000 1.872 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -42.624 15.083 -51.384 4.000 2.176 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -29.760 10.952 -51.264 199.000 1.680 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 0.768 13.447 -49.824 9.000 2.008 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 7.944 15.201 -51.552 276.000 1.736 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 14.352 16.625 -49.968 255.000 2.192 collide 0.600
+prop models/kaykit/hex/rock_single_A.gltf 25.128 23.064 -50.400 298.000 1.016
+prop models/kaykit/hex/rock_single_C.gltf 47.712 34.071 -51.048 304.000 1.188
+prop models/kaykit/hex/hill_single_A.gltf 53.016 36.910 -50.280 176.000 1.160
+prop models/kaykit/hex/rock_single_C.gltf 55.872 38.170 -50.232 64.000 0.972
+prop models/kaykit/hex/tree_single_A.gltf -69.864 24.066 -47.184 175.000 2.112 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -59.616 20.152 -46.824 213.000 2.376 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -28.056 10.503 -47.304 106.000 1.784 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 2.952 11.319 -46.848 96.000 2.376 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 9.912 13.938 -49.056 149.000 1.768 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 16.920 17.065 -48.792 140.000 1.704 collide 0.600
+prop models/kaykit/hex/mountain_B.gltf 23.976 20.975 -47.352 328.000 0.992
+prop models/kaykit/hex/hill_single_B.gltf 30.024 23.306 -47.064 62.000 0.892
+prop models/kaykit/hex/mountain_B.gltf 35.328 26.858 -47.832 3.000 0.900
+prop models/kaykit/hex/trees_A_medium.gltf 88.008 33.324 -47.712 188.000 1.736 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -87.504 29.960 -44.280 167.000 2.272 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -77.616 24.118 -44.016 357.000 2.264 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -47.064 16.083 -45.696 65.000 1.720 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -38.784 12.374 -45.264 131.000 1.976 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -26.208 10.389 -46.032 18.000 2.320 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -23.592 9.535 -45.048 61.000 1.992 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 11.232 12.051 -45.696 136.000 2.336 collide 0.600
+prop models/kaykit/hex/mountain_A_grass.gltf 28.152 22.219 -43.824 161.000 1.064
+prop models/kaykit/hex/rock_single_C.gltf 30.336 23.034 -45.648 242.000 1.048
+prop models/kaykit/hex/rock_single_A.gltf 53.400 37.150 -44.976 219.000 0.824
+prop models/kaykit/hex/trees_B_medium.gltf 79.128 32.128 -44.496 283.000 1.888 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -34.152 9.669 -41.040 63.000 1.688 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -29.112 9.243 -41.520 11.000 2.208 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -18.528 6.873 -42.624 141.000 2.128 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 0.144 5.763 -42.456 262.000 2.384 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 9.384 9.078 -40.896 94.000 2.336 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 15.120 11.734 -41.088 140.000 2.160 collide 0.600
+prop models/kaykit/hex/mountain_A_grass.gltf 40.176 28.490 -41.208 42.000 0.892
+prop models/kaykit/hex/rock_single_B.gltf 42.456 30.135 -41.856 23.000 0.864
+prop models/kaykit/hex/rock_single_D.gltf 50.664 35.066 -42.000 346.000 1.036
+prop models/kaykit/hex/rock_single_E.gltf 60.456 40.212 -41.928 110.000 0.944
+prop models/kaykit/hex/trees_B_large.gltf -51.696 16.906 -38.544 236.000 1.936 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -24.384 8.267 -37.848 146.000 2.152 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -20.976 7.734 -40.176 149.000 2.312 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -6.768 4.330 -39.960 76.000 2.272 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -2.064 2.866 -37.824 13.000 2.128 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -0.144 3.470 -38.592 48.000 2.312 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 24.360 18.252 -39.816 33.000 1.624 collide 0.600
+prop models/kaykit/hex/rock_single_B.gltf 42.648 28.939 -38.760 133.000 0.864
+prop models/kaykit/hex/rock_single_B.gltf 59.808 39.861 -38.640 164.000 1.068
+prop models/kaykit/hex/trees_B_medium.gltf 76.824 36.156 -39.312 8.000 1.720 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -78.288 22.711 -36.864 256.000 1.800 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -35.400 9.203 -35.904 217.000 1.808 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -28.896 7.936 -36.456 315.000 2.384 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -26.232 8.000 -36.648 48.000 2.240 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -20.640 7.269 -36.840 277.000 2.288 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -18.072 5.857 -34.968 280.000 1.696 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 10.920 5.586 -35.112 236.000 1.672 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 29.808 19.314 -36.264 306.000 1.760 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 32.568 20.009 -35.112 305.000 1.792 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 35.760 21.945 -35.232 72.000 1.696 collide 0.600
+prop models/kaykit/hex/hills_A_trees.gltf 60.576 39.878 -35.880 181.000 1.000
+prop models/kaykit/hex/trees_A_large.gltf -42.360 12.295 -32.664 17.000 1.640 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -16.896 5.091 -34.152 3.000 1.976 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 14.544 8.768 -32.952 53.000 2.328 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 17.016 12.485 -33.552 42.000 1.800 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 21.408 15.400 -32.880 310.000 2.192 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 30.912 18.773 -33.072 28.000 2.368 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 35.544 21.249 -32.952 305.000 2.336 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 80.856 30.606 -33.168 19.000 1.848 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -34.176 8.445 -31.104 203.000 2.376 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 19.848 13.334 -29.280 273.000 1.704 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 23.904 15.828 -28.824 96.000 2.376 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 29.040 18.443 -28.872 94.000 2.128 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 80.544 29.294 -29.016 332.000 1.720 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 87.240 23.512 -29.952 236.000 2.280 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -54.480 18.849 -26.184 79.000 1.712 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -24.408 7.048 -25.968 155.000 2.320 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -20.568 6.183 -26.064 9.000 1.608 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 20.376 13.005 -27.720 226.000 1.968 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 32.616 20.064 -27.888 201.000 1.824 collide 0.600
+prop models/kaykit/hex/mountain_A.gltf 44.688 26.855 -28.128 188.000 0.932
+prop models/kaykit/hex/tree_single_B.gltf 74.352 34.042 -27.864 167.000 2.208 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 77.904 30.534 -26.136 3.000 1.856 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 83.352 25.973 -25.920 226.000 1.640 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -55.824 20.259 -23.064 268.000 2.096 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -15.456 2.687 -24.168 213.000 2.376 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -77.040 16.662 -22.128 37.000 2.192 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -44.520 17.440 -21.864 86.000 2.376 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 17.880 9.136 -20.736 235.000 2.152 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 45.576 22.524 -21.768 234.000 1.632 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 77.088 27.555 -21.624 339.000 2.240 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 80.712 25.302 -21.024 119.000 1.720 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -45.744 18.438 -19.152 184.000 2.360 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -28.032 7.618 -17.856 326.000 2.256 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 30.216 16.972 -17.256 173.000 1.728 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 32.592 17.956 -17.472 18.000 1.728 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 79.152 23.890 -17.328 173.000 1.960 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 87.936 19.578 -18.048 318.000 1.632 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -90.192 28.590 -14.328 165.000 1.608 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -87.720 26.321 -14.544 0.000 1.808 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -59.016 21.932 -14.472 163.000 1.728 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -56.736 21.514 -14.160 229.000 2.232 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -44.040 17.281 -14.112 88.000 1.816 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -41.712 15.735 -14.808 185.000 2.176 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -35.664 11.056 -14.112 55.000 1.800 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -33.336 9.327 -16.080 225.000 2.216 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -26.760 7.635 -16.104 230.000 2.192 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 47.760 17.714 -14.256 319.000 2.184 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -75.480 15.533 -13.056 110.000 1.808 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -69.432 17.555 -12.768 166.000 1.952 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -33.672 9.887 -11.736 61.000 1.824 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -30.192 8.542 -13.200 294.000 1.744 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -26.760 7.773 -12.744 40.000 1.816 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 12.168 1.039 -12.240 23.000 2.336 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 42.576 18.122 -12.120 328.000 1.784 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 54.264 17.502 -11.712 79.000 2.208 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 59.688 20.341 -12.384 153.000 2.144 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 69.960 22.648 -12.072 321.000 1.800 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 74.448 22.501 -11.472 233.000 1.968 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -92.664 31.081 -7.968 228.000 2.208 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -86.856 26.194 -8.136 241.000 2.040 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -66.576 18.634 -8.136 250.000 1.880 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -36.000 11.161 -9.864 73.000 1.792 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -14.928 2.217 -7.992 238.000 1.648 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 26.784 13.897 -8.160 44.000 1.920 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 83.808 18.544 -8.616 125.000 2.376 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -57.072 19.420 -5.040 86.000 2.000 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -54.456 19.617 -4.824 91.000 1.880 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -44.040 16.513 -7.200 16.000 1.624 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -36.456 11.202 -6.720 202.000 2.320 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -29.088 8.471 -5.568 31.000 2.128 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 19.824 11.110 -5.544 80.000 2.128 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 36.144 17.013 -6.048 286.000 2.200 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -79.968 16.931 -3.000 164.000 2.288 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -67.128 18.545 -3.000 357.000 2.120 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -20.904 6.809 -3.312 6.000 2.024 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 14.520 3.932 -2.112 355.000 2.216 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 31.872 15.363 -3.792 72.000 2.176 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 56.424 16.657 -2.424 292.000 1.680 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 18.624 10.541 -0.888 187.000 2.080 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 73.080 18.261 0.960 64.000 1.664 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 76.896 18.825 0.744 173.000 1.960 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -64.872 16.668 3.552 328.000 2.368 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -18.984 4.928 1.800 51.000 1.960 collide 0.600
+prop models/kaykit/hex/rock_single_C.gltf 8.448 0.029 4.128 277.000 0.924
+prop models/kaykit/hex/trees_A_large.gltf 13.992 3.097 3.120 325.000 1.896 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 17.784 9.292 3.624 131.000 2.320 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 29.448 14.597 4.128 220.000 2.328 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 43.944 15.688 2.904 328.000 1.864 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -81.552 17.714 5.256 43.000 1.680 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -55.080 12.075 6.288 277.000 1.664 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -45.672 11.168 5.352 116.000 1.832 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 15.672 4.699 6.336 36.000 2.368 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 25.848 13.460 6.024 227.000 1.624 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 74.352 18.980 4.872 1.000 1.776 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -67.872 16.398 9.264 268.000 2.312 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -60.264 12.128 9.192 321.000 1.752 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -36.504 9.829 8.592 2.000 1.808 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -14.328 0.612 9.576 6.000 1.960 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 10.104 0.127 7.920 3.000 2.160 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 14.904 1.575 8.856 142.000 1.624 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 22.128 9.898 9.072 311.000 2.160 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 27.576 13.533 9.552 219.000 1.896 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 29.112 13.796 9.792 0.000 1.960 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 32.808 14.730 7.944 121.000 1.736 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 50.976 15.343 8.544 60.000 1.800 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 56.160 18.514 8.160 243.000 2.136 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 62.952 20.605 8.184 114.000 2.344 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 76.920 18.813 7.800 53.000 2.392 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -22.848 2.599 12.168 173.000 1.792 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -20.904 1.580 11.376 346.000 2.344 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -14.280 0.199 11.568 130.000 2.192 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 18.576 1.210 12.888 195.000 2.080 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 24.072 9.516 12.768 45.000 2.024 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 33.576 13.741 11.112 119.000 1.984 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 56.424 18.718 12.120 296.000 1.680 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -77.496 18.902 14.112 331.000 2.144 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -71.136 18.334 14.856 325.000 1.768 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -33.120 9.182 15.840 204.000 2.032 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -23.736 2.737 14.808 245.000 1.904 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -15.792 0.022 14.976 275.000 2.136 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -9.360 0.015 13.920 107.000 2.192 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 7.152 0.001 15.144 123.000 2.320 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 12.936 0.014 14.448 64.000 1.768 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 26.112 10.067 16.104 319.000 1.976 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 31.104 11.966 14.136 5.000 1.760 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 36.528 12.458 13.944 190.000 2.168 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 66.240 21.588 15.432 335.000 1.656 collide 0.600
+prop models/kaykit/hex/mountain_A.gltf 89.400 26.273 14.400 188.000 0.828
+prop models/kaykit/hex/trees_B_small.gltf -78.024 19.203 17.424 63.000 2.120 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -48.936 9.818 18.096 0.000 2.032 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -45.552 9.087 17.568 100.000 2.296 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -34.992 9.196 17.328 348.000 1.944 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -29.520 7.490 18.960 29.000 1.944 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -21.336 0.705 18.024 283.000 2.392 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -16.968 0.021 18.432 169.000 1.920 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 21.120 1.827 19.032 82.000 1.848 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 23.616 5.740 18.768 148.000 1.664 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 51.768 15.609 19.176 252.000 2.152 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 80.232 19.456 17.688 181.000 2.160 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 84.192 20.182 19.128 10.000 1.808 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -38.160 9.076 20.712 205.000 1.704 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -31.848 8.694 19.800 220.000 2.056 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -27.144 5.864 21.624 103.000 1.968 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -23.928 2.608 21.288 7.000 1.960 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 39.024 9.864 20.952 339.000 2.184 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 44.952 11.907 20.016 347.000 2.392 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 47.592 13.013 21.504 155.000 1.784 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -83.160 22.843 23.856 243.000 2.048 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -80.856 20.169 24.648 245.000 2.112 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -67.848 16.337 25.080 195.000 1.880 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -41.544 9.185 22.872 38.000 1.712 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -34.080 9.587 24.216 50.000 2.016 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -17.112 0.023 24.168 148.000 2.304 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 35.808 9.008 23.328 47.000 2.000 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 39.432 9.304 24.624 77.000 2.360 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 42.216 10.251 23.400 18.000 1.688 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -74.832 17.708 27.312 132.000 2.248 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -37.824 9.832 27.552 84.000 2.376 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -34.920 9.983 27.696 63.000 1.776 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -27.240 5.935 27.888 257.000 2.000 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 26.952 9.123 26.136 60.000 1.904 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 89.568 27.885 27.576 227.000 2.184 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -83.064 21.275 29.880 317.000 1.752 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -69.240 16.110 29.136 125.000 1.688 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -48.408 10.575 28.992 295.000 1.656 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -38.664 9.805 29.616 106.000 1.608 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -29.472 7.528 30.480 219.000 1.856 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -24.984 3.744 30.504 79.000 1.864 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -20.880 0.489 30.888 214.000 1.800 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 45.384 11.117 29.904 35.000 2.152 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 47.184 12.032 29.616 258.000 1.872 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -80.208 18.145 33.912 17.000 2.232 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -59.880 12.602 33.336 293.000 1.856 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -57.888 12.398 31.824 307.000 1.760 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -25.056 3.822 33.936 300.000 1.808 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 24.384 6.504 33.192 30.000 1.760 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 27.552 8.832 33.336 322.000 1.672 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 37.800 8.680 32.784 114.000 1.848 collide 0.600
+prop models/kaykit/hex/rock_single_A.gltf 90.048 28.093 33.072 281.000 1.152
+prop models/kaykit/hex/trees_B_small.gltf -63.048 12.947 36.168 147.000 2.176 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -17.928 0.042 34.824 77.000 2.176 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 21.672 2.657 36.984 99.000 2.184 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 36.336 8.779 35.592 352.000 2.368 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 47.808 13.070 35.520 93.000 2.320 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -73.920 16.829 38.064 313.000 2.128 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -59.520 12.043 38.784 314.000 2.056 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -42.480 8.492 37.872 112.000 1.680 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -39.528 8.932 39.048 273.000 1.856 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -32.904 10.291 38.856 19.000 1.696 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -30.312 9.166 39.552 146.000 1.864 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -22.944 1.732 40.008 248.000 2.088 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -16.176 0.007 38.352 223.000 2.136 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 16.800 0.033 39.000 221.000 1.912 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 20.808 1.622 38.208 157.000 1.664 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 33.168 9.081 38.328 162.000 1.920 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 42.192 11.074 39.000 5.000 1.848 collide 0.600
+prop models/kaykit/hex/hill_single_C.gltf 90.792 30.447 39.288 332.000 1.060
+prop models/kaykit/hex/trees_A_large.gltf -34.848 10.114 41.352 191.000 2.016 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -29.880 8.713 42.144 216.000 1.616 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -27.792 7.269 42.696 194.000 2.256 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -21.336 0.698 40.944 275.000 1.704 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 24.216 7.275 42.216 286.000 2.120 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 28.056 9.889 40.896 259.000 1.728 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 58.968 16.718 41.304 268.000 2.336 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 68.520 13.243 42.912 188.000 1.768 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 71.568 13.022 42.696 59.000 2.272 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -33.984 9.731 44.568 145.000 2.256 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -27.888 7.214 46.056 170.000 2.216 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 17.496 0.075 45.576 230.000 1.760 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 33.096 12.385 45.792 299.000 2.344 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 41.304 13.608 45.528 185.000 2.280 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 79.032 14.341 43.896 86.000 2.152 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -87.744 21.952 48.336 175.000 2.168 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -32.880 9.112 46.920 314.000 1.920 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 33.624 12.971 47.280 96.000 1.880 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 36.336 12.957 48.552 153.000 1.856 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 38.160 12.784 48.672 323.000 1.920 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 81.984 15.629 47.448 307.000 2.248 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -87.696 21.552 50.424 135.000 2.360 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -48.744 9.748 51.288 83.000 2.136 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -45.384 9.657 50.688 121.000 2.144 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -39.408 9.872 51.000 241.000 2.368 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 45.576 12.597 51.144 19.000 2.040 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -93.336 24.055 52.896 320.000 2.096 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -78.552 15.430 53.976 167.000 1.784 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -50.496 9.985 53.592 113.000 1.816 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -35.544 9.987 54.120 229.000 2.096 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -29.352 6.655 54.288 74.000 2.256 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -27.264 5.706 53.664 146.000 2.296 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -17.856 0.205 54.216 153.000 1.600 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -15.720 0.028 53.088 222.000 1.688 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -11.904 0.006 53.208 194.000 2.208 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -9.024 0.001 53.544 328.000 2.072 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 32.856 12.041 52.920 291.000 1.768 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 35.376 11.798 53.328 264.000 1.880 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 68.784 12.397 53.040 283.000 1.688 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -85.848 18.594 57.984 178.000 2.240 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -57.096 10.056 57.864 181.000 1.728 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -46.992 9.490 57.864 146.000 2.056 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -43.944 9.732 57.600 344.000 2.216 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -41.448 9.824 57.120 300.000 1.912 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -29.928 6.849 57.648 74.000 2.080 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -18.264 0.481 56.208 64.000 2.224 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 7.056 0.001 56.544 68.000 1.728 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 21.456 4.498 57.288 152.000 1.968 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 38.976 11.280 57.672 243.000 2.128 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 44.712 11.420 57.696 330.000 2.032 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 47.808 11.842 55.848 69.000 2.120 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 61.032 13.317 56.112 71.000 1.728 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -76.176 14.354 58.968 88.000 2.056 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -71.232 12.786 59.856 271.000 2.256 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -53.904 8.927 60.312 259.000 1.680 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -48.840 8.844 60.312 341.000 1.624 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -35.784 9.829 59.136 158.000 1.840 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -27.192 5.027 59.424 311.000 2.072 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -17.640 0.142 60.168 322.000 1.704 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 12.552 0.007 58.920 258.000 1.728 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 18.000 0.276 60.768 181.000 2.120 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 30.384 9.770 60.792 225.000 1.752 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 45.144 11.087 59.664 302.000 2.048 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 18.504 0.211 62.592 324.000 2.064 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 36.984 10.657 62.688 280.000 1.952 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 38.136 10.717 62.592 117.000 1.720 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 46.032 10.562 63.240 4.000 2.176 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 71.784 9.787 62.208 70.000 1.616 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 77.904 11.641 64.056 12.000 2.336 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -88.968 17.421 64.992 117.000 2.304 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -60.624 8.382 66.672 312.000 1.904 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 22.824 1.817 67.104 153.000 1.888 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 29.064 9.730 65.928 172.000 1.888 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 32.592 10.342 66.720 291.000 1.896 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 44.880 10.253 65.184 325.000 2.112 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 49.056 10.506 64.848 258.000 1.856 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 54.936 11.114 65.664 340.000 1.704 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 67.824 9.740 65.208 318.000 1.992 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 83.904 14.404 66.264 136.000 2.344 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -85.944 14.619 69.384 127.000 2.176 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -67.920 10.339 70.176 201.000 2.296 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -51.912 6.307 68.376 159.000 2.208 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -34.872 10.815 69.816 312.000 1.904 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -31.176 10.478 69.552 190.000 2.392 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -24.912 2.161 69.024 96.000 1.736 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 20.544 0.296 68.376 15.000 1.680 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 23.376 2.083 69.912 110.000 2.096 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 28.824 9.812 68.760 252.000 1.896 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 32.904 10.419 68.952 92.000 1.832 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 41.016 10.047 68.376 357.000 2.152 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf 49.080 10.010 68.928 45.000 1.736 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -65.664 9.494 71.928 57.000 1.960 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -28.992 8.838 72.648 339.000 2.040 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 34.800 10.291 70.992 57.000 2.088 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 40.008 10.023 72.600 74.000 1.920 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -87.840 14.535 75.528 85.000 1.880 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -80.232 11.065 75.432 269.000 1.784 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -44.184 5.842 75.528 84.000 1.968 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -43.104 6.047 76.104 223.000 2.048 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -30.264 9.213 75.096 241.000 2.360 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf 33.816 10.130 73.920 42.000 1.880 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 87.336 17.832 75.408 286.000 2.248 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -84.840 13.171 77.448 332.000 2.016 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -47.472 5.739 78.312 109.000 1.832 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf -18.048 0.019 78.456 100.000 2.120 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -14.400 0.001 79.152 176.000 1.800 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 21.264 0.688 77.040 298.000 2.008 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 43.128 10.935 77.328 10.000 2.248 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -76.176 12.214 81.168 48.000 2.344 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -44.256 6.067 81.096 168.000 2.152 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -42.408 6.519 82.032 302.000 1.784 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -36.096 8.022 82.104 164.000 1.816 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -29.688 8.220 80.616 181.000 2.272 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -27.552 7.359 81.240 13.000 1.864 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf 42.624 11.674 82.176 293.000 2.152 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 44.520 11.951 80.952 75.000 1.632 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 48.840 12.567 79.848 17.000 2.144 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 51.768 13.448 80.472 241.000 1.800 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 70.056 13.403 80.328 319.000 2.144 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -90.864 15.581 83.016 6.000 1.800 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf -83.760 13.862 85.056 120.000 2.112 collide 0.600
+prop models/kaykit/hex/trees_A_medium.gltf -38.520 8.008 83.544 23.000 1.704 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -32.400 9.675 84.000 278.000 1.808 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -24.840 6.684 84.288 311.000 2.192 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf -15.168 0.014 83.160 50.000 1.680 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 20.064 2.465 85.032 65.000 2.016 collide 0.600
+prop models/kaykit/hex/trees_B_large.gltf 74.160 16.333 84.744 116.000 2.160 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf -86.616 14.405 88.128 207.000 2.112 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -36.168 11.855 87.576 316.000 2.280 collide 0.600
+prop models/kaykit/hex/tree_single_A.gltf -20.256 3.589 87.096 165.000 1.904 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf -18.648 1.345 86.088 50.000 1.760 collide 0.600
+prop models/kaykit/hex/rock_single_B.gltf -11.616 0.030 87.288 229.000 1.112
+prop models/kaykit/hex/tree_single_B.gltf 16.032 0.873 87.240 84.000 1.744 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 27.024 10.815 86.232 240.000 1.624 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 89.328 24.841 87.120 40.000 1.736 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -48.336 16.324 91.104 300.000 1.752 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -21.072 9.205 91.152 327.000 2.208 collide 0.600
+prop models/kaykit/hex/trees_A_small.gltf -15.120 2.750 90.984 190.000 1.784 collide 0.600
+prop models/kaykit/hex/rock_single_B.gltf -12.624 0.281 88.872 258.000 1.032
+prop models/kaykit/hex/trees_B_large.gltf 32.736 14.788 90.984 36.000 2.000 collide 0.600
+prop models/kaykit/hex/tree_single_B.gltf 35.616 13.741 90.144 246.000 1.688 collide 0.600
+prop models/kaykit/hex/trees_B_small.gltf 40.800 13.464 89.568 12.000 2.312 collide 0.600
+prop models/kaykit/hex/trees_B_medium.gltf 66.648 21.814 90.600 271.000 2.336 collide 0.600
+prop models/kaykit/hex/trees_A_large.gltf 76.080 24.509 90.192 65.000 2.000 collide 0.600
+
+# ---------------------------------------------------------------- 64 items
+# This level exists to answer one question: what does a tick cost the host with four players
+# seated and the item list full? The netcode's snapshot is O(players + items) and writes one
+# record per awake or held item, so the honest way to size it is to fill the list and look. The
+# items are ordinary loot on the flat ground around the spawn; nothing else here differs from
+# lantern.txt, which this is a copy of. See README's "Performance budget".
+item crate       -14.0   0.00   -20.0      0
+item bust        -10.0   0.00   -20.0     37
+item painting     -6.0   0.00   -20.0     74
+item tape_reel    -2.0   0.00   -20.0    111
+item globe         2.0   0.00   -20.0    148
+item crate         6.0   0.00   -20.0    185
+item bust         10.0   0.00   -20.0    222
+item painting     14.0   0.00   -20.0    259
+item tape_reel   -14.0   0.00   -16.0    296
+item globe       -10.0   0.00   -16.0    333
+item crate        -6.0   0.00   -16.0     10
+item bust         -2.0   0.00   -16.0     47
+item painting      2.0   0.00   -16.0     84
+item tape_reel     6.0   0.00   -16.0    121
+item globe        10.0   0.00   -16.0    158
+item crate        14.0   0.00   -16.0    195
+item bust        -14.0   0.00   -12.0    232
+item painting    -10.0   0.00   -12.0    269
+item tape_reel    -6.0   0.00   -12.0    306
+item globe        -2.0   0.00   -12.0    343
+item crate         2.0   0.00   -12.0     20
+item bust          6.0   0.00   -12.0     57
+item painting     10.0   0.00   -12.0     94
+item tape_reel    14.0   0.00   -12.0    131
+item globe       -14.0   0.00    -8.0    168
+item crate       -10.0   0.00    -8.0    205
+item bust         -6.0   0.00    -8.0    242
+item painting     -2.0   0.00    -8.0    279
+item tape_reel     2.0   0.00    -8.0    316
+item globe         6.0   0.00    -8.0    353
+item crate        10.0   0.00    -8.0     30
+item bust         14.0   0.00    -8.0     67
+item painting    -14.0   0.00    -4.0    104
+item tape_reel   -10.0   0.00    -4.0    141
+item globe        -6.0   0.00    -4.0    178
+item crate        -2.0   0.00    -4.0    215
+item bust          2.0   0.00    -4.0    252
+item painting      6.0   0.00    -4.0    289
+item tape_reel    10.0   0.00    -4.0    326
+item globe        14.0   0.00    -4.0      3
+item crate       -14.0   0.00     0.0     40
+item bust        -10.0   0.00     0.0     77
+item painting     -6.0   0.00     0.0    114
+item tape_reel    -2.0   0.00     0.0    151
+item globe         2.0   0.00     0.0    188
+item crate         6.0   0.00     0.0    225
+item bust         10.0   0.00     0.0    262
+item painting     14.0   0.00     0.0    299
+item tape_reel   -14.0   0.00     4.0    336
+item globe       -10.0   0.00     4.0     13
+item crate        -6.0   0.00     4.0     50
+item bust         -2.0   0.00     4.0     87
+item painting      2.0   0.00     4.0    124
+item tape_reel     6.0   0.00     4.0    161
+item globe        10.0   0.00     4.0    198
+item crate        14.0   0.00     4.0    235
+item bust        -14.0   0.00     8.0    272
+item painting    -10.0   0.00     8.0    309
+item tape_reel    -6.0   0.00     8.0    346
+item globe        -2.0   0.00     8.0     23
+item crate         2.0   0.00     8.0     60
+item bust          6.0   0.00     8.0     97
+item painting     10.0   0.00     8.0    134
+item tape_reel    14.0   0.00     8.0    171

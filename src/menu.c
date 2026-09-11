@@ -12,6 +12,7 @@
 #include "menu.h"
 #include "debug.h"
 #include "net_sys.h"   // netsys_local_ips: the addresses a friend can type in
+#include "quality.h"   // corner label: quality potato|normal|high (source)
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -495,6 +496,11 @@ static void draw_main(Game *g) {
     }
     if (m->note_t > 0) text_mid(x, MW * 0.5f, MH - 96, 26, m->note_good ? C_HOT : C_BAD, m->note);
     text_mid(x, MW * 0.5f, MH - 56, 24, C_DIM, "arrows or mouse to choose   ENTER to take it");
+    // Minimal corner label, same dim style as the hints above: the tier this run picked and why
+    // (settings.txt, a startup guess, or the probe having dropped it), so it's visible without
+    // opening the F1 overlay -- see draw_debug_overlay in game.c for the in-game copy of this line.
+    { char q[48]; snprintf(q, sizeof q, "quality %s (%s)", quality_name(quality_current()), quality_source());
+      gfx_ui_text_px(x, 14, MH - 30, 18, v4(0.5f, 0.48f, 0.44f, 0.65f), q); }
 }
 
 static void draw_join(Game *g) {

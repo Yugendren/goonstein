@@ -4,6 +4,7 @@
 #include "debug.h"
 #include "daylight.h"
 #include "prof.h"
+#include "quality.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -447,6 +448,13 @@ static bool load_defs(Game *g) {
     // albedo is read, and the render scale rebuilds every target and must not happen mid-frame.
     gfx_set_texture_cap(&g->gfx, (int)g->level.look.tex_cap);
     gfx_set_render_scale(&g->gfx, g->level.look.render_scale, g->level.look.render_nearest > 0.5f);
+    // The level's own look (the two lines just above, F7's plain/camcorder/flat/ink candidates)
+    // is not the quality tier: it defaults to no cap and full scale on every real level. The
+    // quality tier is the final word and has to win before world_textures_create (right after
+    // load_defs returns) or any prop touches the GPU -- and since every load path (initial boot,
+    // a `level:` scene transition, ctrl+R) runs through load_defs, reasserting it here is also
+    // what makes a level reload keep the tier instead of quietly dropping back to normal.
+    quality_apply(g, quality_current());
     ok &= player_def_load(&g->player_def, ASSET("player.txt"));
     ok &= boss_def_load(&g->boss_def, ASSET("enemies/warden.txt"));
     return ok;
@@ -990,7 +998,9 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     if (g->msg_t > 0) g->msg_t -= dt;
     if (g->last_hit_text_t > 0) g->last_hit_text_t -= dt;
 
-    g->cam.view_far = g->level.look.view_far > 1 ? g->level.look.view_far : CAMERA_FAR_DEFAULT;   // the level's `look far`
+    // the level's `look far`, pulled in at a lower quality tier (far_scale); see game_render_at
+    // for the matching fog pull-in, which is what keeps a shorter far plane from reading as a hard clip.
+    g->cam.view_far = (g->level.look.view_far > 1 ? g->level.look.view_far : CAMERA_FAR_DEFAULT) * quality_spec(quality_current()).far_scale;
     dbg_set_time(g->time);
     if (in->key_down[SDL_SCANCODE_F8]) debug_snapshot(g);
     if (in->key_down[SDL_SCANCODE_F7]) {   // cycle the art-style candidates live: plain -> camcorder -> flat -> ink
@@ -1291,7 +1301,7 @@ static void draw_debug_overlay(Game *g, Platform *pf) {
         static const char *PS[] = { "FREE", "ATTACK", "PARRY", "DODGE", "HURT", "DEAD", "SCRIPTED" };
         static const char *BS[] = { "IDLE", "APPROACH", "WINDUP", "ACTIVE", "RECOVER", "STAGGER", "DEAD", "SCRIPTED" };
         char l[8][160]; int n = 0;
-        snprintf(l[n++], 160, "fps %.0f  %.1f ms  draws %u  props drawn %u culled %u  tick %u  %s", g->fps, g->frame_ms, g->gfx.draw_calls, g->props.props_drawn, g->props.props_culled, g->tick, g->paused ? "PAUSED" : "");
+        snprintf(l[n++], 160, "fps %.0f  %.1f ms  draws %u  props drawn %u culled %u  tick %u  %s  quality %s (%s)", g->fps, g->frame_ms, g->gfx.draw_calls, g->props.props_drawn, g->props.props_culled, g->tick, g->paused ? "PAUSED" : "", quality_name(quality_current()), quality_source());
         snprintf(l[n++], 160, "game %s %.2fs   cam %s  vol %s", GS[g->state], g->state_t, g->cam.mode == CAM_ORBIT ? (g->cam.locked ? "orbit+lock" : "orbit") : "scene", "-");
         snprintf(l[n++], 160, "player %s t=%.2f  pos %.1f %.1f %.1f  yaw %.0f  hp %.0f  anim %s", PS[PLAYER(g).state], PLAYER(g).t, PLAYER(g).c.pos.x, PLAYER(g).c.pos.y, PLAYER(g).c.pos.z, PLAYER(g).c.yaw / DEG2RAD, PLAYER(g).c.hp, anim_name(PLAYER(g).c.anim));
         const BossMove *m = &g->boss.def.moves[g->boss.move];
@@ -1592,7 +1602,15 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     { static Uint64 last = 0; Uint64 now = SDL_GetPerformanceCounter(); if (last) { float ms = (float)((now - last) * 1000.0 / (double)SDL_GetPerformanceFrequency()); g->frame_ms = g->frame_ms > 0 ? g->frame_ms * 0.95f + ms * 0.05f : ms; } last = now; }
 
     const Level *lv = &g->level;
-    g->cam.view_far = lv->look.view_far > 1 ? lv->look.view_far : CAMERA_FAR_DEFAULT;
+    // far_scale pulls the far plane in at a lower quality tier (see quality.h): potato should draw
+    // less distance, not the same distance fogged, so the far plane itself shrinks. Left alone,
+    // that turns into a visible hard clip right at the new edge, so fog_start/fog_density are
+    // pulled in by the same factor to match: lit.frag's fog is f = 1 - exp(-(dist - fog_start) *
+    // fog_density), and scaling fog_start by far_scale and fog_density by 1/far_scale leaves the
+    // exponent (far - fog_start) * fog_density -- the fog's total opacity by the far plane --
+    // exactly what it was before the scale, just reached over a shorter distance.
+    float qfar = quality_spec(quality_current()).far_scale; if (qfar < 0.05f) qfar = 0.05f;
+    g->cam.view_far = (lv->look.view_far > 1 ? lv->look.view_far : CAMERA_FAR_DEFAULT) * qfar;
     Look tod_look; const Look *lk = &lv->look;
     if (lk->daytime >= 0) { tod_look = daylight_apply(&lv->look, lk->daytime); lk = &tod_look; }
     Vec3 fwd = v3_norm(v3_sub(g->cam.target, g->cam.eye));
@@ -1603,8 +1621,8 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         .cam_pos = g->cam.eye, .cam_right = right, .cam_up = up, .time = (float)g->time,
         .sun_dir = v3_norm(lk->sun_dir), .sun_intensity = lk->sun_intensity, .sun_color = lk->sun_color,
         .sky_ambient = lk->sky_ambient, .ground_ambient = lk->ground_ambient,
-        .fog_color = lk->fog_color, .fog_density = lk->fog_density, .fog_height_base = lk->fog_base,
-        .fog_height_falloff = lk->fog_falloff, .fog_scatter = lk->fog_scatter, .fog_start = lk->fog_start,
+        .fog_color = lk->fog_color, .fog_density = lk->fog_density / qfar, .fog_height_base = lk->fog_base,
+        .fog_height_falloff = lk->fog_falloff, .fog_scatter = lk->fog_scatter, .fog_start = lk->fog_start * qfar,
         .toon_softness = lk->toon_softness, .shadow_floor = lk->shadow_floor, .rim_power = lk->rim_power,
         .sky_zenith = lk->sky_zenith, .sky_horizon = lk->sky_horizon, .sky_ground = lk->sky_ground,
         .sun_glow = lk->sun_glow, .stars = lk->stars, .sky_fog_blend = lk->sky_fog_blend,

@@ -186,11 +186,16 @@ jobs:
 
       # The portable build chdir's next to its own executable (see the Windows render smoke step's
       # comment above), so bench.json lands in dist/bin regardless of the shell's own cwd.
-      - name: Run the four bench paths
+      # Twice, because a shared CI runner is noisier than the 15% gate is wide. bench_check.py
+      # takes the lowest median per path across the runs it is given: noise only ever adds time,
+      # so of two runs of identical work the faster one is the one closer to what the work costs.
+      - name: Run the four bench paths (twice)
         working-directory: dist/bin
         env:
           HOLLOW_SILENT: '1'
-        run: ./goonstein --bench bench.json --volume 0
+        run: |
+          ./goonstein --bench bench.json --volume 0
+          ./goonstein --bench bench2.json --volume 0
 
       - name: Print bench.json
         working-directory: dist/bin
@@ -204,10 +209,12 @@ jobs:
           # from it). Remove this flag in the same commit that adds this runner's tag to
           # bench_baseline.json, learned from this job's own bench.json artifact -- until then the
           # job can only print the numbers, not gate on them.
-          python3 ../../tools/bench_check.py ../../bench_baseline.json bench.json --tol 0.15 --allow-missing-baseline
+          python3 ../../tools/bench_check.py ../../bench_baseline.json bench.json bench2.json --tol 0.15 --allow-missing-baseline
 
       - uses: actions/upload-artifact@v4
         with:
           name: bench-macos
-          path: dist/bin/bench.json
+          path: |
+            dist/bin/bench.json
+            dist/bin/bench2.json
           if-no-files-found: error

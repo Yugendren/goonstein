@@ -11,6 +11,7 @@
 #include "platform.h"
 #include "game.h"
 #include "prof.h"
+#include "quality.h"  // quality potato|normal|high: settings.txt key, --quality flag, the startup guess/probe
 #include "camera.h"   // camera_set_mouse_sens: settings.txt owns the sensitivity
 #include "audio.h"
 #include "voice.h"   // --- voice ---
@@ -43,6 +44,7 @@ int main(int argc, char **argv) {
     // HOLLOW_SILENT=1             open no audio playback device at all (automated runs must be
     //                             silent). Implied by either voice hook above. Not the same as
     //                             --volume 0, which mutes the game but leaves voice audible.
+    // --quality potato|normal|high   overrides settings.txt's `quality` line for this run (see quality.h)
     // --menu-test S   drive the main menu without a hand on the keyboard: "host" or "join:HOST:PORT"
     // With none of --host --join --level --start --bot, the game opens on the main menu (GS_MENU).
     // --bench [FILE]        run the four scripted perf paths headless and write FILE (bench.json).
@@ -54,12 +56,13 @@ int main(int argc, char **argv) {
     bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1; bool log_set = false;
     float mouse_sens = 1.0f;   // settings.txt `mouse_sens`: a multiplier on the default radians per mouse pixel
     const char *voice_mode = "ptt"; float voice_vol = 1.0f; int voice_mon = 0;   // --- voice ---
+    char quality_word[32] = ""; bool quality_cli_given = false;   // settings.txt `quality`, or --quality below
     static Game game;   // large; static keeps it off the stack (and zeroed)
-    // settings.txt next to the assets folder: volume V, debug 0|1, hero NAME, fps N (0 = display rate), vsync 0|1, level NAME. Command-line flags override it.
+    // settings.txt next to the assets folder: volume V, debug 0|1, hero NAME, fps N (0 = display rate), vsync 0|1, level NAME, quality potato|normal|high. Command-line flags override it.
     { char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR); size_t sn; char *st = SDL_LoadFile(sp, &sn);
       if (st) { char *cur = st; while (*cur) { char *line = cur; char *nl = strchr(cur, '\n'); if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
           char *hash = strchr(line, '#'); if (hash) *hash = 0; char key[32], val[128];
-          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); else if (!strcmp(key, "fps")) fps_cap = atoi(val); else if (!strcmp(key, "vsync")) vsync = atoi(val); else if (!strcmp(key, "mouse_sens")) mouse_sens = (float)atof(val); else if (!strcmp(key, "voice")) voice_mode = SDL_strdup(val);                       /* --- voice --- */ else if (!strcmp(key, "voice_volume")) voice_vol = (float)atof(val); else if (!strcmp(key, "voice_monitor")) voice_mon = atoi(val); else if (!strcmp(key, "level") && !game.level_path[0]) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, val); } }
+          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); else if (!strcmp(key, "fps")) fps_cap = atoi(val); else if (!strcmp(key, "vsync")) vsync = atoi(val); else if (!strcmp(key, "mouse_sens")) mouse_sens = (float)atof(val); else if (!strcmp(key, "voice")) voice_mode = SDL_strdup(val);                       /* --- voice --- */ else if (!strcmp(key, "voice_volume")) voice_vol = (float)atof(val); else if (!strcmp(key, "voice_monitor")) voice_mon = atoi(val); else if (!strcmp(key, "level") && !game.level_path[0]) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, val); else if (!strcmp(key, "quality")) snprintf(quality_word, sizeof quality_word, "%s", val); } }
       if (SDL_getenv("HOLLOW_FPS")) fps_cap = atoi(SDL_getenv("HOLLOW_FPS"));
       if (SDL_getenv("HOLLOW_NOVSYNC")) vsync = 0;
         SDL_free(st); } }
@@ -90,6 +93,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--log") && i + 1 < argc) { log_set = true; snprintf(game.log_path, sizeof game.log_path, "%s", argv[++i]); }
         else if (!strcmp(argv[i], "--test") && i + 1 < argc) snprintf(game.test_mode, sizeof game.test_mode, "%s", argv[++i]);   // scripted headless check: throw
         else if (!strcmp(argv[i], "--menu-test") && i + 1 < argc) menu_test = argv[++i];   // --- menu --- scripted menu run
+        else if (!strcmp(argv[i], "--quality") && i + 1 < argc) { snprintf(quality_word, sizeof quality_word, "%s", argv[++i]); quality_cli_given = true; }
         // --host/--slots/--join/--name already consumed by netgame_parse_args; skip so they are not mistaken for something else
         else if (!strcmp(argv[i], "--host") && i + 1 < argc) i++;
         else if (!strcmp(argv[i], "--slots") && i + 1 < argc) i++;
@@ -119,6 +123,11 @@ int main(int argc, char **argv) {
     // pixel count -- into off-screen targets and paces the CPU off a fence instead. See
     // platform_begin_frame. Set it here, before platform_init, which is where it is read.
     if (bench_active) SDL_setenv_unsafe("HOLLOW_NOPRESENT", "1", 1);
+    // And no microphone. Voice opens a real capture device and encodes Opus on the game thread at
+    // a bitrate that varies with what the room sounds like, which showed up as the shootout path
+    // swinging between 2.1 and 3.7 ms from run to run while its draw counts stayed identical to
+    // the draw. A benchmark cannot listen to the room.
+    if (bench_active) voice_mode = "off";
     if (bench_active) {
         bool level_given = false;
         for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--level")) level_given = true;
@@ -127,6 +136,28 @@ int main(int argc, char **argv) {
         menu_boot = false;
         SDL_setenv_unsafe("HOLLOW_BOT", "shoot", 1);
     }
+
+    // Resolve the quality tier before anything GPU-shaped exists: small_hdr (quality_apply_early,
+    // below) has to be decided before gfx_init creates the swapchain's HDR target. A bench run
+    // must not depend on the player's settings.txt tier, must not guess or probe (both take real
+    // frames a benchmark can't afford to spend on itself), and must not write settings.txt back --
+    // a benchmark that changes the ground it's measured on is not a benchmark -- so it ignores
+    // whatever settings.txt said unless --quality asked for a tier explicitly, and defaults to normal.
+    if (bench_active && !quality_cli_given) quality_word[0] = 0;
+    bool quality_was_unset = false;
+    Quality startup_quality;
+    if (quality_word[0]) { startup_quality = quality_parse(quality_word, Q_NORMAL); quality_set(startup_quality); }
+    else if (!bench_active) startup_quality = quality_startup(&quality_was_unset);
+    else { startup_quality = Q_NORMAL; quality_set(startup_quality); }
+    if (quality_was_unset && !bench_active) {
+        quality_probe_start();   // only when settings.txt had no `quality` line
+        // Park the guess in settings.txt right away, so the next run starts from it instead of
+        // guessing again even if this run never reaches the two-second probe (killed early, a
+        // crash, --frames cutting it short). If the probe below finds the guess wrong it corrects
+        // this same line in place.
+        game_settings_set(&game, "quality", quality_name(startup_quality));
+    }
+    quality_apply_early(startup_quality);
 
     Platform pf;
     if (!platform_init(&pf, "hollow", 1280, 800)) {
@@ -139,6 +170,11 @@ int main(int argc, char **argv) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "gfx init failed: %s", SDL_GetError());
         return 1;
     }
+    // load_defs (inside game_init_gfx) already re-asserted this tier once, before its own texture
+    // loads -- see the comment there. Calling it again here is a cheap no-op (gfx_set_render_scale
+    // and gfx_set_shadow_size both skip the rebuild when the size did not change) and is the one
+    // place quality_apply runs unconditionally, whatever the level did or did not just do.
+    quality_apply(&game, startup_quality);
     pf.debug = debug_on;
     if (console_on) game_set_tool(&game, 1);
     if (start) game_start_at(&game, start);
@@ -222,6 +258,10 @@ int main(int argc, char **argv) {
             accumulator -= TICK_DT;
         }
         prof_end(PROF_TICK);
+
+        // The two-second probe (armed only when settings.txt had no `quality` line): never runs
+        // during --bench, which must not probe and must not write settings.txt under itself.
+        if (!bench_active) quality_probe_frame(&game, &pf);
 
         { Uint64 rn = SDL_GetPerformanceCounter();
           if (perf_n < PERF_MAX) perf_ms[perf_n++] = (float)((double)(rn - real_prev) * 1000.0 / (double)freq);
