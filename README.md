@@ -614,7 +614,12 @@ that `summit` is still looking at the island. A bench run sets `HOLLOW_NOPRESENT
 above, forces the island level, skips the menu and never writes to `settings.txt`.
 
 `tools/bench_check.py BASELINE NEW [NEW2 ...] [--tol 0.15]` compares against `bench_baseline.json`
-and fails any path more than 15% slower. Give it several runs and it uses the lowest median per
+and fails any path more than 15% slower. A machine may set its own tolerance in that file, and the
+GitHub macOS runner does: three shared cores and a shared GPU gave 8.0 ms and 22.7 ms for the same
+`summit` path twenty minutes apart, so what the gate catches *there* is a doubling, not a drift. A
+baseline is also set to what the check's own procedure reliably produces rather than to the best
+the machine has ever done -- a baseline the check cannot reach is a check that fails on a good day
+and then gets ignored. Give it several runs and it uses the lowest median per
 path: noise only ever adds time, so of N runs of identical work the fastest is the one closest to
 what the work costs. The baseline also records the draw and triangle counts each number was taken
 at, and the check shouts when those have moved more than 5% -- a baseline is a number about a
@@ -622,7 +627,10 @@ at, and the check shouts when those have moved more than 5% -- a baseline is a n
 response is to re-take it in the same commit. The baseline is keyed by **machine tag** --
 `driver/platform/cores`, e.g. `metal/macOS/10` -- because 1.8 ms a frame is a fact about one M4 and
 a lie about anything else. A tag with no entry means "nothing to compare against". The `bench` job
-in `.github/workflows/ci.yml` runs this on `macos-latest` and uploads the JSON.
+in `.github/workflows/ci.yml` runs this on `macos-latest` three times and uploads the JSON. That
+runner's tag is `metal/macOS/3` and it is a genuinely slower machine than the one above -- 4.3,
+4.6, 10.0 and 6.1 ms for the four paths against 1.7 to 2.0 here -- which makes it the only
+non-Apple-Silicon-laptop data point this project has.
 
 #### What it costs now
 

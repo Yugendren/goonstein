@@ -3,25 +3,50 @@
   "tolerance": 0.15,
   "machines": {
     "metal/macOS/10": {
+      "_note": "The dev machine, an M4 laptop. These are not the fastest this machine has produced -- that is 1.740 / 1.689 / 2.017 / 1.818 and it is what README quotes -- but the worst that the gate's OWN procedure (the lowest median of three runs) produced across five runs of an unchanged tree. A baseline has to be reachable by the check that reads it, or the check fails on a good day and everyone learns to ignore it.",
       "pier": {
-        "frame_ms_median": 1.74,
+        "frame_ms_median": 1.79,
         "draws": 548,
         "tris": 2649008
       },
       "courtyard": {
-        "frame_ms_median": 1.689,
+        "frame_ms_median": 2.093,
         "draws": 498,
         "tris": 1854040
       },
       "summit": {
-        "frame_ms_median": 2.017,
+        "frame_ms_median": 2.274,
         "draws": 531,
         "tris": 3351317
       },
       "shootout": {
-        "frame_ms_median": 1.818,
+        "frame_ms_median": 1.975,
         "draws": 616,
         "tris": 2130606
+      }
+    },
+    "metal/macOS/3": {
+      "_note": "A GitHub-hosted macOS runner: three shared cores and a shared GPU. Numbers learned from the `Perf bench (macOS)` job's own bench.json, lowest median of its three runs.",
+      "_tolerance": 0.5,
+      "pier": {
+        "frame_ms_median": 4.303,
+        "draws": 550,
+        "tris": 2128569
+      },
+      "courtyard": {
+        "frame_ms_median": 4.582,
+        "draws": 462,
+        "tris": 1643377
+      },
+      "summit": {
+        "frame_ms_median": 10.037,
+        "draws": 495,
+        "tris": 2342178
+      },
+      "shootout": {
+        "frame_ms_median": 6.084,
+        "draws": 581,
+        "tris": 1961190
       }
     }
   }

@@ -205,12 +205,12 @@ jobs:
       - name: Compare against the baseline
         working-directory: dist/bin
         run: |
-          # --allow-missing-baseline: this runner's machine_tag is not in bench_baseline.json yet
-          # (a GitHub-hosted macOS runner's GPU/driver/core count has never had a bench run learned
-          # from it). Remove this flag in the same commit that adds this runner's tag to
-          # bench_baseline.json, learned from this job's own bench.json artifact -- until then the
-          # job can only print the numbers, not gate on them.
-          python3 ../../tools/bench_check.py ../../bench_baseline.json bench.json bench2.json bench3.json --tol 0.15 --allow-missing-baseline
+          # This runner's tag (metal/macOS/3) is in bench_baseline.json with a tolerance of its
+          # own: three shared cores and a shared GPU swing far too wide for the 15% this project
+          # holds itself to on a real machine, so what the gate catches here is a doubling. If a
+          # content change moves the draw or triangle counts, the check says so by name and the
+          # answer is to re-take the baseline in that same commit -- not to widen this.
+          python3 ../../tools/bench_check.py ../../bench_baseline.json bench.json bench2.json bench3.json --tol 0.15
 
       - uses: actions/upload-artifact@v4
         with:

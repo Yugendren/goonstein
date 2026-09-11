@@ -79,7 +79,16 @@ def main():
         print(f"\nbench: FAILED (no baseline for \"{tag}\")")
         return 1
 
-    base_paths = machines[tag]
+    base_paths = dict(machines[tag])
+    # A machine may set its own tolerance. A GitHub-hosted macOS runner is three shared cores and
+    # a shared GPU: the same four paths came back at 8.0 and 22.7 ms for `summit` in two runs
+    # twenty minutes apart, with p90s over 40. A 15% gate on that is a coin toss, and a coin-toss
+    # gate gets ignored and then deleted. What it can still catch there is a doubling.
+    tol = args.tol
+    if "_tolerance" in base_paths:
+        tol = float(base_paths.pop("_tolerance"))
+        print(f"(tolerance {tol * 100:.0f}% for \"{tag}\", from the baseline file)")
+    base_paths.pop("_note", None)
     new_paths = {p["name"]: p for p in new.get("paths", [])}
 
     names = list(base_paths.keys())
@@ -113,8 +122,8 @@ def main():
             continue
         now_val = now_entry["frame_ms_median"]
         delta = (now_val - base_val) / base_val if base_val > 0 else 0.0
-        regressed = delta > args.tol
-        status = f"REGRESSED  (tolerance {args.tol * 100:.0f}%)" if regressed else "ok"
+        regressed = delta > tol
+        status = f"REGRESSED  (tolerance {tol * 100:.0f}%)" if regressed else "ok"
         if regressed:
             ok = False
         print(f"{name:<12} {base_val:9.3f} {now_val:9.3f}   {delta * 100:+.1f}%  {status}")
