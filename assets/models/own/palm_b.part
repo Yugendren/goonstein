@@ -1,0 +1,9 @@
+# palm_b -- the leaning beach palm, 7 m, the trunk bent almost horizontal at the crown
+#
+# One piece, and that is the point: the mesh is a single glTF with two materials (bark and the
+# cut-out frond), so the prop instancer collapses every palm on the island into two batches. The
+# .part exists only to carry the trunk's collider, which a bare model prop has no way to declare.
+# The trunk is thin enough that the orbit camera ignores it and does not shorten against palms.
+# Built by tools/palm/make_palm.py; do not hand-edit the glTF.
+collide 0.30 6.0
+piece models/own/palm_b.glb  0 0 0   1 1 1   0 0 0   1 1 1
