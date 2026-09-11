@@ -1,8 +1,10 @@
-# Goon C: Pip -- Quaternius ranger, unarmed, teal-cyan outfit.
+# Goon C: Pip -- Quaternius ranger, unarmed anims, teal-cyan outfit.
 model models/quaternius/ranger_male.glb
 scale 0.90
 texture_size 512
 yaw_offset 0
+# lands with the pistol in the weapon hand (assets/items/pistol.txt)
+spawn pistol
 # voice chat: small and high: pitched up with a smaller vocal tract to match
 voice 1.35 1.15 none
 recolor 45 72 27  25 150 150

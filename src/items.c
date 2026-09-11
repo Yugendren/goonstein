@@ -134,6 +134,29 @@ void items_load_level(Game *g) {
     if (its->n) dbg_log("items: %d placed, hold volume %s", its->n, its->hold_valid ? "found" : "missing");
 }
 
+// --- loadouts --- The weapon a character file's `spawn` line hands a slot, created the moment that
+// slot is seated. Everything about it after this is ordinary: it has a body, a value, a def and a
+// stable id, and whoever ends up with it can drop it, throw it or lose it in the sea.
+int items_spawn_loadout(Game *g, int slot, const char *name, Vec3 at) {
+    Items *its = &g->items;
+    if (slot < 0 || slot >= NET_MAX_PLAYERS || !name || !name[0]) return -1;
+    int have = items_find_id(its, ITEM_LOADOUT_ID(slot));
+    if (have >= 0) return have;                    // this slot already has its item in this level
+    int d = itemdef_get(its, name);
+    if (d < 0) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "spawn: slot %d asks for item '%s', which does not load; it lands empty handed", slot, name); return -1; }
+    if (its->n >= ITEMS_MAX) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "spawn: no room for slot %d's %s (%d items)", slot, name, its->n); return -1; }
+    const ItemDef *def = &its->defs[d];
+    int body = def->radius > 0 ? phys_add_sphere(&g->phys, at, quat_identity(), def->radius, def->mass)
+                               : phys_add_box(&g->phys, at, quat_identity(), def->half, def->mass);
+    if (body < 0) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "spawn: out of physics bodies for slot %d's %s", slot, name); return -1; }
+    Item *it = &its->it[its->n]; memset(it, 0, sizeof *it);
+    g->phys.b[body].user = its->n;
+    it->used = true; it->def = d; it->body = body; it->id = ITEM_LOADOUT_ID(slot);
+    it->held_by = -1; it->pos = at; it->rot = quat_identity(); it->dirty = true;
+    dbg_log("spawn: slot %d gets a %s (item %d, id %u)", slot, def->name, its->n, (unsigned)it->id);
+    return its->n++;
+}
+
 int items_find_id(const Items *its, uint16_t id) {
     for (int i = 0; i < its->n; i++) if (its->it[i].used && its->it[i].id == id) return i;
     return -1;

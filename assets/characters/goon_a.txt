@@ -1,8 +1,10 @@
-# Goon A: Dez -- Quaternius ranger, unarmed, rust-red/orange outfit.
+# Goon A: Dez -- Quaternius ranger, unarmed anims, rust-red/orange outfit.
 model models/quaternius/ranger_male.glb
 scale 1.05
 texture_size 512
 yaw_offset 0
+# lands with the shotgun in the weapon hand (assets/items/shotgun.txt)
+spawn shotgun
 # voice chat: a big slow voice: pitched down, tract left alone
 voice 0.85 1.00 none
 recolor 45 72 27  190 90 40

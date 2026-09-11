@@ -475,9 +475,27 @@ void game_spawn_player(Game *g, int slot) {
     game_ground_character(g, &g->players[slot].c, 0);
 }
 
+// --- loadouts --- What a goon lands holding. The character file says `spawn shotgun`; the item is
+// an ordinary item from the moment it exists -- droppable, throwable, breakable, worth what it is
+// worth -- it is simply put in the hand by the host instead of by a hand. Equipping goes through
+// weapons_equip, the same call E makes, so a client learns about it exactly as it learns about a
+// mate picking a shotgun up off the sand.
+void game_give_loadout(Game *g, int slot) {
+    if (slot < 0 || slot >= NET_MAX_PLAYERS) return;
+    game_ensure_player_model(g, slot);
+    const char *name = g->player_models[slot].spec.spawn;
+    if (!name[0]) return;
+    Vec3 at = g->players[slot].c.pos; at.y += 0.6f;   // at the goon's hip, not in the sand
+    int item = items_spawn_loadout(g, slot, name, at);
+    if (item < 0 || g->net.mode == NM_CLIENT) return;   // a client is told what is in whose hands
+    if (g->weapons.w[slot].item >= 0) return;           // one hand, one weapon: it kept the last one
+    if (!weapons_equip(g, slot, item))
+        dbg_log("spawn: slot %d could not be handed its %s", slot, name);
+}
+
 static void reset_to_start(Game *g) {
     level_reset_triggers(&g->level);
-    for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) game_spawn_player(g, i);
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) { game_spawn_player(g, i); game_give_loadout(g, i); }
     boss_init(&g->boss, &g->boss_def, g->level.boss_spawn, g->level.boss_yaw);
     g->boss.state = BS_SCRIPTED;   // dormant until the fight starts
     g->state = GS_EXPLORE; g->state_t = 0;

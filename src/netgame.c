@@ -69,6 +69,7 @@ static void seat(Game *g, int slot, const char *name) {
     snprintf(s->name, sizeof s->name, "%s", name && name[0] ? name : "player");
     game_ensure_player_model(g, slot);
     game_spawn_player(g, slot);
+    game_give_loadout(g, slot);   // --- loadouts --- the weapon this slot's character file asks for
 }
 
 static void unseat(Game *g, int slot) {

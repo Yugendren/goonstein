@@ -125,9 +125,19 @@ bool items_bot_input(struct Game *g, struct Input *in);
 // Where the bot is trying to get to right now, for the log line. (0,0,0) when idle.
 Vec3 items_bot_target(const struct Game *g);
 
+// --- loadouts --- The network id of the item a character file's `spawn` line hands slot N. It is
+// fixed by the slot instead of taken from the running counter on purpose: a client can only be told
+// about item ids it already has, so an item that appears after the level has loaded has to be
+// created with the same id on every side. Host and clients each make their own copy when a slot is
+// seated; only the host puts it in a hand, and that travels exactly like any other pick-up.
+#define ITEM_LOADOUT_ID(slot) ((uint16_t)(0xFF00u + (unsigned)(slot)))
+
 // ---- core (items.c) -----------------------------------------------------------------------
 void items_reset(struct Game *g);                 // drop everything, free the bodies
 void items_load_level(struct Game *g);            // spawn from the level's `item` lines
+// One loadout item for `slot`, at `at`, with the id above. Returns its index, the existing one if
+// this slot already has its item in this level, or -1 (unknown item name, no room, no bodies left).
+int  items_spawn_loadout(struct Game *g, int slot, const char *name, Vec3 at);
 // One tick. The host (and single player) simulates; a client predicts the item in its own hands
 // and pins everything else where the interpolation puts it.
 void items_tick(struct Game *g, const struct Input *in, float dt);

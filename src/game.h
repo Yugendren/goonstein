@@ -111,6 +111,11 @@ void game_ensure_player_model(Game *g, int slot);
 void game_ground_character(Game *g, Character *c, float dt);
 // Puts players[slot] at the level spawn, spread out.
 void game_spawn_player(Game *g, int slot);
+// --- loadouts --- The weapon this slot's character file asks for with `spawn ITEM`: the item is
+// created (with the slot's fixed id, so every side has it) and, on the host, put in the weapon
+// hand. A no-op for a character with no `spawn` line, a hand that is already full, or a slot whose
+// item exists already. Called wherever a slot is seated: solo start, host start, a client joining.
+void game_give_loadout(Game *g, int slot);
 // Re-seat the camera on the local player for the level's view mode (spawns, restarts, joining).
 void game_snap_camera(Game *g);
 // settings.txt: replace or add one `key value` line, keeping the rest (comments included).

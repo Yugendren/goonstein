@@ -188,7 +188,7 @@ The game is meant to be edited without touching C:
 | Cutscenes             | `assets/scenes/*.txt`        | `assets/scenes/README.md`  |
 | Dialogue portraits    | `assets/portraits.txt`       | speaker name and image     |
 | Boss move sets        | `assets/enemies/*.txt`       | comments in `warden.txt`   |
-| Character bindings (sprite or model) | `assets/characters/*.txt` | comments in `src/charmodel.h` |
+| Character bindings, voice, spawn weapon | `assets/characters/*.txt` | comments in `src/charmodel.h` |
 | Sprite sheets and frame animations | `assets/sprites/*.txt` | comments in `src/sprite.h` |
 | Player tuning         | `assets/player.txt`          | comments in the file       |
 | Look (fog, light)     | `fog` / `light` lines in the level |                      |
@@ -300,7 +300,32 @@ keeps working exactly as it did, so a pistol in one hand and a painting in the o
 a very stupid way to travel.
 
 The island starts with a bat and a wrench by the bunkhouse and a pistol and a shotgun down by the
-boat. The goons land unarmed.
+boat, and each goon lands holding whatever its character file asks for.
+
+**Spawn loadouts.** One line in `assets/characters/NAME.txt` names the weapon that character is
+seated with:
+
+    spawn shotgun
+
+| Slot | Character | `spawn` | Lands with |
+|---|---|---|---|
+| 0 | `goon_a` (Dez)   | `shotgun` | six shells |
+| 1 | `goon_b` (Marko) | `bat`     | a bat |
+| 2 | `goon_c` (Pip)   | `pistol`  | twelve rounds |
+| 3 | `goon_d` (Bunny) | `wrench`  | a pipe wrench |
+
+The name is an item file under `assets/items`; an unknown one is a warning in the log and empty
+hands. The host creates the item the moment a slot is seated -- solo start, host start, or a client
+joining mid-run -- and puts it in the weapon hand through `weapons_equip`, the same call `E` makes,
+with a full magazine. Everyone else therefore learns about it exactly as they learn about a mate
+picking a shotgun up off the sand, and from that moment it is an ordinary item: put it down with
+`G`, throw it, break it, lose it in the sea. Nobody is handed a second one -- there is one loadout
+item per slot per level, and a goon who already has something in the weapon hand keeps it.
+
+Because a loadout item appears *after* the level has loaded, its network id is fixed by the slot
+(`ITEM_LOADOUT_ID` in `src/items.h`) instead of taken from the running counter: a client can only be
+told about item ids it already has, so host and clients each create their own copy when a slot is
+seated and the host alone decides whose hand it is in.
 
 **Controls.** Left mouse fires or swings; hold it for a gun, tap it for a bat. `R` reloads (1.2 s;
 an empty gun clicks at you first). `Q` or the scroll wheel draws and holsters, swapping the left
@@ -428,7 +453,8 @@ and edges follow. BORROW PARTS mixes the nine KayKit files: they share one skele
 skeleton arm or a barbarian axe can be put on any body with no rigging (hide the part it replaces,
 then borrow; `borrow FILE NODE` lines). ANIMATION picks a fighting style, AUTO BIND fills every game action from the
 clip names, and any clip previews on the hero. SAVE writes `assets/characters/NAME.txt`
-(`model`, `hide`, `borrow`, `recolor`, `attach`, `anim` lines); SAVE + USE AS HERO also sets it as the hero
+(`model`, `hide`, `borrow`, `recolor`, `attach`, `anim` lines, and the `spawn` and `voice` lines it
+was loaded with); SAVE + USE AS HERO also sets it as the hero
 in `assets/settings.txt`. `--hero NAME` plays it, overriding only the local player's slot character.
 
 ### Lighting

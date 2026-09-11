@@ -1,8 +1,10 @@
-# Goon B: Marko -- Quaternius ranger, unarmed, olive-yellow outfit.
+# Goon B: Marko -- Quaternius ranger, unarmed anims, olive-yellow outfit.
 model models/quaternius/ranger_male.glb
 scale 1.15
 texture_size 512
 yaw_offset 0
+# lands with the bat in the weapon hand (assets/items/bat.txt)
+spawn bat
 # voice chat: straight pitch, but everything he says sounds like a walkie-talkie
 voice 1.00 1.00 radio
 recolor 45 72 27  168 140 35

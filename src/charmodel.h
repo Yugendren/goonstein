@@ -9,6 +9,10 @@
 //   borrow FILE NODE           draw mesh node NODE from another rigged FILE (relative to assets/)
 //       on this character's skeleton. The KayKit rigs share joint names and inverse binds, so a
 //       Mage hat rides a Knight. Hiding the part it replaces is up to you (hide Knight_Helmet).
+//   spawn  ITEM               the weapon this character lands holding: an item file name from
+//       assets/items (shotgun, bat, pistol, wrench). The host spawns one per seated slot and puts
+//       it straight in the weapon hand; it is an ordinary item from then on. An unknown name is a
+//       warning and empty hands. See README.md, "Weapons".
 //   voice  PITCH FORMANT EFFECT
 //       this character's voice chat preset: pitch multiplier (0.5..2), formant multiplier
 //       (0.7..1.5) and one of none|radio|ring. Applied at the microphone before Opus, so
@@ -32,6 +36,7 @@ typedef struct AnimBinding { int clip; bool loop, hold; float contact, rate; } A
 #define CHAR_MAX_BORROW_FILES 8
 typedef struct CharSpec {
     char model[256], sprite[256];        // one of the two is set (relative to assets/)
+    char spawn[32];                      // `spawn ITEM`: the weapon this slot is seated holding
     float scale, yaw_offset_deg; int tex_size;
     char hidden[SPEC_MAX_HIDDEN][48]; int nhidden;
     unsigned char rc_from[SPEC_MAX_RECOLOR][3], rc_to[SPEC_MAX_RECOLOR][3]; int nrecolor;

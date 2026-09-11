@@ -21,6 +21,11 @@ bool charmodel_spec_load(CharSpec *sp, const char *config_path) {
         else if (!strcmp(key, "sprite")) { char *v = strtok(NULL, " \t\r"); if (v) snprintf(sp->sprite, sizeof sp->sprite, "%s", v); }
         else if (!strcmp(key, "texture_size")) { char *v = strtok(NULL, " \t\r"); if (v) sp->tex_size = atoi(v); }
         else if (!strcmp(key, "scale")) { char *v = strtok(NULL, " \t\r"); if (v) sp->scale = (float)atof(v); }
+        else if (!strcmp(key, "spawn")) {   // spawn ITEM  (the weapon this slot is seated holding)
+            char *v = strtok(NULL, " \t\r");
+            if (v) snprintf(sp->spawn, sizeof sp->spawn, "%s", v);
+            else SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d spawn needs an item name", config_path, ln);
+        }
         else if (!strcmp(key, "voice")) {   // voice PITCH FORMANT EFFECT  (voice chat preset, see src/voice.h)
             char *vp = strtok(NULL, " \t\r"), *vf = strtok(NULL, " \t\r"), *ve = strtok(NULL, " \t\r");
             if (vp) sp->voice_pitch = (float)atof(vp);
@@ -73,6 +78,7 @@ bool charmodel_spec_save(const CharSpec *sp, const char *config_path) {
     fprintf(f, "# Character built in the character builder. model / hide / borrow / recolor / attach / anim lines; see src/charmodel.h\n");
     if (sp->model[0]) fprintf(f, "model %s\n", sp->model); else fprintf(f, "sprite %s\n", sp->sprite);
     fprintf(f, "scale %.3f\ntexture_size %d\nyaw_offset %.1f\n", sp->scale, sp->tex_size, sp->yaw_offset_deg);
+    if (sp->spawn[0]) fprintf(f, "spawn %s\n", sp->spawn);
     if (sp->has_voice) fprintf(f, "voice %.2f %.2f %s\n", sp->voice_pitch, sp->voice_formant, voice_effect_name(sp->voice_effect));
     if (sp->nhidden) { fprintf(f, "hide"); for (int i = 0; i < sp->nhidden; i++) fprintf(f, " %s", sp->hidden[i]); fprintf(f, "\n"); }
     for (int i = 0; i < sp->nrecolor; i++) fprintf(f, "recolor %d %d %d  %d %d %d\n", sp->rc_from[i][0], sp->rc_from[i][1], sp->rc_from[i][2], sp->rc_to[i][0], sp->rc_to[i][1], sp->rc_to[i][2]);

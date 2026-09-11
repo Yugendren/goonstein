@@ -1,8 +1,10 @@
-# Goon D: Bunny -- Quaternius ranger, unarmed, purple-magenta outfit.
+# Goon D: Bunny -- Quaternius ranger, unarmed anims, purple-magenta outfit.
 model models/quaternius/ranger_male.glb
 scale 1.00
 texture_size 512
 yaw_offset 0
+# lands with the wrench in the weapon hand (assets/items/wrench.txt)
+spawn wrench
 # voice chat: faintly robotic: a bigger tract and a 55 Hz ring modulator
 voice 1.00 0.90 ring
 recolor 45 72 27  140 35 120

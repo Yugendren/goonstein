@@ -112,6 +112,7 @@ static void net_off(Game *g) {
     snprintf(g->net.name, sizeof g->net.name, "%s", m->name.buf);
     game_ensure_player_model(g, 0);
     game_spawn_player(g, 0);
+    game_give_loadout(g, 0);
     game_snap_camera(g);
     m->nips = 0; m->joined = false;
 }
