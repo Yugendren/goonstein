@@ -41,7 +41,8 @@ def print_baseline_block(new):
     paths = new.get("paths", [])
     for i, p in enumerate(paths):
         comma = "," if i + 1 < len(paths) else ""
-        print(f"      \"{p['name']}\": {{\"frame_ms_median\": {p['frame_ms_median']:.3f}}}{comma}")
+        print(f"      \"{p['name']}\": {{\"frame_ms_median\": {p['frame_ms_median']:.3f},"
+              f" \"draws\": {p['draws']}, \"tris\": {p['tris']}}}{comma}")
     print("    }")
 
 
@@ -96,6 +97,15 @@ def main():
             # -- it is new data, not a regression of anything the baseline promised.
             print(f"{name:<12} {'-':>9} {now_entry['frame_ms_median']:9.3f}   (no baseline for this path)")
             continue
+        # A baseline is a number about a scene as much as about a build. If the draw or triangle
+        # counts have moved, the level's content changed under the baseline and the two numbers
+        # are not measuring the same picture -- say so loudly, because a "regression" that is
+        # really a hundred new props is a waste of somebody's afternoon.
+        for key in ("draws", "tris"):
+            was, now = base_entry.get(key), (now_entry or {}).get(key)
+            if was and now and abs(now - was) > 0.05 * was:
+                print(f"{name:<12} NOTE: {key} {was} -> {now} ({100.0 * (now - was) / was:+.0f}%): the level's"
+                      f" content changed since this baseline was taken. Re-take it.")
         base_val = base_entry["frame_ms_median"]
         if now_entry is None:
             print(f"{name:<12} {base_val:9.3f} {'-':>9}   MISSING from this run")

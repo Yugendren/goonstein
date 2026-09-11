@@ -71,6 +71,11 @@ float prof_p90(ProfPhase p);
 float prof_counter_median(ProfCounter c);
 int   prof_frames(void);                          // frames in the history ring, warm-up dropped
 
+// How many frames after a reset are dropped before the median starts counting. 60 by default,
+// which is right for a played session; the benchmark asks for more, so that a GPU coming up from
+// idle has finished doing so before anything is timed. See BENCH_WARMUP_FRAMES in bench.c.
+void prof_set_warmup(int frames);
+
 // Throw away everything recorded so far. The benchmark calls this when a camera path starts so the
 // loading frames of the path before it do not land in its median.
 void prof_reset(void);

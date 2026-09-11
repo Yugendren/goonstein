@@ -11,7 +11,14 @@
 #define PROF_WARMUP 60          // frames dropped from median/p90 so JIT-ish one-time costs (shader
                                  // warm-up, first-touch page faults, the level's first hot-reload
                                  // check) do not drag a whole run's number around
-#define PROF_MIN_FOR_WARMUP (PROF_WARMUP + 8)   // below this, dropping 60 would leave almost nothing
+#define PROF_MIN_FOR_WARMUP (g_warmup + 8)      // below this, dropping the warm-up would leave almost nothing
+
+// How many frames after a reset are thrown away. 60 is right for a played session; the benchmark
+// asks for more, because a GPU that has been idle needs longer than sixty frames to come up to
+// clock and a median taken across that ramp is a median of two different machines. See
+// prof_set_warmup and BENCH_WARMUP_FRAMES.
+static int g_warmup = PROF_WARMUP;
+void prof_set_warmup(int frames) { g_warmup = frames < 0 ? 0 : frames; }
 
 static const char *PHASE_NAMES[PROF_COUNT] = {
     "frame", "input", "tick", "phys", "items", "net", "game", "render", "cull", "shadow",
@@ -135,7 +142,7 @@ static void usable_range(int *out_base, int *out_count, bool *out_short_run) {
     bool short_run = frames_seen < PROF_MIN_FOR_WARMUP;
     // Once the ring has wrapped, its oldest frame is already long past frame 60, so there is no
     // warm-up left inside it to drop.
-    int warmup = (!short_run && frames_seen < PROF_HISTORY) ? PROF_WARMUP : 0;
+    int warmup = (!short_run && frames_seen < PROF_HISTORY) ? g_warmup : 0;
     int usable = ring_count - warmup;
     if (usable < 0) usable = 0;
     int base = ((hist_write - usable) % PROF_HISTORY + PROF_HISTORY) % PROF_HISTORY;

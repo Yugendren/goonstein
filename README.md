@@ -613,8 +613,13 @@ triangle / batch counts per path. `--bench-shots DIR` drops a PNG of each path s
 that `summit` is still looking at the island. A bench run sets `HOLLOW_NOPRESENT` for the reason
 above, forces the island level, skips the menu and never writes to `settings.txt`.
 
-`tools/bench_check.py BASELINE NEW [--tol 0.15]` compares a run against `bench_baseline.json` and
-fails any path more than 15% slower. The baseline is keyed by **machine tag** --
+`tools/bench_check.py BASELINE NEW [NEW2 ...] [--tol 0.15]` compares against `bench_baseline.json`
+and fails any path more than 15% slower. Give it several runs and it uses the lowest median per
+path: noise only ever adds time, so of N runs of identical work the fastest is the one closest to
+what the work costs. The baseline also records the draw and triangle counts each number was taken
+at, and the check shouts when those have moved more than 5% -- a baseline is a number about a
+*scene* as much as about a build, so changing the island's content invalidates it and the right
+response is to re-take it in the same commit. The baseline is keyed by **machine tag** --
 `driver/platform/cores`, e.g. `metal/macOS/10` -- because 1.8 ms a frame is a fact about one M4 and
 a lie about anything else. A tag with no entry means "nothing to compare against". The `bench` job
 in `.github/workflows/ci.yml` runs this on `macos-latest` and uploads the JSON.
@@ -629,12 +634,18 @@ compares one thing, not two builds of two commits. "After" is the shipping defau
 
 | path | before | after | | draws | | triangles | |
 |---|---|---|---|---|---|---|---|
-| `pier` | 4.522 ms | **1.912 ms** | -58% | 5703 | **551** | 7 025 905 | **2 706 696** |
-| `courtyard` | 4.405 ms | **1.712 ms** | -61% | 3665 | **507** | 3 739 822 | **1 945 250** |
-| `summit` | 6.173 ms | **2.072 ms** | -66% | 6323 | **537** | 10 052 497 | **3 484 922** |
-| `shootout` | 4.437 ms | **1.894 ms** | -57% | 3940 | **622** | 4 091 213 | **2 200 094** |
+| `pier` | 4.068 ms | **1.740 ms** | -57% | 2154 | **548** | 6 920 233 | **2 649 008** |
+| `courtyard` | 4.119 ms | **1.689 ms** | -59% | 1612 | **498** | 3 676 198 | **1 854 040** |
+| `summit` | 6.033 ms | **2.017 ms** | -67% | 2711 | **531** | 9 940 753 | **3 351 317** |
+| `shootout` | 4.335 ms | **1.818 ms** | -58% | 1749 | **616** | 4 021 992 | **2 130 606** |
 
-Draw counts are both passes together, the sun's and the camera's.
+Draw counts are both passes together, the sun's and the camera's. On `summit` about 300 of them are
+instanced batches carrying some 2700 prop instances, and the remaining ~230 are not props at all (the
+terrain, the level's blocks, the characters, the items, the viewmodel, the sky, the particle lists
+and the post chain, twice over). 301 is close to the floor for this content: a batch is one
+(mesh, texture) pair, and the island names a hundred and eight distinct prop models, most of them
+photoscans with a texture each. Getting materially below it means an atlas across those scans,
+which is an art-pipeline change and not a renderer one.
 
 #### Instancing
 

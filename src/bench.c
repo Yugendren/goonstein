@@ -3,7 +3,7 @@
 // timed on the real wall clock (see prof.h -- PROF_FRAME is wall time regardless of fixed_step) and
 // dumped as bench.json for tools/bench_check.py.
 //
-// Warm-up: prof.c already drops the first PROF_WARMUP (60) frames of whatever is in its history
+// Warm-up: prof.c drops the first prof_set_warmup() frames of whatever is in its history
 // ring from every median/p90 it reports (see prof.c's usable_range). So a path does NOT run an
 // explicit warm-up loop of its own and then call prof_reset() a second time -- that would be two
 // warm-ups for one path. Instead prof_reset() is called exactly once, at the instant a path's
@@ -27,7 +27,15 @@
 #include <string.h>
 #include <stdio.h>
 
-#define BENCH_WARMUP_FRAMES  60
+// 240 rather than prof's default 60, which is half a second of drawing before the clock starts.
+// Runs of this benchmark vary, and when they do, every phase that touches the driver moves
+// together by the same factor -- shadow, world, post and the swapchain wait all 1.8x -- while
+// `cull`, pure CPU arithmetic over exactly the same props, does not move at all. Whatever that is,
+// it is not this program's workload: a cold or throttled GPU, or another process on the machine.
+// The longer warm-up costs a third of a second a path and removes one of those explanations.
+// It does NOT remove the other: a benchmark on a busy machine is a benchmark of a busy machine,
+// which is why bench_check.py takes the best of several runs.
+#define BENCH_WARMUP_FRAMES  240
 #define BENCH_MEASURE_FRAMES 600
 #define BENCH_LOST_FRAMES    2     // see the top comment: the reset's own first frame, plus the last
                                    // frame's close, which the next path's reset pre-empts
@@ -337,6 +345,7 @@ bool bench_requested(int argc, char **argv, const char **out_json, const char **
 
 void bench_init(Game *g, Platform *pf, const char *json_path, const char *shot_dir) {
     (void)g; (void)pf;
+    prof_set_warmup(BENCH_WARMUP_FRAMES);   // see BENCH_WARMUP_FRAMES: a cold GPU is a different machine
     s_json_path = json_path; s_shot_dir = shot_dir;
     s_path = 0; s_frame = 0; s_need_setup = true; s_nstats = 0;
     memset(s_stats, 0, sizeof s_stats);
