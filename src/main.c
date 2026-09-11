@@ -150,7 +150,7 @@ int main(int argc, char **argv) {
     else if (!bench_active) startup_quality = quality_startup(&quality_was_unset);
     else { startup_quality = Q_NORMAL; quality_set(startup_quality); }
     if (quality_was_unset && !bench_active) {
-        quality_probe_start();   // only when settings.txt had no `quality` line
+        // The probe itself starts further down, once loading is over -- see the comment there.
         // Park the guess in settings.txt right away, so the next run starts from it instead of
         // guessing again even if this run never reaches the two-second probe (killed early, a
         // crash, --frames cutting it short). If the probe below finds the guess wrong it corrects
@@ -195,6 +195,16 @@ int main(int argc, char **argv) {
     // --bench: uncapped and unsynced, so a frame time is the renderer's cost and not the display's
     // (see platform_present_mode_name's own comment on what asking for no vsync actually gets you).
     if (bench_active) { platform_set_vsync(&pf, false); pf.fps_cap = 0; bench_init(&game, &pf, bench_json, bench_shot_dir); }
+
+    // The quality probe's two-second window has to cover two seconds of PLAY. Starting it back
+    // where the tier was guessed put the window inside the level load that follows -- fifteen
+    // seconds of models and textures on this island -- so it had always expired before the first
+    // rendered frame, and quality_probe_frame concluded on frame one against an empty history:
+    // "quality: probe median 0.00ms at normal -- keeping it", on every machine, every time. The
+    // probe could therefore never do the one thing it exists for, which is drop a machine that
+    // cannot hold the 12 ms budget down to potato. Start the clock here instead, after loading,
+    // where quality_probe_start's prof_reset() also lands on the right frame.
+    if (quality_was_unset && !bench_active) quality_probe_start();
 
     // HOLLOW_FIXED_FPS=N is HOLLOW_FIXED_DT's finer sibling: the clock advances 1/N of a second per
     // rendered frame instead of a whole tick, which is the only way to capture a strip of genuinely

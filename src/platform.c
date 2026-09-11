@@ -51,10 +51,20 @@ bool platform_init(Platform *pf, const char *title, int w, int h) {
 #endif
         NULL);
     if (!pf->gpu) return false;
-    if (!SDL_ClaimWindowForGPUDevice(pf->gpu, pf->window)) return false;
+    // Read no_present before claiming: on a Windows box reached over SSH with no interactive
+    // desktop, SDL_ClaimWindowForGPUDevice fails hard (0x887A0022, "A resource is not available
+    // at the time of the call") even though window creation succeeded. That is exactly where a
+    // headless bench wants to run, so HOLLOW_NOPRESENT skips the claim (and the vsync negotiation,
+    // which also needs a claimed window) entirely rather than trying it and dying.
     pf->no_present = SDL_getenv("HOLLOW_NOPRESENT") != NULL;
-    platform_set_vsync(pf, SDL_getenv("HOLLOW_NOVSYNC") == NULL && !pf->no_present);
-    if (pf->no_present) SDL_Log("present mode: none (HOLLOW_NOPRESENT: drawing off screen, two frames in flight on a fence)");
+    if (!pf->no_present) {
+        if (!SDL_ClaimWindowForGPUDevice(pf->gpu, pf->window)) return false;
+        platform_set_vsync(pf, SDL_getenv("HOLLOW_NOVSYNC") == NULL);
+    } else {
+        pf->present_mode = SDL_GPU_PRESENTMODE_IMMEDIATE;
+        pf->vsync = false;
+        SDL_Log("present mode: none (HOLLOW_NOPRESENT: drawing off screen, two frames in flight on a fence)");
+    }
 
     SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(pf->gpu));
     SDL_SetWindowRelativeMouseMode(pf->window, true);
@@ -324,6 +334,12 @@ const char *platform_present_mode_name(const Platform *pf) {
 // panel talking. So try the modes in order, check what each call returns, and keep the first that
 // takes. The mode that won is logged and available to the profiler and the benchmark.
 void platform_set_vsync(Platform *pf, bool on) {
+    // --bench calls this unconditionally after platform_init (main.c), even in HOLLOW_NOPRESENT
+    // mode where the window was never claimed. Without this guard SDL_WindowSupportsGPUPresentMode
+    // fails ("window has not been claimed!"), the fallback branch below overwrites present_mode
+    // with VSYNC, and the bench JSON stops saying "immediate". platform_init already set
+    // present_mode/vsync correctly for no_present, so there is nothing to renegotiate here.
+    if (pf->no_present) return;
     pf->vsync = on;
     SDL_GPUPresentMode order[3]; int n = 0;
     if (on) order[n++] = SDL_GPU_PRESENTMODE_VSYNC;

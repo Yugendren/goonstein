@@ -4,6 +4,7 @@
 #include "quality.h"
 #include "game.h"    // Game.gfx, game_settings_set
 #include "gfx.h"
+#include "platform.h"
 #include "prof.h"
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -111,23 +112,50 @@ void quality_probe_start(void) {
     prof_reset();   // the loading frames before this point are not "real play"; keep them out of the median
 }
 
+// The display's current refresh period in ms, or 0 if the platform/window/mode isn't known yet.
+static float probe_refresh_ms(struct Platform *pf) {
+    if (!pf || !pf->window) return 0.0f;
+    const SDL_DisplayMode *m = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(pf->window));
+    return (m && m->refresh_rate > 0.0f) ? 1000.0f / m->refresh_rate : 0.0f;
+}
+
 bool quality_probe_frame(struct Game *g, struct Platform *pf) {
-    (void)pf;
     if (!g_probing) return false;
     if (SDL_GetTicks() - g_probe_start_ms < 2000) return true;
     g_probing = false;
     Quality before = g_current;
     float median = prof_median(PROF_FRAME);
+    // PROF_FRAME is wall clock start-to-start, so with vsync on it is capped at the display's
+    // refresh period no matter how cheap the frame actually was -- a 60Hz machine reads ~16.7ms
+    // even when it is bored, and a 12ms budget would judge it "slow" forever. So the budget rides
+    // the refresh rate up when vsync is on: a display-limited frame must never trip this, only a
+    // frame that is genuinely late (over budget even after accounting for the wait) should. The
+    // 10% slack absorbs scheduling jitter around the refresh period itself. This never lowers the
+    // budget below 12ms, so a fast/uncapped machine (or a low refresh rate under 12ms, which
+    // doesn't really happen) is still held to the same floor.
+    float budget = 12.0f;
+    // `!no_present` matters: main.c sets pf->vsync back to true from settings.txt after
+    // platform_init cleared it, so under HOLLOW_NOPRESENT the flag still reads true even though
+    // nothing is ever handed to a compositor and no frame is display-limited. Raising the budget
+    // to the refresh period there would forgive a slowness that is entirely the machine's.
+    if (pf && pf->vsync && !pf->no_present) {
+        float refresh = probe_refresh_ms(pf);
+        if (refresh > 0.0f) budget = SDL_max(budget, refresh * 1.10f);
+    }
+    // A frame cap does to PROF_FRAME exactly what vsync does, and it is the player's own choice
+    // rather than a verdict on the hardware: `fps 30` in settings.txt must not be read as "this
+    // machine cannot cope" and answered by quietly dropping them to potato.
+    if (pf && pf->fps_cap > 0) budget = SDL_max(budget, 1000.0f / (float)pf->fps_cap * 1.10f);
     // Only ever drop, never raise: a guess that undershot just means the player enjoys the
     // headroom, which is not a problem worth a startup stutter to go fix.
-    if (median > 12.0f && (before == Q_NORMAL || before == Q_HIGH)) {
+    if (median > budget && (before == Q_NORMAL || before == Q_HIGH)) {
         Quality dropped = before == Q_HIGH ? Q_NORMAL : Q_POTATO;
         quality_apply(g, dropped);
         game_settings_set(g, "quality", quality_name(dropped));
         g_source = "probe";
-        SDL_Log("quality: probe median %.2fms at %s (budget 12ms) -- dropped to %s, wrote settings.txt", (double)median, quality_name(before), quality_name(dropped));
+        SDL_Log("quality: probe median %.2fms at %s (budget %.1fms) -- dropped to %s, wrote settings.txt", (double)median, quality_name(before), (double)budget, quality_name(dropped));
     } else {
-        SDL_Log("quality: probe median %.2fms at %s -- keeping it", (double)median, quality_name(before));
+        SDL_Log("quality: probe median %.2fms at %s (budget %.1fms) -- keeping it", (double)median, quality_name(before), (double)budget);
     }
     return false;
 }

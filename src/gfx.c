@@ -315,7 +315,10 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     g->bloom_a = make_target(g, g->hdr_fmt, g->bw, g->bh, false);
     g->bloom_b = make_target(g, g->hdr_fmt, g->bw, g->bh, false);
     if (!g->hdr || !g->depth || !g->ldr || !g->bloom_a || !g->bloom_b) return false;
-    g->swap_format = SDL_GetGPUSwapchainTextureFormat(g->dev, pf->window);
+    // An unclaimed window (HOLLOW_NOPRESENT) has no swapchain to query a format from; LDR_FMT is
+    // already verified above as a supported colour target and is all swap_format needs to be, since
+    // it only feeds the ui_swap/blit pipelines and the fake_swap stand-in texture.
+    g->swap_format = pf->no_present ? LDR_FMT : SDL_GetGPUSwapchainTextureFormat(g->dev, pf->window);
     SDL_Log("gfx: swapchain format enum %d", (int)g->swap_format);
 
     g->samp_nearest = SDL_CreateGPUSampler(g->dev, &(SDL_GPUSamplerCreateInfo){ .min_filter = SDL_GPU_FILTER_NEAREST, .mag_filter = SDL_GPU_FILTER_NEAREST,
