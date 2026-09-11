@@ -1523,13 +1523,42 @@ static Vec4 slot_draw_tint(const Game *g, int slot, Vec4 flash) {
 float game_render_alpha(const Game *g) { return g->render_alpha; }
 float game_frame_dt(const Game *g) { return g->render_frame_dt; }
 
+// Every switch the render path reads out of the environment, read once.
+//
+// SDL_getenv is not free: SDL3 keeps the environment in a locked hash table, so each call takes a
+// mutex. game_render_at asked it nine questions a frame, plus one per prop-free branch, and the
+// answers cannot change while the process runs -- they are capture and debug switches, set before
+// main() and never again. Read them at the first frame and remember.
+typedef struct RenderEnv {
+    bool noshadow, nopix, noblob, nopart, nohud, nointerp;
+    const char *shadow, *pix, *pixoff, *style;
+} RenderEnv;
+static RenderEnv R_ENV;
+static bool r_env_done;
+static const RenderEnv *renv(void) {
+    if (!r_env_done) {
+        r_env_done = true;
+        R_ENV.noshadow = SDL_getenv("HOLLOW_NOSHADOW") != NULL;
+        R_ENV.nopix    = SDL_getenv("HOLLOW_NOPIX")    != NULL;
+        R_ENV.noblob   = SDL_getenv("HOLLOW_NOBLOB")   != NULL;
+        R_ENV.nopart   = SDL_getenv("HOLLOW_NOPART")   != NULL;
+        R_ENV.nohud    = SDL_getenv("HOLLOW_NOHUD")    != NULL;
+        R_ENV.nointerp = SDL_getenv("HOLLOW_NOINTERP") != NULL;
+        R_ENV.shadow   = SDL_getenv("HOLLOW_SHADOW");
+        R_ENV.pix      = SDL_getenv("HOLLOW_PIX");
+        R_ENV.pixoff   = SDL_getenv("HOLLOW_PIXOFF");
+        R_ENV.style    = SDL_getenv("HOLLOW_STYLE");
+    }
+    return &R_ENV;
+}
+
 void game_render_at(Game *g, Platform *pf, float alpha);
 void game_render(Game *g, Platform *pf, float alpha) {
     // Two ticks in one frame still leave a fraction of a tick in the accumulator, so alpha is always
     // in [0, 1); clamping it here is only insurance against a caller that measured time differently.
     alpha = clampf(alpha, 0.0f, 1.0f);
     g->render_alpha = alpha;
-    if (!g->prev_valid || SDL_getenv("HOLLOW_NOINTERP")) { g->render_alpha = 1.0f; game_render_at(g, pf, alpha); return; }
+    if (!g->prev_valid || renv()->nointerp) { g->render_alpha = 1.0f; game_render_at(g, pf, alpha); return; }
     Vec3 sp[NET_MAX_PLAYERS]; Vec3 sb = g->boss.c.pos, se = g->cam.eye, st = g->cam.target;
     float sdist = g->cam.cur_dist;   // the wall/terrain solve below is a decision the TICK owns
     for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) { sp[i] = g->players[i].c.pos; g->players[i].c.pos = lerp_or_cut(g->prev_players[i], sp[i], alpha); }
@@ -1609,7 +1638,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     // third of itself at once. Beyond the box nothing is shadowed at all (the cheap far fallback):
     // the shader fades the shadow out over the outer 15% of R (see gfx.c's shadow.w), so there is
     // no hard edge.
-    float sun_strength = SDL_getenv("HOLLOW_NOSHADOW") ? 0 : (SDL_getenv("HOLLOW_SHADOW") ? (float)atof(SDL_getenv("HOLLOW_SHADOW")) : lk->shadow);
+    float sun_strength = renv()->noshadow ? 0 : (renv()->shadow ? (float)atof(renv()->shadow) : lk->shadow);
     Mat4 sun_vp;
     {
         Vec3 sd = v3_norm(lk->sun_dir); if (sd.y > -0.05f) sun_strength = 0;   // sun below the horizon: no shadows
@@ -1673,8 +1702,8 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         // 3D characters go through the pixel-art layer: rendered small with the camera snapped to
         // that layer's texel grid, then composited with an outline. Sprite characters are pixels already.
         float pxs = lk->pixel_scale, pxl = lk->pixel_levels, pxo = lk->pixel_outline, pxp = lk->pixel_palette, pxi = lk->pixel_inner;
-        if (SDL_getenv("HOLLOW_PIX")) sscanf(SDL_getenv("HOLLOW_PIX"), "%f %f %f %f %f", &pxs, &pxl, &pxo, &pxp, &pxi);   // tuning override: "scale levels outline palette inner"
-        bool pix_on = pxs >= 1 && !SDL_getenv("HOLLOW_NOPIX");
+        if (renv()->pix) sscanf(renv()->pix, "%f %f %f %f %f", &pxs, &pxl, &pxo, &pxp, &pxi);   // tuning override: "scale levels outline palette inner"
+        bool pix_on = pxs >= 1 && !renv()->nopix;
         gfx_set_pixel_look(x, pix_on ? (int)pxs : 0, pxl, pxo, pxp, pxi);
         bool player_pix = false;
         for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active && !(fp_self && i == g->local) && g->player_models[i].loaded && !g->player_models[i].is_sprite) { player_pix = true; break; }
@@ -1688,7 +1717,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             float dr = roundf(er / texel) * texel - er, du = roundf(eu / texel) * texel - eu;
             Vec3 off = v3_add(v3_scale(right, dr), v3_scale(up, du));
             float ox = -dr / texel, oy = du / texel;
-            if (SDL_getenv("HOLLOW_PIXOFF")) { float mx2 = 1, my2 = 1; sscanf(SDL_getenv("HOLLOW_PIXOFF"), "%f %f", &mx2, &my2); ox *= mx2; oy *= my2; }   // alignment test aid
+            if (renv()->pixoff) { float mx2 = 1, my2 = 1; sscanf(renv()->pixoff, "%f %f", &mx2, &my2); ox *= mx2; oy *= my2; }   // alignment test aid
             gfx_pixel_begin(x, camera_view_proj_offset(&g->cam, (float)INTERNAL_W / INTERNAL_H, off), ox, oy);
             if (player_pix) {
                 gfx_set_material(x, &pm);
@@ -1724,7 +1753,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
             else draw_character(x, bc, g->boss_def.color, g->boss_def.size, true, &g->wt.tex[TEX_METAL]);
         }
         gfx_set_material(x, NULL);
-        if (!SDL_getenv("HOLLOW_NOBLOB")) {
+        if (!renv()->noblob) {
             for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) draw_blob_shadow(x, vpos[i], g->players[i].c.radius * 2.2f, 0.55f);
             draw_blob_shadow(x, bc->pos, bc->radius * 2.2f, 0.6f);
             for (int i = 0; i < g->nnpcs; i++) draw_blob_shadow(x, g->npcs[i].c.pos, 0.9f, 0.5f);
@@ -1734,7 +1763,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     if (g->tool_mode == 2 && g->leveled.open) leveled_draw_world(&g->leveled, &g->level, x, &g->props);
     prof_end(PROF_WORLD);
     prof_begin(PROF_PARTICLES);
-    if (!SDL_getenv("HOLLOW_NOPART")) particles_draw(&g->particles, x);
+    if (!renv()->nopart) particles_draw(&g->particles, x);
     prof_end(PROF_PARTICLES);
 
     if (pf->debug) {
@@ -1759,7 +1788,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         for (int i = 0; i < lv->nlights; i++) gfx_draw_box_wire(x, lv->lights[i].pos, v3(0.2f, 0.2f, 0.2f), v4(lv->lights[i].color.x, lv->lights[i].color.y, lv->lights[i].color.z, 1));
     }
     prof_begin(PROF_UI);
-    if (!SDL_getenv("HOLLOW_NOHUD")) draw_hud(g, pf);   // capture aid: the style sheets want the frame, not the prompts
+    if (!renv()->nohud) draw_hud(g, pf);   // capture aid: the style sheets want the frame, not the prompts
     prof_end(PROF_UI);
     PostParams pp = { .grain = lk->grain, .vignette = lk->vignette, .fade = g->fade, .flash_color = g->flash_color, .flash = g->flash,
                       .exposure = lk->exposure, .saturation = lk->saturation, .contrast = lk->contrast, .bloom = lk->bloom,
@@ -1767,7 +1796,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
                       .style_snap = lk->style_snap, .style_outline = lk->style_outline, .style_levels = lk->style_levels, .style_pixel = lk->style_pixel,
                       .ink_width = lk->ink_width, .ink_wobble = lk->ink_wobble, .ink_luma = lk->ink_luma, .paper = lk->paper,
                       .chroma = lk->chroma, .dither = lk->dither, .hatch = lk->hatch };
-    if (SDL_getenv("HOLLOW_STYLE")) sscanf(SDL_getenv("HOLLOW_STYLE"), "%f %f %f %f", &pp.style_snap, &pp.style_outline, &pp.style_levels, &pp.style_pixel);   // tuning override
+    if (renv()->style) sscanf(renv()->style, "%f %f %f %f", &pp.style_snap, &pp.style_outline, &pp.style_levels, &pp.style_pixel);   // tuning override
     prof_begin(PROF_POST);
     gfx_end(x, pf, &pp, g->time);
     prof_end(PROF_POST);

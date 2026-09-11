@@ -563,8 +563,16 @@ bool level_load(Level *lv, const char *path) {
     return true;
 }
 
+// Asked once a tick, which is sixty stats of the same file a second on a disk that is not going to
+// answer differently -- and on Windows a stat is a syscall with a path walk behind it. A level file
+// is saved by a human or by the editor; once a second is as fast as anyone can notice and it is
+// what every other hot reload in this tree already does (props_hot_reload, hero_hot_reload,
+// gfx_palette_update).
 bool level_reload_if_changed(Level *lv) {
     if (lv->path[0] == '\0') return false;
+    static Uint64 last = 0; Uint64 now = SDL_GetTicks();
+    if (now - last < 1000) return false;
+    last = now;
     SDL_PathInfo info;
     if (!SDL_GetPathInfo(lv->path, &info)) return false;
     long long mtime = (long long)info.modify_time;
