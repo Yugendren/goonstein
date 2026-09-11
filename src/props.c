@@ -7,6 +7,7 @@
 
 void props_clear(Gfx *g, PropCache *pc) {
     for (int i = 0; i < pc->n; i++) if (pc->models[i].part) { free(pc->models[i].part); pc->models[i].part = NULL; }
+    for (int i = 0; i < pc->n; i++) if (pc->models[i].lod_ok) { model_destroy(g, &pc->models[i].lod); pc->models[i].lod_ok = false; }
     for (int i = 0; i < pc->n; i++) if (pc->models[i].ok) model_destroy(g, &pc->models[i].model);
     memset(pc, 0, sizeof *pc);
 }
@@ -25,6 +26,12 @@ void props_load_level(Gfx *g, PropCache *pc, const Level *lv) {
 // At the game's ~50 degree vertical fov and 1080 lines that is roughly four pixels across, small
 // enough that dropping it is invisible but common enough to remove most of a dense world's far half.
 #define PROP_CULL_SIZE 0.004f
+
+// And swap to the far stand-in below ten times that -- radius over distance 0.04, which at the
+// game's fov is a prop about ninety pixels across on a 1080-line frame. A shrub a metre across
+// keeps its real mesh out to twenty-five metres and is a decimated one past that. Above this line
+// the art is exactly what it always was.
+#define PROP_LOD_SIZE 0.04f
 
 // Rest-pose bounding sphere of a piece or assembly, computed once per file and cached.
 static bool prop_sphere(Gfx *g, PropCache *pc, PropModel *pm, Vec3 *cen, float *rad) {
@@ -84,7 +91,7 @@ static void cache_pieces(Gfx *g, PropCache *pc, PropModel *pm) {
 
 // `sets` is a bitmask of 1 << GfxInstSet: a prop the sun and the camera both see is expanded once
 // and queued into both.
-static void collect_matrix(Gfx *g, PropCache *pc, unsigned sets, PropModel *pm, Mat4 world,
+static void collect_matrix(Gfx *g, PropCache *pc, unsigned sets, bool lod, PropModel *pm, Mat4 world,
                            Vec4 tint, Vec3 glow, const Texture *tex, float tile, int depth) {
     if (!pm || !pm->ok) return;
     if (pm->part) {
@@ -95,17 +102,19 @@ static void collect_matrix(Gfx *g, PropCache *pc, unsigned sets, PropModel *pm, 
             Vec4 t = v4(tint.x * p->tint.x, tint.y * p->tint.y, tint.z * p->tint.z, tint.w);
             const Texture *pt = tex; float ptile = tile;
             if (p->tex >= 0 && pc->wt) { pt = world_texture(pc->wt, p->tex); ptile = p->tex_tile > 0 ? p->tex_tile : 1.0f; }
-            collect_matrix(g, pc, sets, pm->piece_pm[i], m4_mul(world, pm->piece_mat[i]), t, glow, pt, ptile, depth + 1);
+            collect_matrix(g, pc, sets, lod, pm->piece_pm[i], m4_mul(world, pm->piece_mat[i]), t, glow, pt, ptile, depth + 1);
         }
         return;
     }
-    const Model *m = &pm->model;
+    bool use_lod = lod && pm->lod_ok;
+    const Model *m = use_lod ? &pm->lod : &pm->model;
+    const ModelPose *pose = use_lod ? &pm->lod_rest : &pm->rest;
     for (int i = 0; i < m->nmeshes; i++) {
         const ModelMesh *mm = &m->meshes[i];
         bool hidden = false;
         for (int n = mm->node; n >= 0; n = m->nodes[n].parent) if (m->nodes[n].hidden) { hidden = true; break; }
         if (hidden) continue;
-        Mat4 w = m4_mul(world, pm->rest.global[mm->node]);
+        Mat4 w = m4_mul(world, pose->global[mm->node]);
         const Texture *use = tex ? tex : &m->textures[mm->tex];
         Vec4 uv = tex ? v4(tile, 0, 0, 0) : v4(1, 1, 0, 0);
         if (sets & (1u << GFX_SET_SHADOW)) gfx_instance(g, GFX_SET_SHADOW, &mm->gpu, use, w, tint, uv, tex != NULL, glow);
@@ -139,7 +148,7 @@ void props_collect(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTex
         Vec3 st = p->stretch.x == 0 && p->stretch.y == 0 && p->stretch.z == 0 ? v3(1, 1, 1) : p->stretch;
         Vec3 s = v3(p->scale * st.x, p->scale * st.y, p->scale * st.z);
         Mat4 world = m4_trs(p->pos, p->yaw, s);
-        bool in_sun = want_shadow, in_cam = true;
+        bool in_sun = want_shadow, in_cam = true, cam_lod = true;
         Vec3 lc; float lr;
         if (prop_sphere(g, pc, pm, &lc, &lr)) {   // no bounds (a missing piece): always drawn
             Vec3 c = m4_mul_point(world, lc);
@@ -150,7 +159,9 @@ void props_collect(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTex
             // the box lost their shadows that way).
             in_sun = want_shadow && frustum_sees_sphere(&sun_fr, c, r);
             // Camera set: also drop what is only a few pixels across.
-            in_cam = frustum_sees_sphere(&cam_fr, c, r) && r >= PROP_CULL_SIZE * v3_len(v3_sub(c, cam_pos));
+            float dist = v3_len(v3_sub(c, cam_pos));
+            in_cam = frustum_sees_sphere(&cam_fr, c, r) && r >= PROP_CULL_SIZE * dist;
+            cam_lod = r < PROP_LOD_SIZE * dist;
         }
         if (in_cam) drawn++; else culled++;
         if (!in_sun && !in_cam) continue;
@@ -159,9 +170,15 @@ void props_collect(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTex
             if (in_cam && pc->nfb[GFX_SET_WORLD]  < LEVEL_MAX_PROPS) pc->fb[GFX_SET_WORLD][pc->nfb[GFX_SET_WORLD]++]  = i;
             continue;
         }
-        unsigned sets = (in_sun ? 1u << GFX_SET_SHADOW : 0u) | (in_cam ? 1u << GFX_SET_WORLD : 0u);
         const Texture *tex = p->tex >= 0 && wt ? world_texture(wt, p->tex) : NULL;
-        collect_matrix(g, pc, sets, pm, world, p->tint, p->glow, tex, p->tex_tile > 0 ? p->tex_tile : 1.0f, 0);
+        float tile = p->tex_tile > 0 ? p->tex_tile : 1.0f;
+        // The sun always gets the stand-in; the camera gets it once the prop is small on screen.
+        // When those agree -- which is most props most of the time -- one walk fills both sets.
+        if (in_sun && in_cam && cam_lod)      collect_matrix(g, pc, (1u << GFX_SET_SHADOW) | (1u << GFX_SET_WORLD), true, pm, world, p->tint, p->glow, tex, tile, 0);
+        else {
+            if (in_sun) collect_matrix(g, pc, 1u << GFX_SET_SHADOW, true,    pm, world, p->tint, p->glow, tex, tile, 0);
+            if (in_cam) collect_matrix(g, pc, 1u << GFX_SET_WORLD,  cam_lod, pm, world, p->tint, p->glow, tex, tile, 0);
+        }
     }
     pc->props_drawn = drawn; pc->props_culled = culled;
     prof_count(PROF_C_PROPS_DRAWN, drawn); prof_count(PROF_C_PROPS_CULLED, culled);
@@ -222,6 +239,7 @@ int props_hot_reload(Gfx *g, PropCache *pc) {
         char path[1024]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, pm->file);
         long long m = file_mtime(path);
         if (m == 0 || m == pm->mtime) continue;
+        if (pm->lod_ok) { model_destroy(g, &pm->lod); pm->lod_ok = false; }
         if (pm->ok && pm->part) { free(pm->part); pm->part = NULL; } else if (pm->ok) model_destroy(g, &pm->model);
         pm->ok = false; pm->bsphere = 0; pm->fallback = 0;
         for (int k = 0; k < pc->n; k++) pc->models[k].piece_cached = false;   // a reloaded file may be a piece of any part
@@ -243,6 +261,18 @@ static bool load_into(Gfx *g, PropModel *pm, const char *file) {
     }
     pm->ok = model_load(g, &pm->model, path, 512);
     if (pm->ok) { AnimPlayer rest = { .clip = -1, .prev = -1 }; model_pose(&pm->model, &rest, &pm->rest); apply_recolor_sidecar(g, &pm->model, path); }
+    // The far stand-in, if someone made one. Its textures are capped at 256: it is only ever seen
+    // small or as a shadow, and a second full-size copy of every plant atlas is exactly the memory
+    // this whole exercise is trying not to spend.
+    if (pm->ok) {
+        char lp[1100]; snprintf(lp, sizeof lp, "%s.lod.glb", path);
+        SDL_PathInfo li;
+        if (SDL_GetPathInfo(lp, &li) && model_load(g, &pm->lod, lp, 256)) {
+            AnimPlayer rest = { .clip = -1, .prev = -1 };
+            model_pose(&pm->lod, &rest, &pm->lod_rest);
+            pm->lod_ok = true;
+        }
+    }
     return pm->ok;
 }
 

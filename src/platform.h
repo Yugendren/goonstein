@@ -60,6 +60,8 @@ typedef struct Platform {
     SDL_Rect saved_game_rect; bool game_rect_saved;   // game window placement before the tool window tiled it
     int fps_cap; bool vsync;   // frame cap (0 = display rate) and vsync; platform_end_frame enforces the cap
     SDL_GPUPresentMode present_mode;   // what the swapchain actually got, not what was asked for
+    // HOLLOW_NOPRESENT=1: draw the frame but never hand it to the compositor. See platform_begin_frame.
+    bool no_present; SDL_GPUFence *inflight[2]; unsigned inflight_i;
     Uint64 next_frame_ns;
     Uint64 parry_ns, click_ns;
     bool tool_focus;      // the tool window has keyboard focus: held keys and movement do not reach the game

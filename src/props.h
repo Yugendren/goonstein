@@ -12,7 +12,13 @@ struct WorldTextures;   // render_world.h; only ever a pointer here
 #define PROPS_MAX_MODELS 192
 
 // bcen/brad: rest-pose bounding sphere, taken from the bounds once per file and reused every frame.
+// lod: a decimated stand-in loaded from "<file>.lod.glb" if that file exists (tools/make_lods.sh
+// makes them). It is drawn instead of the real model for every shadow-map instance -- a shadow is a
+// silhouette and does not care -- and for anything small enough on screen, which on the island is
+// most of the scatter most of the time. The real model is still what you see up close, so nothing
+// about the near look changes.
 typedef struct PropModel { char file[128]; Model model; ModelPose rest; bool ok; PartDoc *part; long long mtime;   // part: an assembly instead of a model
+                           Model lod; ModelPose lod_rest; bool lod_ok;
                            Vec3 bcen; float brad; int bsphere;                                    // bsphere: 0 not computed yet, 1 valid, -1 no bounds
                            int fallback;                                                          // fallback: 0 not asked yet, 1 has a skinned mesh somewhere in it, -1 does not
                            // A .part's pieces are named by file and posed by three angles in

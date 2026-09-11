@@ -52,7 +52,9 @@ bool platform_init(Platform *pf, const char *title, int w, int h) {
         NULL);
     if (!pf->gpu) return false;
     if (!SDL_ClaimWindowForGPUDevice(pf->gpu, pf->window)) return false;
-    platform_set_vsync(pf, SDL_getenv("HOLLOW_NOVSYNC") == NULL);
+    pf->no_present = SDL_getenv("HOLLOW_NOPRESENT") != NULL;
+    platform_set_vsync(pf, SDL_getenv("HOLLOW_NOVSYNC") == NULL && !pf->no_present);
+    if (pf->no_present) SDL_Log("present mode: none (HOLLOW_NOPRESENT: drawing off screen, two frames in flight on a fence)");
 
     SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(pf->gpu));
     SDL_SetWindowRelativeMouseMode(pf->window, true);
@@ -259,10 +261,37 @@ bool platform_poll(Platform *pf) {
     return true;
 }
 
+// HOLLOW_NOPRESENT=1 -- what it is for, and why "no vsync" was not enough.
+//
+// With IMMEDIATE present mode on this Mac, an EMPTY level still costs 5.7 ms a frame, and 5.1 of
+// those are spent inside SDL_WaitAndAcquireGPUSwapchainTexture. That is not the renderer and it is
+// not the GPU: it is the window server handing out drawables at its own pace. It puts a floor of
+// about 120 frames a second under every measurement, which is fine for a game and useless for a
+// benchmark -- below the floor you are timing the compositor, and a change that makes the renderer
+// twice as fast reads as no change at all.
+//
+// So: acquire no swapchain image at all, and draw the whole frame into the off-screen targets it
+// was always drawn into (gfx_end blits into a stand-in of the swapchain's size and format, so even
+// the final upscale is still paid for). The CPU is held two frames ahead of the GPU with a fence,
+// which is exactly the backpressure the swapchain used to provide, so the number that comes out is
+// the renderer's throughput rather than how fast the CPU can fill a command buffer.
+//
+// Nothing appears on screen while this is on. It is for --bench and for measuring, never for play.
 void platform_begin_frame(Platform *pf) {
     pf->cmd = SDL_AcquireGPUCommandBuffer(pf->gpu);
     pf->swapchain = NULL;
     if (!pf->cmd) return;
+    if (pf->no_present) {
+        SDL_GetWindowSizeInPixels(pf->window, (int *)&pf->swap_w, (int *)&pf->swap_h);
+        unsigned slot = pf->inflight_i % 2;
+        if (pf->inflight[slot]) {
+            SDL_WaitForGPUFences(pf->gpu, true, &pf->inflight[slot], 1);
+            SDL_ReleaseGPUFence(pf->gpu, pf->inflight[slot]);
+            pf->inflight[slot] = NULL;
+        }
+        pf->console_swap = NULL;
+        return;
+    }
     // Blocks until a swapchain image is ready; pairs with VSYNC present mode.
     if (!SDL_WaitAndAcquireGPUSwapchainTexture(pf->cmd, pf->window, &pf->swapchain,
                                                &pf->swap_w, &pf->swap_h)) {
@@ -312,7 +341,10 @@ void platform_set_vsync(Platform *pf, bool on) {
 }
 
 void platform_end_frame(Platform *pf) {
-    if (pf->cmd) SDL_SubmitGPUCommandBuffer(pf->cmd);
+    if (pf->cmd && pf->no_present) {
+        pf->inflight[pf->inflight_i % 2] = SDL_SubmitGPUCommandBufferAndAcquireFence(pf->cmd);
+        pf->inflight_i++;
+    } else if (pf->cmd) SDL_SubmitGPUCommandBuffer(pf->cmd);
     pf->cmd = NULL;
     pf->swapchain = NULL;
     if (pf->fps_cap > 0) {   // frame cap: sleep the remainder of the period
@@ -376,6 +408,7 @@ void platform_tool_window(Platform *pf, bool open, int w, int h, const char *tit
 void platform_console_window(Platform *pf, bool open) { platform_tool_window(pf, open, pf->tool_w > 0 ? pf->tool_w : 720, pf->tool_h > 0 ? pf->tool_h : 820, "hollow debugger"); }
 
 void platform_shutdown(Platform *pf) {
+    for (unsigned i = 0; i < 2; i++) if (pf->inflight[i]) { SDL_WaitForGPUFences(pf->gpu, true, &pf->inflight[i], 1); SDL_ReleaseGPUFence(pf->gpu, pf->inflight[i]); pf->inflight[i] = NULL; }
     if (pf->console_win) platform_console_window(pf, false);
     if (pf->gamepad) SDL_CloseGamepad(pf->gamepad);
     if (pf->gpu && pf->window) SDL_ReleaseWindowFromGPUDevice(pf->gpu, pf->window);

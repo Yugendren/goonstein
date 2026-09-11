@@ -1609,10 +1609,20 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         .sky_zenith = lk->sky_zenith, .sky_horizon = lk->sky_horizon, .sky_ground = lk->sky_ground,
         .sun_glow = lk->sun_glow, .stars = lk->stars, .sky_fog_blend = lk->sky_fog_blend,
     };
-    // Lights: level lights (with flicker), then dynamic ones
+    // Lights: level lights (with flicker), then dynamic ones.
+    //
+    // Only the ones that can reach a pixel you can see. lit.frag loops over every light it is given
+    // for EVERY fragment -- sixteen of them, each with a square root, no early out -- and the island
+    // declares seventeen, spread over three hundred metres. A point light with radius R can only
+    // change a surface within R of it, so if that sphere is outside the view frustum it cannot
+    // change anything on screen and evaluating it is pure cost. This is a cull, not a heuristic:
+    // the picture is identical. The flicker still keys off the light's own index, so a lamp's
+    // stutter does not change phase when a different lamp drops out.
     float t = (float)g->time;
+    Frustum light_fr = frustum_from_view_proj(fp.view_proj);
     for (int i = 0; i < lv->nlights && fp.nlights < GFX_MAX_LIGHTS; i++) {
         const LevelLight *l = &lv->lights[i];
+        if (!frustum_sees_sphere(&light_fr, l->pos, l->radius)) continue;
         float fl = l->flicker > 0 ? 1.0f + l->flicker * (0.5f * sinf(t * 13.0f + i * 1.7f) + 0.3f * sinf(t * 29.0f + i * 0.9f) + 0.2f * sinf(t * 7.0f + i)) : 1.0f;
         fp.lights[fp.nlights++] = (PointLight){ .pos = l->pos, .radius = l->radius, .color = l->color, .intensity = l->intensity * fl };
     }

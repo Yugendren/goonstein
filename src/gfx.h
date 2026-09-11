@@ -120,6 +120,7 @@ typedef struct Gfx {
     // tool window font: VT323 baked at a few pixel sizes on demand
     struct UiFont { int px; Texture tex; void *cdata; float ascent; } fonts[GFX_UI_FONTS]; int nfonts;
     unsigned char *ttf;
+    SDL_GPUTexture *fake_swap; int fake_swap_w, fake_swap_h;   // HOLLOW_NOPRESENT's stand-in swapchain
     SDL_GPUTexture *tool_shot; int tool_shot_w, tool_shot_h; bool want_tool_shot;
     PVertex *p_add, *p_alpha; Uint32 p_add_count, p_alpha_count;
     // instancing: see gfx_instances_begin. Two pipelines (lit and depth-only), one growable

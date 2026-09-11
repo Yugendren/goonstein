@@ -498,6 +498,7 @@ void gfx_shutdown(Gfx *g) {
     if (g->pix) SDL_ReleaseGPUTexture(g->dev, g->pix); if (g->pix_depth) SDL_ReleaseGPUTexture(g->dev, g->pix_depth);
     for (int i = 0; i < g->nfonts; i++) { gfx_texture_destroy(g, &g->fonts[i].tex); free(g->fonts[i].cdata); }
     if (g->ttf) SDL_free(g->ttf);
+    if (g->fake_swap) SDL_ReleaseGPUTexture(g->dev, g->fake_swap);
     if (g->tool_shot) SDL_ReleaseGPUTexture(g->dev, g->tool_shot);
     if (g->shadow_tex) SDL_ReleaseGPUTexture(g->dev, g->shadow_tex);
     if (g->pipe_shadow) SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_shadow); if (g->pipe_shadow_skin) SDL_ReleaseGPUGraphicsPipeline(g->dev, g->pipe_shadow_skin);
@@ -1354,7 +1355,17 @@ void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time) {
         }
         SDL_EndGPURenderPass(pass);
     }
-    // Blit to the swapchain, letterboxed
+    // Blit to the swapchain, letterboxed. With HOLLOW_NOPRESENT there is no swapchain image, so the
+    // blit goes to a stand-in of the same size and format: the upscale to the window's real pixel
+    // count is part of the frame's cost and a benchmark that skipped it would be flattering itself.
+    if (!pf->swapchain && pf->no_present && pf->swap_w > 0 && pf->swap_h > 0) {
+        if (g->fake_swap_w != (int)pf->swap_w || g->fake_swap_h != (int)pf->swap_h) {
+            if (g->fake_swap) SDL_ReleaseGPUTexture(g->dev, g->fake_swap);
+            g->fake_swap = make_target(g, g->swap_format, (int)pf->swap_w, (int)pf->swap_h, false);
+            g->fake_swap_w = (int)pf->swap_w; g->fake_swap_h = (int)pf->swap_h;
+        }
+        pf->swapchain = g->fake_swap;
+    }
     if (pf->swapchain) {
         float ta = (float)g->iw / (float)g->ih, sw = (float)pf->swap_w, sh = (float)pf->swap_h;
         float vw = sw, vh = sw / ta; if (vh > sh) { vh = sh; vw = sh * ta; }
