@@ -29,22 +29,22 @@
       "_note": "A GitHub-hosted macOS runner: three shared cores and a shared GPU. Numbers learned from the `Perf bench (macOS)` job's own bench.json, lowest median of its three runs.",
       "_tolerance": 0.5,
       "pier": {
-        "frame_ms_median": 8.916,
+        "frame_ms_median": 11.976,
         "draws": 573,
         "tris": 2096925
       },
       "courtyard": {
-        "frame_ms_median": 14.114,
+        "frame_ms_median": 6.801,
         "draws": 483,
         "tris": 1610553
       },
       "summit": {
-        "frame_ms_median": 8.327,
+        "frame_ms_median": 12.933,
         "draws": 519,
         "tris": 2318330
       },
       "shootout": {
-        "frame_ms_median": 7.618,
+        "frame_ms_median": 4.428,
         "draws": 584,
         "tris": 1805306
       }
