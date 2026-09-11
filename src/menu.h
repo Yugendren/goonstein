@@ -13,8 +13,11 @@ struct Game;
 
 // Which page is up. MENU_OFF is "playing"; the game state is GS_MENU only for the main menu, so
 // the Esc menu can appear over the overworld, a fight or a scene without disturbing it.
+// MENU_SETTINGS is one page reached from both the main menu and the Esc menu (DESIGN.md asks for
+// a minimal UI, so there are no sub-pages under it): every row is changed in place with left and
+// right, applied live, and written back to assets/settings.txt.
 typedef enum MenuPage {
-    MENU_OFF, MENU_MAIN, MENU_JOIN, MENU_CONNECTING, MENU_PAUSE, MENU_INVITE
+    MENU_OFF, MENU_MAIN, MENU_JOIN, MENU_CONNECTING, MENU_PAUSE, MENU_INVITE, MENU_SETTINGS
 } MenuPage;
 
 #define MENU_FIELD_MAX 64
@@ -34,10 +37,14 @@ typedef struct Menu {
     char     note[96]; float note_t; bool note_good;   // the one line under the rows, and whether it is bad news
     uint16_t port;                 // settings `port`, 7777 unless it says otherwise
     char     ips[MENU_IPS][16]; int nips;   // this machine's LAN addresses, read once when hosting
-    bool     pad_prev[4];          // gamepad edges: up, down, A, B
+    bool     pad_prev[6];          // gamepad edges: up, down, A, B, left, right
     float    mx_prev, my_prev;     // last cursor position: a still mouse does not steal the highlight
     float    stick_cool;           // stick repeat delay, so one flick moves one row
-    char     script[64];           // --menu-test / HOLLOW_MENU_TEST: "host" or "join:HOST:PORT"
+    char     script[160];          // --menu-test / HOLLOW_MENU_TEST: "host", "join:HOST:PORT", or a
+                                   // "settings:volume=40,vsync=off" list, which is the long one
+    MenuPage set_from;             // which page SETTINGS was opened from: ESC goes back to that one
+    int      saved_row;            // the settings row whose value was last written to settings.txt
+    float    saved_t;              // and how long its "(saved)" flash has left
     int      step; float step_t;   // where that script has got to
     bool     joined;               // this process was accepted by a host at least once
     bool     booted;               // menu_init has run
@@ -54,5 +61,6 @@ bool menu_tick(struct Game *g, const Input *in, float dt);
 bool menu_up(const struct Game *g);
 // The menu itself, drawn over the finished frame in the game window's UI pixels.
 void menu_draw(struct Game *g);
-// Run a scripted menu: "host" hosts and starts, "join:HOST:PORT" types the address and connects.
+// Run a scripted menu: "host" hosts and starts, "join:HOST:PORT" types the address and connects,
+// "settings" opens the settings page and "settings:volume=40,vsync=off" then works the arrows.
 void menu_set_test(struct Game *g, const char *script);

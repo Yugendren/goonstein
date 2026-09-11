@@ -45,7 +45,9 @@ int main(int argc, char **argv) {
     //                             silent). Implied by either voice hook above. Not the same as
     //                             --volume 0, which mutes the game but leaves voice audible.
     // --quality potato|normal|high   overrides settings.txt's `quality` line for this run (see quality.h)
-    // --menu-test S   drive the main menu without a hand on the keyboard: "host" or "join:HOST:PORT"
+    // --menu-test S   drive the main menu without a hand on the keyboard: "host", "join:HOST:PORT",
+    //                 "settings" (open the settings page) or "settings:volume=40,vsync=off" (open it
+    //                 and work the arrows until every named row is there, writing settings.txt)
     // With none of --host --join --level --start --bot, the game opens on the main menu (GS_MENU).
     // --bench [FILE]        run the four scripted perf paths headless and write FILE (bench.json).
     // --bench-shots DIR     also write DIR/<path>.png, one PNG per path, for a human to eyeball.

@@ -50,6 +50,9 @@ void audio_set_drone(float intensity);
 void audio_set_fight(float intensity);
 // Master volume 0..1
 void audio_set_master(float v);
+// What it is now. The settings menu shows the mixer's own number rather than a copy of it, so
+// `--volume 0` reads as 0% on the VOLUME row instead of whatever settings.txt happens to say.
+float audio_master(void);
 
 // --- voice ---
 // Proximity voice chat bus. The mixer calls this once per callback block, on the audio thread,

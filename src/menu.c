@@ -12,7 +12,10 @@
 #include "menu.h"
 #include "debug.h"
 #include "net_sys.h"   // netsys_local_ips: the addresses a friend can type in
-#include "quality.h"   // corner label: quality potato|normal|high (source)
+#include "quality.h"   // corner label: quality potato|normal|high (source), and the SETTINGS row
+#include "audio.h"     // --- settings --- the VOLUME row is the mixer's own master, live
+#include "voice.h"     // --- settings --- VOICE and VOICE VOLUME
+#include <ctype.h>     // --- settings --- toupper: quality_name() in the page's own capitals
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,8 +27,8 @@
 #define MENU_JOIN_TIMEOUT 5.0    // seconds without an answer before the join gives up
 
 // Main menu rows, and the Esc menu's.
-enum { ROW_SOLO, ROW_HOST, ROW_JOIN, ROW_NAME, ROW_QUIT, ROW_MAIN_N };
-enum { ROW_RESUME, ROW_INVITE, ROW_LEAVE, ROW_PAUSE_QUIT, ROW_PAUSE_N };
+enum { ROW_SOLO, ROW_HOST, ROW_JOIN, ROW_NAME, ROW_SETTINGS, ROW_QUIT, ROW_MAIN_N };
+enum { ROW_RESUME, ROW_INVITE, ROW_PAUSE_SETTINGS, ROW_LEAVE, ROW_PAUSE_QUIT, ROW_PAUSE_N };
 
 static const Vec4 C_TEXT = { 0.92f, 0.90f, 0.86f, 1 };
 static const Vec4 C_DIM  = { 0.58f, 0.56f, 0.52f, 1 };
@@ -151,10 +154,11 @@ static void host_addr(const Menu *m, int i, char *out, size_t n) {
 // ---------------------------------------------------------------- input
 
 // Gamepad edges the platform layer does not forward (it maps the pad to combat, not to menus).
-enum { PAD_UP, PAD_DOWN, PAD_A, PAD_B };
+enum { PAD_UP, PAD_DOWN, PAD_A, PAD_B, PAD_LEFT, PAD_RIGHT };
 static bool pad_edge(Game *g, int which) {
-    static const SDL_GamepadButton BTN[4] = { SDL_GAMEPAD_BUTTON_DPAD_UP, SDL_GAMEPAD_BUTTON_DPAD_DOWN,
-                                              SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST };
+    static const SDL_GamepadButton BTN[6] = { SDL_GAMEPAD_BUTTON_DPAD_UP, SDL_GAMEPAD_BUTTON_DPAD_DOWN,
+                                              SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST,
+                                              SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT };
     Menu *m = &g->menu;
     bool now = g->pf->gamepad && SDL_GetGamepadButton(g->pf->gamepad, BTN[which]);
     bool edge = now && !m->pad_prev[which];
@@ -162,7 +166,7 @@ static bool pad_edge(Game *g, int which) {
     return edge;
 }
 
-typedef struct MenuKeys { bool up, down, ok, back; } MenuKeys;
+typedef struct MenuKeys { bool up, down, left, right, ok, back; } MenuKeys;
 
 static MenuKeys menu_keys(Game *g, const Input *in, float dt) {
     Menu *m = &g->menu;
@@ -171,14 +175,23 @@ static MenuKeys menu_keys(Game *g, const Input *in, float dt) {
     k.down = in->key_down[SDL_SCANCODE_DOWN] || pad_edge(g, PAD_DOWN);
     k.ok   = in->key_down[SDL_SCANCODE_RETURN] || in->key_down[SDL_SCANCODE_KP_ENTER] || pad_edge(g, PAD_A);
     k.back = in->key_down[SDL_SCANCODE_ESCAPE] || pad_edge(g, PAD_B);
-    // W/S and the left stick move one row per flick, not one per tick.
+    // --- settings --- sideways is "change this value": only the settings page reads it.
+    k.left  = in->key_down[SDL_SCANCODE_LEFT]  || pad_edge(g, PAD_LEFT);
+    k.right = in->key_down[SDL_SCANCODE_RIGHT] || pad_edge(g, PAD_RIGHT);
+    // WASD and the left stick move one row (or one step) per flick, not one per tick. Up and down
+    // win when the stick is pushed into a corner, so a diagonal never changes a value by accident.
     m->stick_cool = fmaxf(0, m->stick_cool - dt);
     if (!m->name.active && !m->addr.active) {
-        float v = in->move_y;
+        float v = in->move_y, h = in->move_x;
         if (in->key_down[SDL_SCANCODE_W]) v = -1;
         if (in->key_down[SDL_SCANCODE_S]) v = 1;
-        if (fabsf(v) > 0.6f && m->stick_cool <= 0) { m->stick_cool = 0.22f; if (v < 0) k.up = true; else k.down = true; }
-        if (fabsf(v) < 0.3f) m->stick_cool = 0;
+        if (in->key_down[SDL_SCANCODE_A]) h = -1;
+        if (in->key_down[SDL_SCANCODE_D]) h = 1;
+        if (m->stick_cool <= 0) {
+            if (fabsf(v) > 0.6f)      { m->stick_cool = 0.22f; if (v < 0) k.up = true;   else k.down = true; }
+            else if (fabsf(h) > 0.6f) { m->stick_cool = 0.22f; if (h < 0) k.left = true; else k.right = true; }
+        }
+        if (fabsf(v) < 0.3f && fabsf(h) < 0.3f) m->stick_cool = 0;
         if (in->interact) k.ok = true;   // E, and the pad's A through the normal path
     }
     return k;
@@ -210,6 +223,8 @@ static bool mouse_rows(Game *g, const Input *in, int n, float y0, bool *clicked)
 
 // ---------------------------------------------------------------- the pages, one tick each
 
+static void settings_open(Game *g);   // --- settings --- the page both menus open; defined below
+
 static void tick_main(Game *g, const Input *in, MenuKeys k) {
     Menu *m = &g->menu;
     if (m->name.active) {   // NAME is edited in place: the row stays where it is
@@ -233,6 +248,7 @@ static void tick_main(Game *g, const Input *in, MenuKeys k) {
     case ROW_HOST: if (host_start(g)) start_playing(g, "hosting"); break;
     case ROW_JOIN: page(g, MENU_JOIN); break;
     case ROW_NAME: m->name.active = true; break;
+    case ROW_SETTINGS: settings_open(g); break;
     case ROW_QUIT: g->pf->want_quit = true; break;
     default: break;
     }
@@ -281,6 +297,7 @@ static void tick_pause(Game *g, const Input *in, MenuKeys k) {
     switch (m->row) {
     case ROW_RESUME: m->page = MENU_OFF; break;
     case ROW_INVITE: page(g, MENU_INVITE); break;
+    case ROW_PAUSE_SETTINGS: settings_open(g); break;
     case ROW_LEAVE:
         if (g->net.mode != NM_OFF) net_off(g);
         g->state = GS_MENU; g->state_t = 0;
@@ -291,7 +308,251 @@ static void tick_pause(Game *g, const Input *in, MenuKeys k) {
     }
 }
 
+// ---------------------------------------------------------------- the settings page
+
+// One page, one screen, no sub-menus (DESIGN.md asks for a minimal UI). Every row reads its value
+// back from whoever actually owns it -- the mixer, voice.c, camera.c, the platform, quality.c --
+// rather than from a copy kept here, so the page can never drift from the running game. Every
+// change is applied live and written to assets/settings.txt the same instant: there is no APPLY
+// button to forget, and the row flashes "(saved)" so it is obvious the file was touched.
+enum { SET_VOLUME, SET_VOICE, SET_VOICE_VOL, SET_SENS, SET_FPS, SET_VSYNC, SET_QUALITY, SET_BACK, SET_N };
+
+static const char *const SET_LABEL[SET_N] = {
+    "VOLUME", "VOICE", "VOICE VOLUME", "MOUSE SENSITIVITY", "FRAME CAP", "VSYNC", "QUALITY", "BACK"
+};
+// The settings.txt key each row writes, which is also the word a --menu-test script names it by.
+// BACK writes nothing.
+static const char *const SET_KEY[SET_N] = {
+    "volume", "voice", "voice_volume", "mouse_sens", "fps", "vsync", "quality", NULL
+};
+static const int SET_FPS_CAPS[] = { 0, 30, 60, 90, 120, 144, 240 };   // 0 = the display's own rate
+#define SET_FPS_N ((int)(sizeof SET_FPS_CAPS / sizeof SET_FPS_CAPS[0]))
+static const char *const SET_VOICE_WORD[3] = { "ptt", "open", "off" };            // voice.c's names
+static const char *const SET_VOICE_TEXT[3] = { "PUSH TO TALK", "OPEN MIC", "OFF" };
+#define SET_PCT_STEP 5    // volume and voice volume move in 5% steps
+#define SET_VOL_HEADROOM 0.8f   // main.c mixes `volume` into the master with the same headroom
+
+static void set_range(int row, int *lo, int *hi, int *step);
+
+// A row's value as one integer on that row's own scale (a percent, tenths, an index). Drawing,
+// stepping and the scripted test all work in this single number, so a row only has to say how to
+// read it, how to write it and where its ends are. Clamped to the row's range on the way out: a
+// hand-edited settings.txt, or a machine whose audio device never opened (audio_set_master is a
+// no-op then, and the mixer's master stays at its initial 1.0), must not put a row past its own
+// last arrow and leave it looking stuck.
+static int set_pos(Game *g, int row) {
+    int v = 0;
+    switch (row) {
+    case SET_VOLUME:    v = (int)lroundf(audio_master() / SET_VOL_HEADROOM * 100.0f); break;
+    case SET_VOICE:     { const char *w = voice_mode_name();
+                          for (int i = 0; i < 3; i++) if (!strcmp(w, SET_VOICE_WORD[i])) v = i; break; }
+    case SET_VOICE_VOL: v = (int)lroundf(voice_get_volume() * 100.0f); break;
+    case SET_SENS:      v = (int)lroundf(camera_mouse_sens_mult() * 10.0f); break;
+    case SET_FPS:       for (int i = 0; i < SET_FPS_N; i++) if (g->pf->fps_cap == SET_FPS_CAPS[i]) v = i; break;
+    case SET_VSYNC:     v = g->pf->vsync ? 1 : 0; break;
+    case SET_QUALITY:   v = (int)quality_current(); break;
+    default:            break;
+    }
+    int lo, hi, step; set_range(row, &lo, &hi, &step);
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+static void set_range(int row, int *lo, int *hi, int *step) {
+    *lo = 0; *hi = 1; *step = 1;
+    switch (row) {
+    case SET_VOLUME:    *hi = 100; *step = SET_PCT_STEP; break;
+    case SET_VOICE:     *hi = 2; break;
+    case SET_VOICE_VOL: *hi = 200; *step = SET_PCT_STEP; break;
+    case SET_SENS:      *lo = 2; *hi = 30; break;          // tenths: 0.2 .. 3.0
+    case SET_FPS:       *hi = SET_FPS_N - 1; break;
+    case SET_VSYNC:     break;
+    case SET_QUALITY:   *hi = Q_COUNT - 1; break;
+    default:            *hi = 0; break;
+    }
+}
+
+// Put a row at `pos`: apply it to the running game first, then write its line back to settings.txt.
+static void set_apply(Game *g, int row, int pos) {
+    Menu *m = &g->menu;
+    char v[32];
+    switch (row) {
+    case SET_VOLUME:    audio_set_master((float)pos / 100.0f * SET_VOL_HEADROOM); snprintf(v, sizeof v, "%.2f", (double)pos / 100.0); break;
+    case SET_VOICE:     voice_set_mode_name(SET_VOICE_WORD[pos]); snprintf(v, sizeof v, "%s", SET_VOICE_WORD[pos]); break;
+    case SET_VOICE_VOL: voice_set_volume((float)pos / 100.0f); snprintf(v, sizeof v, "%.2f", (double)pos / 100.0); break;
+    case SET_SENS:      camera_set_mouse_sens((float)pos / 10.0f); snprintf(v, sizeof v, "%.1f", (double)pos / 10.0); break;
+    case SET_FPS:       g->pf->fps_cap = SET_FPS_CAPS[pos]; g->pf->next_frame_ns = 0; snprintf(v, sizeof v, "%d", SET_FPS_CAPS[pos]); break;
+    case SET_VSYNC:     platform_set_vsync(g->pf, pos != 0); snprintf(v, sizeof v, "%d", pos); break;
+    // quality_apply moves the render scale and the shadow map right now; the texture cap only
+    // bites on the next texture that loads and the HDR format was fixed when the swapchain was
+    // created, which is what the hint under the rows says.
+    case SET_QUALITY:   quality_apply(g, (Quality)pos); snprintf(v, sizeof v, "%s", quality_name((Quality)pos)); break;
+    default: return;
+    }
+    game_settings_set(g, SET_KEY[row], v);
+    m->saved_row = row; m->saved_t = 1.2f;
+    SDL_Log("settings: %s %s", SET_KEY[row], v);
+    dbg_log("settings: %s %s", SET_KEY[row], v);
+}
+
+// One press of < or >. A value that came from a hand-edited settings.txt is snapped onto the row's
+// own grid on the way. At either end nothing happens: no write, no flash.
+static void set_nudge(Game *g, int row, int dir) {
+    if (row == SET_BACK) return;
+    int lo, hi, step; set_range(row, &lo, &hi, &step);
+    int pos = set_pos(g, row);
+    int want = ((pos + step / 2) / step) * step + dir * step;
+    if (want < lo) want = lo;
+    if (want > hi) want = hi;
+    if (want == pos) return;
+    set_apply(g, row, want);
+}
+
+static void set_text(Game *g, int row, char *out, size_t n) {
+    int pos = set_pos(g, row);
+    switch (row) {
+    case SET_VOLUME: case SET_VOICE_VOL: snprintf(out, n, "%d %%", pos); break;
+    case SET_VOICE:   snprintf(out, n, "%s", SET_VOICE_TEXT[pos >= 0 && pos < 3 ? pos : 2]); break;
+    case SET_SENS:    snprintf(out, n, "%.1f", (double)pos / 10.0); break;
+    case SET_FPS:     if (SET_FPS_CAPS[pos] == 0) snprintf(out, n, "DISPLAY"); else snprintf(out, n, "%d", SET_FPS_CAPS[pos]); break;
+    case SET_VSYNC:   snprintf(out, n, "%s", pos ? "ON" : "OFF"); break;
+    case SET_QUALITY: { const char *q = quality_name((Quality)pos); size_t i = 0;
+                        for (; q[i] && i + 1 < n; i++) out[i] = (char)toupper((unsigned char)q[i]);
+                        out[i] = 0; break; }
+    default:          snprintf(out, n, "%s", ""); break;
+    }
+}
+
+// Eight rows and a value on each: tighter than the four-row pages, and laid out here only.
+#define SET_Y0  236.0f
+#define SET_DY  52.0f
+#define SET_H   44.0f
+#define SET_W   660.0f
+#define SET_PX  28
+static float set_row_top(int i)      { return SET_Y0 + (float)i * SET_DY; }
+static float set_arrow_x(bool right) { return MW * 0.5f + (right ? 308.0f : 48.0f); }
+
+// Hovering a row highlights it, clicking one of its arrows steps the value, and clicking anywhere
+// else on the row is Enter. Returns the direction an arrow was clicked in, 0 otherwise.
+static int set_mouse(Game *g, const Input *in, bool *clicked) {
+    Menu *m = &g->menu;
+    float mx, my; platform_mouse_ui(g->pf, INTERNAL_W, INTERNAL_H, &mx, &my);
+    bool moved = fabsf(mx - m->mx_prev) + fabsf(my - m->my_prev) > 1.0f;
+    m->mx_prev = mx; m->my_prev = my;
+    *clicked = false;
+    for (int i = 0; i < SET_N; i++) {
+        float y = set_row_top(i);
+        if (mx < MW * 0.5f - SET_W * 0.5f || mx > MW * 0.5f + SET_W * 0.5f || my < y || my > y + SET_H) continue;
+        if (moved) m->row = i;
+        if (!in->click) return 0;
+        m->row = i;
+        if (i != SET_BACK)
+            for (int a = 0; a < 2; a++)
+                if (fabsf(mx - set_arrow_x(a != 0)) <= 26.0f) return a ? 1 : -1;
+        *clicked = true;
+        return 0;
+    }
+    return 0;
+}
+
+// SETTINGS is reached from the main menu and from the Esc menu; ESC goes back to the one it came
+// from, with the highlight back on the row that opened it.
+static void settings_open(Game *g) {
+    Menu *m = &g->menu;
+    MenuPage from = m->page;
+    page(g, MENU_SETTINGS);
+    m->set_from = from; m->saved_t = 0;
+}
+
+static void settings_back(Game *g) {
+    Menu *m = &g->menu;
+    bool from_pause = m->set_from == MENU_PAUSE;
+    page(g, from_pause ? MENU_PAUSE : MENU_MAIN);
+    m->row = from_pause ? ROW_PAUSE_SETTINGS : ROW_SETTINGS;
+}
+
+static void tick_settings(Game *g, const Input *in, MenuKeys k) {
+    Menu *m = &g->menu;
+    bool clicked = false;
+    int dir = set_mouse(g, in, &clicked);
+    if (k.up)    m->row = (m->row + SET_N - 1) % SET_N;
+    if (k.down)  m->row = (m->row + 1) % SET_N;
+    if (k.back)  { settings_back(g); return; }
+    if (k.left)  dir = -1;
+    if (k.right) dir = 1;
+    if (dir && m->row != SET_BACK) { set_nudge(g, m->row, dir); return; }
+    if ((k.ok || clicked) && m->row == SET_BACK) settings_back(g);
+}
+
 // ---------------------------------------------------------------- scripted menu test
+
+// The word a script uses for a row ("40", "off", "144", "display", "high"), on that row's own
+// scale. A word the row does not understand comes back as where the row already is, which the
+// caller reads as "nothing to do" -- after a warning, because a typo in a check should be loud.
+static int set_target(Game *g, int row, const char *w) {
+    int lo, hi, step; set_range(row, &lo, &hi, &step);
+    int v = -1;
+    switch (row) {
+    case SET_VOLUME: case SET_VOICE_VOL: v = atoi(w); break;
+    case SET_VOICE:   for (int i = 0; i < 3; i++) if (!strcmp(w, SET_VOICE_WORD[i])) v = i; break;
+    case SET_SENS:    v = (int)lroundf((float)atof(w) * 10.0f); break;
+    case SET_FPS:     if (!strcmp(w, "display")) v = 0;
+                      else for (int i = 0; i < SET_FPS_N; i++) if (SET_FPS_CAPS[i] == atoi(w)) v = i;
+                      break;
+    case SET_VSYNC:   v = (!strcmp(w, "on") || !strcmp(w, "1")) ? 1 : (!strcmp(w, "off") || !strcmp(w, "0")) ? 0 : -1; break;
+    case SET_QUALITY: for (int i = 0; i < Q_COUNT; i++) if (!strcmp(w, quality_name((Quality)i))) v = i; break;
+    default: break;
+    }
+    if (v < 0) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "menu-test: \"%s\" is not a value for %s", w, SET_KEY[row]); return set_pos(g, row); }
+    v = ((v + step / 2) / step) * step;   // onto the row's own grid, or the presses would never stop
+    if (v < lo) v = lo;
+    if (v > hi) v = hi;
+    return v;
+}
+
+// --menu-test settings opens the page the way a player would (highlight the row, take it).
+// --menu-test settings:volume=40,vsync=off then works the arrows one press at a time, reading the
+// value back out of the game after each press, and stops when every named setting really is where
+// it was asked to be -- so a headless check exercises the live path and the settings.txt write and
+// not a private shortcut. Its own faster cadence: a value can be a dozen presses away.
+static void test_settings(Game *g, float dt) {
+    Menu *m = &g->menu;
+    m->step_t += dt;
+    if (m->step_t < 0.06f) return;
+    m->step_t = 0;
+    if (++m->step > 300) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "menu-test: settings gave up after %d steps", m->step); m->script[0] = 0; return; }
+    if (m->page != MENU_SETTINGS) {
+        if (m->page != MENU_MAIN && m->page != MENU_PAUSE) return;
+        int want = m->page == MENU_PAUSE ? ROW_PAUSE_SETTINGS : ROW_SETTINGS;
+        if (m->row != want) { m->row = want; SDL_Log("menu-test: row SETTINGS"); return; }
+        settings_open(g);
+        SDL_Log("menu-test: SETTINGS");
+        return;
+    }
+    const char *edits = strchr(m->script, ':');
+    if (!edits) { m->script[0] = 0; SDL_Log("menu-test: settings page"); return; }
+    for (const char *p = edits + 1; *p; ) {
+        const char *eq = strchr(p, '='); if (!eq) break;
+        const char *end = strchr(eq, ','); if (!end) end = eq + strlen(eq);
+        char key[32], val[32];
+        snprintf(key, sizeof key, "%.*s", (int)(eq - p), p);
+        snprintf(val, sizeof val, "%.*s", (int)(end - eq - 1), eq + 1);
+        int row = -1;
+        for (int i = 0; i < SET_BACK; i++) if (!strcmp(key, SET_KEY[i])) row = i;
+        if (row < 0) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "menu-test: no setting called %s", key);
+        else {
+            int pos = set_pos(g, row), want = set_target(g, row, val);
+            if (pos != want) {
+                if (m->row != row) { m->row = row; SDL_Log("menu-test: row %s", SET_LABEL[row]); return; }
+                set_nudge(g, row, want > pos ? 1 : -1);
+                if (set_pos(g, row) != pos) return;   // one press per step, as a hand would
+                SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "menu-test: %s will not reach %s (stuck at %d)", key, val, pos);
+            }
+        }
+        p = *end ? end + 1 : end;
+    }
+    SDL_Log("menu-test: settings done");
+    m->script[0] = 0;
+}
 
 // --menu-test host[:PORT] | --menu-test join:HOST:PORT (or HOLLOW_MENU_TEST=...). Drives the rows
 // the way a player would, so the headless check exercises the real path and not a private shortcut.
@@ -299,6 +560,7 @@ static void test_tick(Game *g, float dt) {
     Menu *m = &g->menu;
     if (!m->script[0]) return;
     if (m->page == MENU_CONNECTING) return;   // waiting for the host to answer is the join page's business
+    if (!strncmp(m->script, "settings", 8)) { test_settings(g, dt); return; }   // its own cadence
     m->step_t += dt;
     if (m->step_t < 0.35f) return;
     m->step_t = 0;
@@ -391,6 +653,7 @@ bool menu_tick(Game *g, const Input *in, float dt) {
     menu_init(g);
     m->t += dt;
     if (m->note_t > 0) m->note_t -= dt;
+    if (m->saved_t > 0) m->saved_t -= dt;   // --- settings --- the "(saved)" flash
 
     // The host said goodbye: back to the front door. Only ever after a join that worked, so a
     // client still knocking at the door (--join from the command line) is left alone.
@@ -420,6 +683,7 @@ bool menu_tick(Game *g, const Input *in, float dt) {
         case MENU_JOIN:       tick_join(g, in, k); break;
         case MENU_CONNECTING: tick_connecting(g, k, dt); break;
         case MENU_PAUSE:      tick_pause(g, in, k); break;
+        case MENU_SETTINGS:   tick_settings(g, in, k); break;
         case MENU_INVITE:     if (k.back || k.ok) { page(g, MENU_PAUSE); m->row = ROW_INVITE; } break;
         case MENU_OFF:        break;
         }
@@ -488,7 +752,7 @@ static void draw_main(Game *g) {
     text_mid(x, MW * 0.5f, 214, 24, C_DIM, "four idiots, one boat, no qualifications");
 
     char namerow[128]; snprintf(namerow, sizeof namerow, "NAME   %s", m->name.buf[0] ? m->name.buf : "goon");
-    const char *rows[ROW_MAIN_N] = { "PLAY SOLO", "HOST GAME", "JOIN GAME", namerow, "QUIT" };
+    const char *rows[ROW_MAIN_N] = { "PLAY SOLO", "HOST GAME", "JOIN GAME", namerow, "SETTINGS", "QUIT" };
     for (int i = 0; i < ROW_MAIN_N; i++) draw_row(x, i, rows[i], m->row == i);
     if (m->name.active) {
         draw_field(x, MW * 0.5f - 150, row_top(ROW_NAME) + 2, 300, &m->name, m->t, true, "your name");
@@ -535,10 +799,48 @@ static void draw_pause(Game *g) {
     gfx_ui_rect(x, 0, 0, MW, MH, v4(0.02f, 0.02f, 0.04f, 0.55f));
     text_mid(x, MW * 0.5f, 200, 64, C_TEXT, "PAUSED");
     const char *leave = g->net.mode == NM_HOST ? "END HOST" : g->net.mode == NM_CLIENT ? "LEAVE GAME" : "MAIN MENU";
-    const char *rows[ROW_PAUSE_N] = { "RESUME", "INVITE INFO", leave, "QUIT" };
+    const char *rows[ROW_PAUSE_N] = { "RESUME", "INVITE INFO", "SETTINGS", leave, "QUIT" };
     for (int i = 0; i < ROW_PAUSE_N; i++) draw_row(x, i, rows[i], m->row == i);
     if (g->net.mode == NM_HOST) text_mid(x, MW * 0.5f, MH - 96, 24, C_DIM, "the island keeps running while this is up: you are still hosting");
     text_mid(x, MW * 0.5f, MH - 56, 24, C_DIM, "ESC resumes");
+}
+
+// The settings page. Same VT323, same highlight and the same amber as every other page; each row
+// is its label, a < and a >, and the value between them, with "(saved)" flashing in the margin of
+// whichever row last wrote to settings.txt.
+static void draw_settings(Game *g) {
+    Gfx *x = &g->gfx;
+    Menu *m = &g->menu;
+    gfx_ui_rect(x, 0, 0, MW, MH, v4(0.02f, 0.02f, 0.04f, 0.72f));
+    text_mid(x, MW * 0.5f, 128, 56, C_TEXT, "SETTINGS");
+    text_mid(x, MW * 0.5f, 196, 22, C_DIM, "every change applies now and is kept in assets/settings.txt");
+    for (int i = 0; i < SET_N; i++) {
+        bool sel = m->row == i;
+        float y = set_row_top(i), cx = MW * 0.5f;
+        if (sel) {
+            gfx_ui_rect(x, cx - SET_W * 0.5f, y, SET_W, SET_H, v4(1.0f, 0.80f, 0.38f, 0.13f));
+            gfx_ui_rect(x, cx - SET_W * 0.5f, y, 4, SET_H, C_HOT);
+        }
+        if (i == SET_BACK) { text_mid(x, cx, y + 4, SET_PX + 6, sel ? C_HOT : C_TEXT, SET_LABEL[i]); continue; }
+        gfx_ui_text_px(x, cx - SET_W * 0.5f + 22, y + 6, SET_PX, sel ? C_HOT : C_TEXT, SET_LABEL[i]);
+        int lo, hi, step; set_range(i, &lo, &hi, &step);
+        int pos = set_pos(g, i);
+        Vec4 dead = v4(0.34f, 0.33f, 0.30f, 1);   // an arrow at the end of its range is spent
+        text_mid(x, set_arrow_x(false), y + 6, SET_PX, pos > lo ? (sel ? C_HOT : C_DIM) : dead, "<");
+        text_mid(x, set_arrow_x(true),  y + 6, SET_PX, pos < hi ? (sel ? C_HOT : C_DIM) : dead, ">");
+        char v[48]; set_text(g, i, v, sizeof v);
+        text_mid(x, (set_arrow_x(false) + set_arrow_x(true)) * 0.5f, y + 6, SET_PX - 2, sel ? C_TEXT : C_DIM, v);
+        if (m->saved_t > 0 && m->saved_row == i) {
+            Vec4 c = C_HOT; c.w = fminf(1.0f, m->saved_t);
+            gfx_ui_text_px(x, cx + SET_W * 0.5f + 12, y + 10, 22, c, "(saved)");
+        }
+    }
+    // The one row that cannot finish live, said out loud rather than left to be discovered.
+    if (m->row == SET_QUALITY)
+        text_mid(x, MW * 0.5f, MH - 128, 22, C_DIM, "render scale and shadows change now; textures and HDR on the next start");
+    else if (m->row == SET_VOICE)
+        text_mid(x, MW * 0.5f, MH - 128, 22, C_DIM, "push to talk is V, or the pad's left bumper");
+    text_mid(x, MW * 0.5f, MH - 92, 24, C_DIM, "LEFT and RIGHT change a value   ESC goes back");
 }
 
 static void draw_invite(Game *g) {
@@ -589,6 +891,7 @@ void menu_draw(Game *g) {
     case MENU_JOIN:       draw_join(g); break;
     case MENU_CONNECTING: draw_connecting(g); break;
     case MENU_PAUSE:      draw_pause(g); break;
+    case MENU_SETTINGS:   draw_settings(g); break;
     case MENU_INVITE:     draw_invite(g); break;
     case MENU_OFF:
         draw_host_corner(g);

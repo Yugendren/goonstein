@@ -78,10 +78,13 @@ and what is verified versus untested.
 | Debug snapshot | F8                       |                  |
 | Menu (pause)  | Esc                       |                  |
 | Player list   | hold Tab                  |                  |
+| Change a setting | Left / Right or A / D  | D-pad left / right |
 
 The layout follows Sekiro on PC. Level files also hot-reload on save while the game is running.
 Starting the game with no flags opens the main menu; Esc during play opens the in-game menu
-instead of quitting. A tool window (F2, F3, F4) still takes Esc for itself while it is open, and
+instead of quitting. `SETTINGS` on either of those two menus opens one page of sound, voice, mouse
+and picture settings -- see [The menu](#the-menu) -- where left and right change the highlighted
+row, live, and write it to `assets/settings.txt`. A tool window (F2, F3, F4) still takes Esc for itself while it is open, and
 its own function key closes it from either window. Every tool and debug key is a function key: no
 game key is ever a punctuation mark you might type at a menu.
 
@@ -504,7 +507,8 @@ itself, not the camera.
 Parry presses are dated to the moment of the press, not to the tick that saw them, so the rhythm
 judgement is exact at any frame rate. The debugger
 (`\`) has a FRAME RATE row: display, 30, 60, 90, 120, 144, 240 and a vsync toggle, saved to
-`assets/settings.txt` (`fps N`, `vsync 0|1`; `HOLLOW_FPS=N`, `HOLLOW_NOVSYNC=1` override).
+`assets/settings.txt` (`fps N`, `vsync 0|1`; `HOLLOW_FPS=N`, `HOLLOW_NOVSYNC=1` override). The
+`FRAME CAP` and `VSYNC` rows of the settings menu are the same two settings without the debugger.
 `HOLLOW_NOINTERP=1` draws the raw tick state.
 
 Three hooks measure this without a hand on the keyboard. `HOLLOW_TRACE=FILE` writes one CSV line
@@ -946,11 +950,44 @@ stopped answering for the length of a menu would drop its clients.
 `INVITE INFO` shows the address to give out (or the address you joined) and who is connected.
 Holding `Tab` during play shows the player list: name, round-trip time and the slot colour.
 
+### Settings
+
+`SETTINGS` is on both menus and opens the same single page (DESIGN.md asks for a minimal UI, so
+there is nothing under it). Highlight a row with the arrows, `W`/`S`, the stick or the mouse, and
+change its value with `Left`/`Right`, `A`/`D`, the d-pad, or by clicking the `<` and `>` on the
+row. Every change applies to the running game immediately and is written to
+`assets/settings.txt` the same instant -- there is no APPLY button -- and the row flashes
+`(saved)` when the file is written. `Esc` or `BACK` returns to the menu it was opened from.
+
+| Row | Values | Applied |
+|---|---|---|
+| `VOLUME` | 0 to 100 %, in 5s (`volume`) | live, the mixer's master gain |
+| `VOICE` | `PUSH TO TALK` / `OPEN MIC` / `OFF` (`voice`) | live |
+| `VOICE VOLUME` | 0 to 200 %, in 5s (`voice_volume`) | live |
+| `MOUSE SENSITIVITY` | 0.2 to 3.0, in 0.1s (`mouse_sens`) | live |
+| `FRAME CAP` | `DISPLAY` / 30 / 60 / 90 / 120 / 144 / 240 (`fps`) | live |
+| `VSYNC` | `ON` / `OFF` (`vsync`) | live |
+| `QUALITY` | `POTATO` / `NORMAL` / `HIGH` (`quality`) | render scale and shadow map live; **texture cap and HDR format on the next start** |
+
+Each row reads its value back from whatever actually owns it -- the mixer, `voice.c`, `camera.c`,
+the platform, `quality.c` -- rather than from a copy, so the page cannot drift from the running
+game: started with `--volume 0`, the `VOLUME` row says `0 %`. Rewriting a line keeps its trailing
+comment and the blank lines around it, so `assets/settings.txt` stays the hand-written file it is.
+
 Any of `--host`, `--join`, `--level`, `--start` or `--bot` skips the menu entirely, so every
 existing command line behaves exactly as before -- the command-line flags below are the other way
 in, still there for scripted testing and CI.
 
-New `assets/settings.txt` keys: `name`, `port`, `last_join`.
+New `assets/settings.txt` keys: `name`, `port`, `last_join`. The settings page writes `volume`,
+`voice`, `voice_volume`, `mouse_sens`, `fps`, `vsync` and `quality`, all of which already existed.
+
+`--menu-test settings` opens the page without a hand on the keyboard, and
+`--menu-test settings:volume=40,vsync=off,quality=high` then works the arrows one press at a time
+and reads the value back out of the game after each press, so a headless check exercises the live
+path and the file write rather than a private shortcut:
+
+    HOLLOW_SILENT=1 ./build/bin/goonstein --volume 0 --menu-test settings:volume=40 \
+      --frames 240 --screenshot /tmp/settings.png
 
 ## Networking
 
@@ -1177,7 +1214,8 @@ A red dot and the word `talking` appear bottom-left while your microphone is liv
 over the other three goons; whoever is speaking gets a brighter tag and a small speaker icon whose
 arcs grow with how loud they are in *your* mix, so the icon is also a distance readout.
 
-`assets/settings.txt`, or the matching command-line flags, which win:
+`assets/settings.txt`, or the matching command-line flags, which win. The `VOICE` and
+`VOICE VOLUME` rows of the settings menu change the first two live and write them back:
 
 | Setting | Flag | Default | What it does |
 |---|---|---|---|

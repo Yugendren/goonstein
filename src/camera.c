@@ -33,6 +33,7 @@ static Vec3 orbit_dir(float yaw, float pitch) {
 float camera_mouse_sens(void) { return MOUSE_SENS * mouse_sens_mult; }
 
 void camera_set_mouse_sens(float mult) { mouse_sens_mult = clampf(mult, 0.05f, 10.0f); }
+float camera_mouse_sens_mult(void) { return mouse_sens_mult; }
 
 void camera_look(Camera *c, float mouse_dx, float mouse_dy, float stick_x, float stick_y, float dt) {
     float sens = camera_mouse_sens();

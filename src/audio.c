@@ -932,6 +932,8 @@ void audio_set_master(float v) {
     SDL_UnlockMutex(g_audio.mutex);
 }
 
+float audio_master(void) { return g_audio.master; }
+
 // ------------------------------------------------------- sample playback api
 
 int audio_load(const char *path) {

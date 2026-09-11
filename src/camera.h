@@ -63,6 +63,9 @@ float camera_mouse_sens(void);
 // settings.txt `mouse_sens`: 1.0 is today's default (0.0022 rad/pixel). Clamped to 0.05..10 so a
 // bad or missing setting can't zero out or run away with the sensitivity.
 void camera_set_mouse_sens(float mult);
+// The multiplier itself, as the settings menu shows and steps it (camera_mouse_sens above is the
+// radians per pixel it ends up as, which is not the number a player is looking at).
+float camera_mouse_sens_mult(void);
 // Applied once per RENDERED FRAME with that frame's mouse delta, so the view turns the instant the
 // mouse moves instead of once every 16.7 ms of sim tick. No smoothing and no acceleration: the
 // pointer delta is the rotation. stick_x/stick_y are gamepad axes in -1..1 and are a RATE (radians

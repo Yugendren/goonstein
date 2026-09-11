@@ -1854,8 +1854,23 @@ void game_settings_set(Game *g, const char *key, const char *value) {
     char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR);
     size_t n = 0; char *st = SDL_LoadFile(sp, &n); char out[4096] = {0}; size_t on = 0; bool had = false; size_t kl = strlen(key);
     if (st) { char *cur = st; while (*cur) { char *nl = strchr(cur, '\n'); size_t len = nl ? (size_t)(nl - cur) : strlen(cur);
-        if (!strncmp(cur, key, kl) && (cur[kl] == ' ' || cur[kl] == '\t')) { on += (size_t)snprintf(out + on, sizeof out - on, "%s %s\n", key, value); had = true; }
-        else if (len) on += (size_t)snprintf(out + on, sizeof out - on, "%.*s\n", (int)len, cur);
+        if (!strncmp(cur, key, kl) && (cur[kl] == ' ' || cur[kl] == '\t')) {
+            // --- settings --- keep whatever the line said about itself. settings.txt is a
+            // hand-written file with a comment on almost every line, and the settings menu now
+            // rewrites those lines while the game runs: a player who turns the volume down must
+            // not lose "# game sound 0..1 (0 = mute)" for it. The '#' is put back in the column
+            // it was in, so the file still lines up.
+            const char *hash = (const char *)memchr(cur, '#', len);
+            char kv[192]; int kvn = snprintf(kv, sizeof kv, "%s %s", key, value);
+            if (hash) { int pad = (int)(hash - cur) - kvn; if (pad < 1) pad = 1;
+                        on += (size_t)snprintf(out + on, sizeof out - on, "%s%*s%.*s\n", kv, pad, "", (int)(len - (size_t)(hash - cur)), hash); }
+            else on += (size_t)snprintf(out + on, sizeof out - on, "%s\n", kv);
+            had = true;
+        }
+        // Every other line goes back exactly as it was, blank ones included: they are the file's
+        // paragraph breaks, and the menu now rewrites this file often enough that losing one per
+        // write would close the whole thing up within a session.
+        else on += (size_t)snprintf(out + on, sizeof out - on, "%.*s\n", (int)len, cur);
         cur = nl ? nl + 1 : cur + len; } SDL_free(st); }
     if (!had) on += (size_t)snprintf(out + on, sizeof out - on, "%s %s\n", key, value);
     FILE *f = fopen(sp, "wb"); if (f) { fwrite(out, 1, on, f); fclose(f); }
