@@ -161,3 +161,53 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: ./tools/content_gate.sh
+
+  # ---------------------------------------------------------------- perf bench
+  # Runs the four --bench camera paths (src/bench.c) headless and checks the result against
+  # bench_baseline.json's per-machine numbers with tools/bench_check.py. Frame time is a property
+  # of the machine it was measured on (see bench_baseline.json's "_comment"), so this only gates
+  # anything once this runner's own machine_tag has a baseline entry -- see the --allow-missing-
+  # baseline note below.
+  bench:
+    name: Perf bench (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: macOS deps
+        run: brew install ninja
+
+      # Same configure/build/install as the macOS leg of the `build` job above.
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DHOLLOW_PORTABLE=ON
+      - name: Build
+        run: cmake --build build --config Release -j 4
+      - name: Install layout
+        run: cmake --install build --config Release --prefix dist
+
+      # The portable build chdir's next to its own executable (see the Windows render smoke step's
+      # comment above), so bench.json lands in dist/bin regardless of the shell's own cwd.
+      - name: Run the four bench paths
+        working-directory: dist/bin
+        env:
+          HOLLOW_SILENT: '1'
+        run: ./goonstein --bench bench.json --volume 0
+
+      - name: Print bench.json
+        working-directory: dist/bin
+        run: cat bench.json
+
+      - name: Compare against the baseline
+        working-directory: dist/bin
+        run: |
+          # --allow-missing-baseline: this runner's machine_tag is not in bench_baseline.json yet
+          # (a GitHub-hosted macOS runner's GPU/driver/core count has never had a bench run learned
+          # from it). Remove this flag in the same commit that adds this runner's tag to
+          # bench_baseline.json, learned from this job's own bench.json artifact -- until then the
+          # job can only print the numbers, not gate on them.
+          python3 ../../tools/bench_check.py ../../bench_baseline.json bench.json --tol 0.15 --allow-missing-baseline
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-macos
+          path: dist/bin/bench.json
+          if-no-files-found: error

@@ -61,11 +61,21 @@ static bool prop_sphere(Gfx *g, PropCache *pc, PropModel *pm, Vec3 *cen, float *
 // palette per draw and an instance has nowhere to keep one. Such a prop is drawn whole, the old
 // way, rather than half instanced and half not. Asked once per file and cached, because for a
 // .part it means loading and walking the whole assembly.
-// HOLLOW_NOLOD=1 draws the real mesh everywhere, which is the only way to measure what the far
-// stand-ins are worth: the same camera path with and without them, triangles counted both times.
+// Two switches that exist only so a claim can be checked. Measuring what a change bought by
+// building the tree twice compares two compilers' moods as much as two algorithms; measuring it by
+// turning the change off in the binary you already have compares exactly one thing.
+//
+//   HOLLOW_NOLOD=1        draw the real mesh everywhere, never the far stand-in.
+//   HOLLOW_NOINSTANCE=1   put every prop on the fallback list, so each one is drawn on its own,
+//                         piece by piece, exactly as props_draw did before instancing existed.
 static bool props_lod_off(void) {
     static int v = -1;
     if (v < 0) v = SDL_getenv("HOLLOW_NOLOD") != NULL;
+    return v != 0;
+}
+static bool props_instancing_off(void) {
+    static int v = -1;
+    if (v < 0) v = SDL_getenv("HOLLOW_NOINSTANCE") != NULL;
     return v != 0;
 }
 
@@ -173,7 +183,7 @@ void props_collect(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTex
         }
         if (in_cam) drawn++; else culled++;
         if (!in_sun && !in_cam) continue;
-        if (pm->fallback > 0) {   // a skinned mesh somewhere in it: drawn whole, the old way
+        if (pm->fallback > 0 || props_instancing_off()) {   // a skinned mesh somewhere in it: drawn whole, the old way
             if (in_sun && pc->nfb[GFX_SET_SHADOW] < LEVEL_MAX_PROPS) pc->fb[GFX_SET_SHADOW][pc->nfb[GFX_SET_SHADOW]++] = i;
             if (in_cam && pc->nfb[GFX_SET_WORLD]  < LEVEL_MAX_PROPS) pc->fb[GFX_SET_WORLD][pc->nfb[GFX_SET_WORLD]++]  = i;
             continue;

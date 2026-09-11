@@ -1,0 +1,20 @@
+{
+  "_comment": "Frame time is a property of a machine, not of the build: an M4's ms/frame means nothing on a CI runner's software renderer, so there is no single global number here, only one block per machine_tag (see bench.c's bench_finish for how the tag is built and prof.h for what frame_ms_median is a median of). A machine_tag that is not a key below has no baseline yet, and tools/bench_check.py treats that as 'nothing to compare against' rather than a pass or a fail on its own -- pass --allow-missing-baseline to let a run with no baseline through anyway (CI does this today). The rule going forward: the same commit that adds or changes a CI job's bench step must also add that runner's tag here, learned from that job's own first green run, so the tolerance check actually gates something instead of quietly no-op'ing forever.",
+  "tolerance": 0.15,
+  "machines": {
+    "metal/macOS/10": {
+      "pier": {
+        "frame_ms_median": 1.776
+      },
+      "courtyard": {
+        "frame_ms_median": 1.799
+      },
+      "summit": {
+        "frame_ms_median": 2.108
+      },
+      "shootout": {
+        "frame_ms_median": 1.954
+      }
+    }
+  }
+}

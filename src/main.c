@@ -14,6 +14,7 @@
 #include "camera.h"   // camera_set_mouse_sens: settings.txt owns the sensitivity
 #include "audio.h"
 #include "voice.h"   // --- voice ---
+#include "bench.h"   // --bench: four scripted camera paths, timed and dumped as JSON
 
 #define TICK_HZ 60
 #define TICK_DT (1.0 / TICK_HZ)
@@ -44,7 +45,11 @@ int main(int argc, char **argv) {
     //                             --volume 0, which mutes the game but leaves voice audible.
     // --menu-test S   drive the main menu without a hand on the keyboard: "host" or "join:HOST:PORT"
     // With none of --host --join --level --start --bot, the game opens on the main menu (GS_MENU).
+    // --bench [FILE]        run the four scripted perf paths headless and write FILE (bench.json).
+    // --bench-shots DIR     also write DIR/<path>.png, one PNG per path, for a human to eyeball.
     const char *menu_test = NULL; bool menu_boot = true;
+    const char *bench_json = NULL, *bench_shot_dir = NULL;
+    bool bench_active = bench_requested(argc, argv, &bench_json, &bench_shot_dir);
     int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *shot_every_dir = NULL; int shot_every = 0; bool spawn_set = false; float spawn_x = 0, spawn_z = 0; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
     bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1; bool log_set = false;
     float mouse_sens = 1.0f;   // settings.txt `mouse_sens`: a multiplier on the default radians per mouse pixel
@@ -99,6 +104,30 @@ int main(int argc, char **argv) {
             || !strcmp(argv[i], "--tool") || !strcmp(argv[i], "--test")) menu_boot = false;
     if (!log_set && game.net.name[0]) snprintf(game.log_path, sizeof game.log_path, "hollow_%s.log", game.net.name);
 
+    // --bench: a fixed, comparable island every time, whatever settings.txt or the command line
+    // otherwise asked for. --level still wins if it was given explicitly, so a bench run can be
+    // pointed at a different level on purpose; menu_boot is already forced off by the earlier
+    // "something already says what to do" scan (--bench doesn't say so explicitly, so it is
+    // repeated here). HOLLOW_BOT=shoot has to be set before game_init because weaponbot.c latches
+    // it the first time it is asked (see weaponbot.c's bot_enabled) -- bench.c's shootout path is
+    // the only one that turns g->bot on, so the other three paths never see it fire.
+    // A bench run takes the compositor out of the loop as well as the vsync. Asking for IMMEDIATE
+    // is not enough on macOS: the window server hands out drawables at its own pace and puts a
+    // floor of about 120 frames a second under every number, which is why the first four-path run
+    // came back with all four medians at 8.2 ms and 7.5 of those spent inside the swapchain
+    // acquire. HOLLOW_NOPRESENT draws the whole frame -- including the upscale to the window's real
+    // pixel count -- into off-screen targets and paces the CPU off a fence instead. See
+    // platform_begin_frame. Set it here, before platform_init, which is where it is read.
+    if (bench_active) SDL_setenv_unsafe("HOLLOW_NOPRESENT", "1", 1);
+    if (bench_active) {
+        bool level_given = false;
+        for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--level")) level_given = true;
+        if (!level_given) snprintf(game.level_path, sizeof game.level_path, "%s/levels/island.txt", HOLLOW_ASSET_DIR);
+        game.no_scenes = true;
+        menu_boot = false;
+        SDL_setenv_unsafe("HOLLOW_BOT", "shoot", 1);
+    }
+
     Platform pf;
     if (!platform_init(&pf, "hollow", 1280, 800)) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "platform_init failed: %s", SDL_GetError());
@@ -127,6 +156,9 @@ int main(int argc, char **argv) {
     if (menu_test) menu_set_test(&game, menu_test);
     game.bot = bot;
     audio_set_master(volume * 0.8f);
+    // --bench: uncapped and unsynced, so a frame time is the renderer's cost and not the display's
+    // (see platform_present_mode_name's own comment on what asking for no vsync actually gets you).
+    if (bench_active) { platform_set_vsync(&pf, false); pf.fps_cap = 0; bench_init(&game, &pf, bench_json, bench_shot_dir); }
 
     // HOLLOW_FIXED_FPS=N is HOLLOW_FIXED_DT's finer sibling: the clock advances 1/N of a second per
     // rendered frame instead of a whole tick, which is the only way to capture a strip of genuinely
@@ -144,7 +176,10 @@ int main(int argc, char **argv) {
     // captures of the same scene under two different render settings run at different speeds,
     // reach different points in a bot's walk, and cannot be compared. Frame timing is still
     // measured from the real clock, so this does not lie about performance.
-    const bool fixed_step = SDL_getenv("HOLLOW_FIXED_DT") != NULL;
+    // --bench forces the same one-tick-per-frame determinism HOLLOW_FIXED_DT does: two runs of the
+    // same path must reach the same tick on the same rendered frame, or their draw counts (and
+    // screenshots) cannot be compared.
+    const bool fixed_step = SDL_getenv("HOLLOW_FIXED_DT") != NULL || bench_active;
     // Frame times for the perf line. The smoothed game.frame_ms is the right thing on screen but
     // useless for comparing two runs: it is whatever the last twenty frames happened to cost, and
     // on a machine with anything else on it that lands anywhere. The median over a whole run,
@@ -167,6 +202,10 @@ int main(int argc, char **argv) {
         running = platform_poll(&pf);
         prof_mark_input();   // the newest input state is ready now; input->present latency starts here
         if (pf.want_quit) running = false;
+
+        // bench_pre_tick runs before game_view_look on purpose: it writes into pf.input, and
+        // game_view_look is what turns look_x into an actual camera_look call this frame.
+        if (bench_active && !bench_pre_tick(&game, &pf, &pf.input)) running = false;
 
         // Mouse look happens HERE: at the frame rate, before the ticks that read the view yaw, so a
         // 144 Hz screen turns 144 times a second and the movement direction the sim uses is the one
@@ -194,6 +233,8 @@ int main(int argc, char **argv) {
         platform_begin_frame(&pf);
         prof_end(PROF_PRESENT_WAIT);
         if (tool_shot) gfx_tool_screenshot_request(&game.gfx, pf.tool_w > 0 ? pf.tool_w : 720, pf.tool_h > 0 ? pf.tool_h : 820);
+        char bench_shot_path[640] = "";
+        if (bench_active) bench_pre_render(&game, &pf, bench_shot_path, sizeof bench_shot_path);
         prof_begin(PROF_RENDER);
         game_render(&game, &pf, (float)alpha);
         prof_end(PROF_RENDER);
@@ -203,10 +244,12 @@ int main(int argc, char **argv) {
         prof_end(PROF_SUBMIT);
         platform_clear_frame_edges(&pf);
         if (shot_every > 0 && game.frames_total % shot_every == 0) { char sp[640]; snprintf(sp, sizeof sp, "%s/f%06u.png", shot_every_dir, game.frames_total); game_screenshot(&game, sp); }
+        if (bench_shot_path[0]) game_screenshot(&game, bench_shot_path);   // gfx_screenshot reads back what was just submitted, so this has to be after platform_end_frame
         game.frames_total++;
         if (max_frames >= 0 && --max_frames == 0) running = false;
         if (shot_when && shot && game_shot_moment(&game, shot_when)) { game_screenshot(&game, shot); shot = NULL; running = false; }
     }
+    if (bench_active) bench_finish(&game, &pf);
     if (shot) game_screenshot(&game, shot);
     if (tool_shot) game_tool_screenshot(&game, tool_shot);
     SDL_Log("perf: %.1f ms/frame (%.0f fps) draws %u props %d\n", game.frame_ms, game.frame_ms > 0 ? 1000.0f / game.frame_ms : 0, game.gfx.draw_calls, game.level.nprops);

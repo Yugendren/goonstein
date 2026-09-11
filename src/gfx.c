@@ -326,7 +326,12 @@ bool gfx_init(Gfx *g, Platform *pf, int iw, int ih) {
     // keeps a path or a wall seen at a grazing angle from going to mush once mips exist.
     g->samp_linear = SDL_CreateGPUSampler(g->dev, &(SDL_GPUSamplerCreateInfo){ .min_filter = SDL_GPU_FILTER_LINEAR, .mag_filter = SDL_GPU_FILTER_LINEAR,
         .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR, .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT, .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
-        .min_lod = 0.0f, .max_lod = 1000.0f, .enable_anisotropy = true, .max_anisotropy = 8 });
+        .min_lod = 0.0f, .max_lod = SDL_getenv("HOLLOW_NOMIP") ? 0.0f : 1000.0f,
+        .enable_anisotropy = SDL_getenv("HOLLOW_NOMIP") == NULL, .max_anisotropy = 8 });
+    // HOLLOW_NOMIP=1 pins every world fetch back to level 0 with no anisotropy, which is exactly
+    // what this game did before mips existed. The chains are still built (that is load-time cost,
+    // not frame cost); nothing samples them. It is here so "mips are worth N%" can be checked on
+    // the binary in front of you rather than against a second build of a different commit.
     // No mip_lod_bias here: Metal's sampler does not have one and SDL drops it, so a bias set on
     // the sampler would quietly mean two different pictures on two platforms. lit.frag biases the
     // fetch instead, which all three backends spell the same way.
