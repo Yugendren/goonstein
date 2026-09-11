@@ -31,6 +31,12 @@ It prints a table of triangle counts and sizes and fails if a piece breaks a fra
 its triangle budget, or takes the kit over 30000 triangles in total. Blender is called once per
 piece and the whole kit takes well under a minute.
 
+The OBJs are reproducible: rebuilding the whole kit twice gives byte-identical meshes. The STEP
+files are not, and never will be -- OpenCASCADE stamps the write time into `FILE_NAME` and does
+not number its internal entities deterministically -- so `git status` will always show all
+nineteen of them as modified after a rebuild even when nothing about the geometry moved. Check
+the OBJs to see whether a change was real, and only commit the STEP files when it was.
+
 ## The frame, once and for all
 
 Pieces are modelled the way a CAD tool wants them and converted on export.
