@@ -394,8 +394,8 @@ static float vm_reload_curve(float reload_left, float *roll, float *pitch) {
     // the whole trick: a reload that ends slowly feels broken, because the gun is back in the fight
     // the instant the magazine seats and the picture has to agree with that.
     float down = smoothstep(clampf(r / 0.22f, 0, 1)) * (1.0f - smoothstep(clampf((r - 0.80f) / 0.16f, 0, 1)));
-    *roll = 34.0f * down;
-    *pitch = 26.0f * down;
+    *roll = 46.0f * down;
+    *pitch = 8.0f * down;
     return down;
 }
 
@@ -420,8 +420,14 @@ static void draw_mantle_hand(Game *g, float reach, Vec3 eye, Vec3 right, Vec3 up
 // same question weapons.c asks about the third-person body -- asked again here because the hands
 // answer to the gun's own clock (a flash, a reload) rather than to the locomotion.
 static Anim vm_hand_anim(const Game *g, const Weapon *w, const ItemDef *d) {
-    if (w->reload > 0) return ANIM_GUN_RELOAD;
-    if (w->swing > 0) return ANIM_MELEE_SWING;
+    // Deliberately NOT the reload or the swing clip, even though both are bound and both would
+    // play. The gun leads and the arms follow it, so a clip that walks the hand half a metre away
+    // to deal with a magazine leaves the gun where the code put it and the arm somewhere else
+    // entirely -- a floating pistol and a missing hand. The reload and the swing are animated by
+    // code for exactly that reason (vm_reload_curve, and the swing block in the draw), so the hand
+    // only ever has to hold on. A shot is the one exception: Pistol_Shoot barely moves the wrist,
+    // and the flinch it does add lands on top of the spring rather than fighting it.
+    (void)w;
     if (d && d->weapon == 1) return ANIM_MELEE_IDLE;
     if (g->weapons.vm.flash > 0) return ANIM_GUN_FIRE;
     return ANIM_GUN_IDLE;
@@ -526,8 +532,12 @@ void weapons_draw_viewmodel(Game *g) {
     if (w->reload > 0) {
         float rr, rp;
         float down = vm_reload_curve(w->reload, &rr, &rp);
-        extra_pos = v3_add(extra_pos, v3_scale(up, -0.20f * down));
-        extra_pos = v3_add(extra_pos, v3_scale(right, 0.04f * down));
+        // Down, but not out of frame: the gun also comes back toward the eye, the way a real one
+        // does when a hand leaves the grip to deal with the magazine. A reload that simply drops
+        // the weapon off the bottom of the screen is a second of looking at nothing.
+        extra_pos = v3_add(extra_pos, v3_scale(up, -0.035f * down));
+        extra_pos = v3_add(extra_pos, v3_scale(fwd, -0.170f * down));
+        extra_pos = v3_add(extra_pos, v3_scale(right, -0.025f * down));
         extra_roll += rr; extra_pitch += rp;
     }
 
