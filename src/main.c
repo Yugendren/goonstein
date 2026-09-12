@@ -28,7 +28,7 @@
 // optional and gets a row per frame. p99 within twice the median, and nothing over 12 ms outside a
 // level load, is the bar this is measured against.
 static int stall_cmp(const void *a, const void *b) { float x = *(const float *)a, y = *(const float *)b; return (x > y) - (x < y); }
-static void stall_report(float (*rows)[PROF_COUNT], int n, int warmup, const char *csv) {
+static void stall_report(float (*rows)[PROF_COUNT], int n, int warmup, const char *csv, float budget_ms) {
     if (n <= warmup + 8) return;
     int base = warmup, count = n - warmup;
     float *v = (float *)malloc((size_t)count * sizeof *v);
@@ -36,10 +36,13 @@ static void stall_report(float (*rows)[PROF_COUNT], int n, int warmup, const cha
     for (int i = 0; i < count; i++) v[i] = rows[base + i][PROF_FRAME];
     qsort(v, (size_t)count, sizeof *v, stall_cmp);
     float med = v[count / 2], p90 = v[(int)((float)count * 0.90f)], p99 = v[(int)((float)count * 0.99f)], mx = v[count - 1];
-    int over12 = 0, over25 = 0, over2x = 0;
-    for (int i = 0; i < count; i++) { if (v[i] > 12.0f) over12++; if (v[i] > 25.0f) over25++; if (v[i] > med * 2.0f) over2x++; }
-    SDL_Log("stall: %d frames  median %.2f  p90 %.2f  p99 %.2f  max %.2f ms  |  over 12ms %d  over 25ms %d  over 2x median %d",
-            count, (double)med, (double)p90, (double)p99, (double)mx, over12, over25, over2x);
+    // The budget is this run's own frame period (the cap, or the display's rate), not a hardcoded
+    // 12 ms. At a 72 fps cap every frame is over 12 ms by design and "over 12ms 639" says nothing.
+    float over_ms = budget_ms > 1.0f ? budget_ms * 1.25f : 12.0f;
+    int over_budget = 0, over25 = 0, over2x = 0;
+    for (int i = 0; i < count; i++) { if (v[i] > over_ms) over_budget++; if (v[i] > 25.0f) over25++; if (v[i] > med * 2.0f) over2x++; }
+    SDL_Log("stall: %d frames  median %.2f  p90 %.2f  p99 %.2f  max %.2f ms  |  over %.1fms %d  over 25ms %d  over 2x median %d",
+            count, (double)med, (double)p90, (double)p99, (double)mx, (double)over_ms, over_budget, over25, over2x);
     free(v);
     // The ten worst frames, each with the phases that were not noise in it.
     int worst[10]; int nw = 0;
@@ -429,7 +432,9 @@ int main(int argc, char **argv) {
             free(v);
         }
     }
-    stall_report(stall_ph, stall_n, PERF_WARMUP, stall_csv);
+    stall_report(stall_ph, stall_n, PERF_WARMUP, stall_csv,
+                 pf.fps_cap > 0 ? 1000.0f / (float)pf.fps_cap
+                 : platform_refresh_hz(&pf) > 0 && !pf.no_present ? 1000.0f / (float)platform_refresh_hz(&pf) : 0.0f);
     prof_dump(game.level_path[0] ? game.level_path : "run");
     SDL_Log("stats: battle=%d enemy_hp=%d round=%d | state=%d parries=%u hits_taken=%u deaths=%u boss_hp=%.0f player_hp=%.0f player_yaw=%.0f flash=%.2f t=%.3f player=(%.1f %.1f %.1f) boss=(%.1f %.1f %.1f) cam=(%.1f %.1f %.1f) dist=%.1f",
             game.battle.state, game.battle.enemy_hp, game.battle.round, game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, PLAYER(&game).c.hp, PLAYER(&game).c.yaw / DEG2RAD, game.flash, game.time,
