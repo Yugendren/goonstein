@@ -1,0 +1,15 @@
+{
+  "_": "Marko. Tall and lanky, long-limbed, in an olive-yellow work suit. Slot 1, spawns with the bat.",
+  "name": "marko",
+  "phenotype": { "gender": 0.95, "age": 0.45, "muscle": 0.48, "weight": 0.38,
+                 "proportions": 0.72, "height": 0.90,
+                 "race": { "asian": 0.10, "caucasian": 0.25, "african": 0.65 } },
+  "proxy": "male1591/male1591.proxy",
+  "skin": "young_african_male/young_african_male.mhmat",
+  "eyes": "low-poly/low-poly.mhclo",
+  "eyebrows": "eyebrow004/eyebrow004.mhclo",
+  "hair": "short04/short04.mhclo",
+  "clothes": ["male_worksuit01/male_worksuit01.mhclo", "shoes05/shoes05.mhclo"],
+  "budget": { "male_worksuit01": 10000, "short04": 2600, "shoes05": 1800 },
+  "tint": { "male_worksuit01": [1.20, 1.00, 0.32, 0.55] }
+}

@@ -1,0 +1,15 @@
+{
+  "_": "Bunny. Average everything, the one nobody can describe afterwards, in purple-magenta. Slot 3, spawns with the wrench.",
+  "name": "bunny",
+  "phenotype": { "gender": 0.92, "age": 0.38, "muscle": 0.52, "weight": 0.52,
+                 "proportions": 0.50, "height": 0.48,
+                 "race": { "asian": 0.30, "caucasian": 0.45, "african": 0.25 } },
+  "proxy": "male1591/male1591.proxy",
+  "skin": "young_caucasian_male2/young_caucasian_male2.mhmat",
+  "eyes": "low-poly/low-poly.mhclo",
+  "eyebrows": "eyebrow007/eyebrow007.mhclo",
+  "hair": "afro01/afro01.mhclo",
+  "clothes": ["male_casualsuit03/male_casualsuit03.mhclo", "shoes03/shoes03.mhclo"],
+  "budget": { "male_casualsuit03": 10000, "afro01": 2600, "shoes03": 1800 },
+  "tint": { "male_casualsuit03": [1.20, 0.38, 1.05, 0.50] }
+}

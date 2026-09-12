@@ -1,17 +1,14 @@
-# Goon A: Dez -- a MakeHuman body (heavy-set, middle-aged, rust-red shirt and jeans), the 84 Quaternius clips retargeted onto it.
-# Built from assets/characters/mh/goon_a.json by tools/blender/makegoon.py and tools/blender/retarget.py;
-# see README "Characters" for the two commands. The old stylised cast is still here as
-# goon_a_toon.txt if you want it back.
-model models/characters/goon_a.glb
-scale 1.06                       # 1.93 m tall, the same as the toon cast stood
+# Goon A: Dez -- Quaternius ranger, unarmed anims, rust-red/orange outfit.
+model models/quaternius/ranger_male.glb
+scale 1.05
 texture_size 512
 yaw_offset 0
 # lands with the shotgun in the weapon hand (assets/items/shotgun.txt)
 spawn shotgun
 # voice chat: a big slow voice: pitched down, tract left alone
 voice 0.85 1.00 none
-# No recolor lines: the clothes are repainted in the model by makegoon.py's "tint",
-# because a photographic cloth map has no single paint colour for `recolor` to move.
+recolor 45 72 27  190 90 40
+recolor 10 31 15  60 22 14
 anim idle       Idle_Loop loop
 anim walk       Walk_Loop loop
 anim run        Jog_Fwd_Loop loop

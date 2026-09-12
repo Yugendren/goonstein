@@ -1,17 +1,14 @@
-# Goon D: Bunny -- a MakeHuman body (average everything, purple-magenta jacket), the 84 Quaternius clips retargeted onto it.
-# Built from assets/characters/mh/goon_d.json by tools/blender/makegoon.py and tools/blender/retarget.py;
-# see README "Characters" for the two commands. The old stylised cast is still here as
-# goon_d_toon.txt if you want it back.
-model models/characters/goon_d.glb
-scale 1.00                       # 1.85 m tall, the same as the toon cast stood
+# Goon D: Bunny -- Quaternius ranger, unarmed anims, purple-magenta outfit.
+model models/quaternius/ranger_male.glb
+scale 1.00
 texture_size 512
 yaw_offset 0
 # lands with the wrench in the weapon hand (assets/items/wrench.txt)
 spawn wrench
 # voice chat: faintly robotic: a bigger tract and a 55 Hz ring modulator
 voice 1.00 0.90 ring
-# No recolor lines: the clothes are repainted in the model by makegoon.py's "tint",
-# because a photographic cloth map has no single paint colour for `recolor` to move.
+recolor 45 72 27  140 35 120
+recolor 10 31 15  45 14 42
 anim idle       Idle_Loop loop
 anim walk       Walk_Loop loop
 anim run        Jog_Fwd_Loop loop

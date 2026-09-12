@@ -1,17 +1,14 @@
-# Goon C: Pip -- a MakeHuman body (small and slight, teal-cyan jacket), the 84 Quaternius clips retargeted onto it.
-# Built from assets/characters/mh/goon_c.json by tools/blender/makegoon.py and tools/blender/retarget.py;
-# see README "Characters" for the two commands. The old stylised cast is still here as
-# goon_c_toon.txt if you want it back.
-model models/characters/goon_c.glb
-scale 0.87                       # 1.64 m tall, the same as the toon cast stood
+# Goon C: Pip -- Quaternius ranger, unarmed anims, teal-cyan outfit.
+model models/quaternius/ranger_male.glb
+scale 0.90
 texture_size 512
 yaw_offset 0
 # lands with the pistol in the weapon hand (assets/items/pistol.txt)
 spawn pistol
 # voice chat: small and high: pitched up with a smaller vocal tract to match
 voice 1.35 1.15 none
-# No recolor lines: the clothes are repainted in the model by makegoon.py's "tint",
-# because a photographic cloth map has no single paint colour for `recolor` to move.
+recolor 45 72 27  25 150 150
+recolor 10 31 15  8 40 46
 anim idle       Idle_Loop loop
 anim walk       Walk_Loop loop
 anim run        Jog_Fwd_Loop loop

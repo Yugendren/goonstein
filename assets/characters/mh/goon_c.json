@@ -1,0 +1,15 @@
+{
+  "_": "Pip. Small, young and slight, in a teal-cyan jacket. Slot 2, spawns with the pistol.",
+  "name": "pip",
+  "phenotype": { "gender": 0.88, "age": 0.34, "muscle": 0.34, "weight": 0.42,
+                 "proportions": 0.55, "height": 0.16,
+                 "race": { "asian": 0.70, "caucasian": 0.25, "african": 0.05 } },
+  "proxy": "male1591/male1591.proxy",
+  "skin": "young_asian_male/young_asian_male.mhmat",
+  "eyes": "low-poly/low-poly.mhclo",
+  "eyebrows": "eyebrow001/eyebrow001.mhclo",
+  "hair": "short01/short01.mhclo",
+  "clothes": ["male_casualsuit05/male_casualsuit05.mhclo", "shoes02/shoes02.mhclo"],
+  "budget": { "male_casualsuit05": 10000, "short01": 2600, "shoes02": 1800 },
+  "tint": { "male_casualsuit05": [0.28, 1.10, 1.15, 0.45] }
+}

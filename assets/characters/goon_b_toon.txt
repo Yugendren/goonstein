@@ -1,17 +1,14 @@
-# Goon B: Marko -- a MakeHuman body (tall and long-limbed, olive-yellow work suit), the 84 Quaternius clips retargeted onto it.
-# Built from assets/characters/mh/goon_b.json by tools/blender/makegoon.py and tools/blender/retarget.py;
-# see README "Characters" for the two commands. The old stylised cast is still here as
-# goon_b_toon.txt if you want it back.
-model models/characters/goon_b.glb
-scale 1.18                       # 2.11 m tall, the same as the toon cast stood
+# Goon B: Marko -- Quaternius ranger, unarmed anims, olive-yellow outfit.
+model models/quaternius/ranger_male.glb
+scale 1.15
 texture_size 512
 yaw_offset 0
 # lands with the bat in the weapon hand (assets/items/bat.txt)
 spawn bat
 # voice chat: straight pitch, but everything he says sounds like a walkie-talkie
 voice 1.00 1.00 radio
-# No recolor lines: the clothes are repainted in the model by makegoon.py's "tint",
-# because a photographic cloth map has no single paint colour for `recolor` to move.
+recolor 45 72 27  168 140 35
+recolor 10 31 15  45 36 12
 anim idle       Idle_Loop loop
 anim walk       Walk_Loop loop
 anim run        Jog_Fwd_Loop loop
