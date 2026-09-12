@@ -27,6 +27,7 @@ typedef enum ProfPhase {
     PROF_TICK_ITEMS,    //   carried and loose items
     PROF_TICK_NET,      //   netgame pre/post tick: packet build, parse, snapshot
     PROF_TICK_GAME,     //   the rest of game_tick (state machines, combat, bots)
+    PROF_TICK_RELOAD,   //   the once-a-second asset polls (hot reload). Must be ~0 in a played game.
     PROF_RENDER,        // game_render, all of it
     PROF_CULL,          //   frustum and size culling, instance list building
     PROF_SHADOW,        //   the sun depth pass
@@ -66,6 +67,7 @@ void prof_count(ProfCounter c, unsigned add);
 unsigned prof_counter_value(ProfCounter c);       // this frame
 
 float prof_ms(ProfPhase p);                       // the frame just finished
+void  prof_copy_frame(float out[PROF_COUNT]);     // every phase of the frame just finished, in one go
 float prof_median(ProfPhase p);                   // over the history ring, warm-up frames dropped
 float prof_p90(ProfPhase p);
 float prof_counter_median(ProfCounter c);

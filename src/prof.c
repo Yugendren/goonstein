@@ -21,7 +21,7 @@ static int g_warmup = PROF_WARMUP;
 void prof_set_warmup(int frames) { g_warmup = frames < 0 ? 0 : frames; }
 
 static const char *PHASE_NAMES[PROF_COUNT] = {
-    "frame", "input", "tick", "phys", "items", "net", "game", "render", "cull", "shadow",
+    "frame", "input", "tick", "phys", "items", "net", "game", "reload", "render", "cull", "shadow",
     "world", "water", "particles", "post", "ui", "present_wait", "submit", "cap_sleep",
 };
 static const char *COUNTER_NAMES[PROF_C_COUNT] = {
@@ -34,6 +34,7 @@ static const char *COUNTER_NAMES[PROF_C_COUNT] = {
 // display only -- it does not change what prof_begin/prof_end sum or what the median is taken over.
 static bool phase_is_nested(ProfPhase p) {
     return p == PROF_TICK_PHYS || p == PROF_TICK_ITEMS || p == PROF_TICK_NET || p == PROF_TICK_GAME
+        || p == PROF_TICK_RELOAD
         || p == PROF_CULL || p == PROF_SHADOW || p == PROF_WORLD || p == PROF_WATER
         || p == PROF_PARTICLES || p == PROF_POST || p == PROF_UI;
 }
@@ -169,6 +170,13 @@ float prof_ms(ProfPhase p) {
     if (p < 0 || p >= PROF_COUNT || frames_seen == 0) return 0.0f;
     int last = (hist_write - 1 + PROF_HISTORY) % PROF_HISTORY;
     return hist_phase[last][p];
+}
+
+void prof_copy_frame(float out[PROF_COUNT]) {
+    if (!out) return;
+    if (frames_seen == 0) { memset(out, 0, sizeof(float) * PROF_COUNT); return; }
+    int last = (hist_write - 1 + PROF_HISTORY) % PROF_HISTORY;
+    memcpy(out, hist_phase[last], sizeof(float) * PROF_COUNT);
 }
 
 float prof_median(ProfPhase p) {

@@ -71,6 +71,9 @@ typedef struct Game {
     float    fps; unsigned frames, frames_total; double fps_t; float frame_ms;
     double   frame_wall;   // seconds, stamped at the top of the frame loop: the clock the trace measures pacing against
     float    render_alpha, render_frame_dt;   // where this frame sits between the last two ticks, and how long the last frame took   // frame_ms: smoothed render+present time
+    float    frame_dt_raw;   // the same frame, BEFORE MAX_FRAME_DT clamps it. The clamp is right for the
+                             // simulation and a lie to a meter: a 400 ms frame reported as 250 ms is how a
+                             // stall hides from the very log that exists to find it. Measure with this one.
     Vec3 prev_players[NET_MAX_PLAYERS], prev_boss, prev_eye, prev_target; bool prev_valid;   // previous tick, for render interpolation
     float    last_hit_text_t; char hit_text[32];
     unsigned parries, hits_taken, deaths;

@@ -4,6 +4,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <stdbool.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +12,7 @@
 #include "platform.h"
 #include "game.h"
 #include "prof.h"
+#include "debug.h"
 #include "quality.h"  // quality potato|normal|high: settings.txt key, --quality flag, the startup guess/probe
 #include "camera.h"   // camera_set_mouse_sens: settings.txt owns the sensitivity
 #include "audio.h"
@@ -20,9 +22,66 @@
 #define TICK_HZ 60
 #define TICK_DT (1.0 / TICK_HZ)
 #define MAX_FRAME_DT 0.25  // clamp after a stall so we don't spiral
+#define MAX_TICKS_PER_FRAME 5   // 83 ms of simulation is the most one frame will catch up on
+
+// The `stall:` block. `rows` is one frame each, warm-up frames dropped; `csv` (HOLLOW_STALL) is
+// optional and gets a row per frame. p99 within twice the median, and nothing over 12 ms outside a
+// level load, is the bar this is measured against.
+static int stall_cmp(const void *a, const void *b) { float x = *(const float *)a, y = *(const float *)b; return (x > y) - (x < y); }
+static void stall_report(float (*rows)[PROF_COUNT], int n, int warmup, const char *csv) {
+    if (n <= warmup + 8) return;
+    int base = warmup, count = n - warmup;
+    float *v = (float *)malloc((size_t)count * sizeof *v);
+    if (!v) return;
+    for (int i = 0; i < count; i++) v[i] = rows[base + i][PROF_FRAME];
+    qsort(v, (size_t)count, sizeof *v, stall_cmp);
+    float med = v[count / 2], p90 = v[(int)((float)count * 0.90f)], p99 = v[(int)((float)count * 0.99f)], mx = v[count - 1];
+    int over12 = 0, over25 = 0, over2x = 0;
+    for (int i = 0; i < count; i++) { if (v[i] > 12.0f) over12++; if (v[i] > 25.0f) over25++; if (v[i] > med * 2.0f) over2x++; }
+    SDL_Log("stall: %d frames  median %.2f  p90 %.2f  p99 %.2f  max %.2f ms  |  over 12ms %d  over 25ms %d  over 2x median %d",
+            count, (double)med, (double)p90, (double)p99, (double)mx, over12, over25, over2x);
+    free(v);
+    // The ten worst frames, each with the phases that were not noise in it.
+    int worst[10]; int nw = 0;
+    for (int i = 0; i < count; i++) {
+        float f = rows[base + i][PROF_FRAME];
+        int at = nw;
+        while (at > 0 && rows[base + worst[at - 1]][PROF_FRAME] < f) { if (at < 10) worst[at] = worst[at - 1]; at--; }
+        if (at < 10) { worst[at] = i; if (nw < 10) nw++; }
+    }
+    for (int k = 0; k < nw; k++) {
+        const float *r = rows[base + worst[k]];
+        char line[320]; int at = 0;
+        at += snprintf(line + at, sizeof line - at, "stall:   #%d  %.2f ms =", base + worst[k], (double)r[PROF_FRAME]);
+        for (int p = 1; p < PROF_COUNT && at < (int)sizeof line - 24; p++)
+            if (r[p] > 0.20f) at += snprintf(line + at, sizeof line - at, " %s %.2f", prof_phase_name((ProfPhase)p), (double)r[p]);
+        SDL_Log("%s", line);
+    }
+    if (csv && csv[0]) {
+        FILE *f = fopen(csv, "w");
+        if (f) {
+            fprintf(f, "frame");
+            for (int p = 0; p < PROF_COUNT; p++) fprintf(f, ",%s", prof_phase_name((ProfPhase)p));
+            fprintf(f, "\n");
+            for (int i = 0; i < n; i++) { fprintf(f, "%d", i); for (int p = 0; p < PROF_COUNT; p++) fprintf(f, ",%.4f", (double)rows[i][p]); fprintf(f, "\n"); }
+            fclose(f);
+            SDL_Log("stall: per-frame CSV written to %s", csv);
+        }
+    }
+}
 
 int main(int argc, char **argv) {
     platform_use_base_dir();   // portable builds run from the executable's directory
+    // The game thread asks to be treated as interactive. On a machine with nothing else running
+    // this changes nothing; on a machine that is also compiling something -- which is most
+    // development machines, and plenty of players' -- an ordinary-priority main thread gets
+    // preempted for as long as the scheduler feels like, and a frame that should have cost 7 ms
+    // costs a couple of hundred. That is not a frame the renderer can be blamed for and not one
+    // any profiling of this process will explain, because the process was not running. macOS maps
+    // this onto the user-interactive QoS class, which is what every other real-time-ish
+    // application on the machine is already asking for. HOLLOW_NO_PRIORITY=1 opts out.
+    if (!SDL_getenv("HOLLOW_NO_PRIORITY") && !SDL_SetCurrentThreadPriority(SDL_THREAD_PRIORITY_HIGH))
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "could not raise the game thread's priority: %s", SDL_GetError());
     // --frames N      exit after N frames (headless checks, CI)
     // --screenshot P  write the internal frame to P before exiting
     // --start S       begin in state S: explore (default), fight, end
@@ -57,6 +116,8 @@ int main(int argc, char **argv) {
     int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *shot_every_dir = NULL; int shot_every = 0; bool spawn_set = false; float spawn_x = 0, spawn_z = 0; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
     bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1; bool log_set = false;
     float mouse_sens = 1.0f;   // settings.txt `mouse_sens`: a multiplier on the default radians per mouse pixel
+    bool sprint_toggle = false;   // settings.txt `sprint hold|toggle`: hold is the default and what every
+                                  // shooter since Half-Life does; toggle is an accessibility option, not a mode.
     const char *voice_mode = "ptt"; float voice_vol = 1.0f; int voice_mon = 0;   // --- voice ---
     char quality_word[32] = ""; bool quality_cli_given = false;   // settings.txt `quality`, or --quality below
     static Game game;   // large; static keeps it off the stack (and zeroed)
@@ -64,7 +125,7 @@ int main(int argc, char **argv) {
     { char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR); size_t sn; char *st = SDL_LoadFile(sp, &sn);
       if (st) { char *cur = st; while (*cur) { char *line = cur; char *nl = strchr(cur, '\n'); if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
           char *hash = strchr(line, '#'); if (hash) *hash = 0; char key[32], val[128];
-          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); else if (!strcmp(key, "fps")) fps_cap = atoi(val); else if (!strcmp(key, "vsync")) vsync = atoi(val); else if (!strcmp(key, "mouse_sens")) mouse_sens = (float)atof(val); else if (!strcmp(key, "voice")) voice_mode = SDL_strdup(val);                       /* --- voice --- */ else if (!strcmp(key, "voice_volume")) voice_vol = (float)atof(val); else if (!strcmp(key, "voice_monitor")) voice_mon = atoi(val); else if (!strcmp(key, "level") && !game.level_path[0]) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, val); else if (!strcmp(key, "quality")) snprintf(quality_word, sizeof quality_word, "%s", val); } }
+          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); else if (!strcmp(key, "fps")) fps_cap = atoi(val); else if (!strcmp(key, "vsync")) vsync = atoi(val); else if (!strcmp(key, "mouse_sens")) mouse_sens = (float)atof(val); else if (!strcmp(key, "sprint")) sprint_toggle = !strcmp(val, "toggle"); else if (!strcmp(key, "voice")) voice_mode = SDL_strdup(val);                       /* --- voice --- */ else if (!strcmp(key, "voice_volume")) voice_vol = (float)atof(val); else if (!strcmp(key, "voice_monitor")) voice_mon = atoi(val); else if (!strcmp(key, "level") && !game.level_path[0]) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, val); else if (!strcmp(key, "quality")) snprintf(quality_word, sizeof quality_word, "%s", val); } }
       if (SDL_getenv("HOLLOW_FPS")) fps_cap = atoi(SDL_getenv("HOLLOW_FPS"));
       if (SDL_getenv("HOLLOW_NOVSYNC")) vsync = 0;
         SDL_free(st); } }
@@ -187,6 +248,7 @@ int main(int argc, char **argv) {
     voice_init(&game);
     pf.fps_cap = fps_cap; if (!vsync) platform_set_vsync(&pf, false); else pf.vsync = true;
     camera_set_mouse_sens(mouse_sens);
+    platform_set_sprint_mode(&pf, sprint_toggle);
     if (spawn_set) { PLAYER(&game).c.pos.x = spawn_x; PLAYER(&game).c.pos.z = spawn_z; }
     if (tool_mode) game_set_tool(&game, tool_mode);
     // --- menu --- nothing was asked for: open the main menu over the island
@@ -236,11 +298,39 @@ int main(int argc, char **argv) {
     static float perf_ms[PERF_MAX];
     int perf_n = 0;
     Uint64 real_prev = prev;
+    // ---- the stall report -------------------------------------------------------------------
+    // A median is not what a player feels; the frame that took 200 ms is. Every rendered frame's
+    // whole phase breakdown is kept (2 MB of static, no allocation in the loop) and turned into a
+    // `stall:` block at exit: the percentiles, how many frames went over the 12 ms budget, and the
+    // ten worst frames with WHERE the time went in each. HOLLOW_STALL=FILE also writes the lot as
+    // a CSV, one row per frame, for anything that wants to plot it. The recording itself is a
+    // memcpy of 19 floats per frame -- it cannot be what it measures.
+    static float stall_ph[PERF_MAX][PROF_COUNT];
+    int stall_n = 0;
+    const char *stall_csv = SDL_getenv("HOLLOW_STALL");
 
     while (running) {
         prof_frame_begin();   // closes the previous frame's PROF_FRAME and pushes its phase totals into the history ring
+        if (stall_n < PERF_MAX) { prof_copy_frame(stall_ph[stall_n]); if (stall_ph[stall_n][PROF_FRAME] > 0) stall_n++; }
+        // A frame that cost more than twice the budget goes into hollow.log the moment it happens,
+        // with the phases that were in it. A player saying "it stutters" and a log saying "median
+        // 6.9 ms" are both true and neither is useful; this is the line that names the phase.
+        // Capped at forty, because a genuinely broken run must not turn the log into the problem.
+        if (stall_n > 1 && game.frames_total > 120) {
+            const float *r = stall_ph[stall_n - 1];
+            static int shouted = 0;
+            if (r[PROF_FRAME] > 25.0f && shouted < 40) {
+                shouted++;
+                char line[300]; int at = 0;
+                at += snprintf(line + at, sizeof line - at, "hitch: frame %u took %.1f ms =", game.frames_total, (double)r[PROF_FRAME]);
+                for (int p = 1; p < PROF_COUNT && at < (int)sizeof line - 24; p++)
+                    if (r[p] > 0.5f) at += snprintf(line + at, sizeof line - at, " %s %.1f", prof_phase_name((ProfPhase)p), (double)r[p]);
+                dbg_log("%s", line);
+            }
+        }
         Uint64 now = SDL_GetPerformanceCounter();
         double frame_dt = fixed_frame > 0 ? fixed_frame : fixed_step ? TICK_DT : (double)(now - prev) / (double)freq;
+        game.frame_dt_raw = (float)frame_dt;   // before the clamp: what the meters have to be told
         prev = now;
         if (frame_dt > MAX_FRAME_DT) frame_dt = MAX_FRAME_DT;
         accumulator += frame_dt;
@@ -261,14 +351,25 @@ int main(int argc, char **argv) {
         game_view_look(&game, &pf, (float)frame_dt);
         prof_end(PROF_INPUT);
 
+        // One stall must not buy a second one. MAX_FRAME_DT already stops the accumulator running
+        // away, but a quarter of a second of backlog is still fifteen ticks, and running fifteen
+        // ticks inside one frame makes that frame late too -- which hands the next frame a backlog
+        // of its own. That is the ladder behind the "stall, then a catch-up jump of hundreds of
+        // millimetres" pattern in the smooth: log: the eye covers fifteen ticks of walking between
+        // two pictures. So there is a ceiling on how much simulation one frame will do, and
+        // anything past it is dropped rather than owed. Time is lost either way after a hitch; the
+        // choice is only whether it is lost quietly or paid for with a second late frame.
         prof_begin(PROF_TICK);
-        while (accumulator >= TICK_DT) {
+        int ticks_this_frame = 0;
+        while (accumulator >= TICK_DT && ticks_this_frame < MAX_TICKS_PER_FRAME) {
             voice_update(&game, &pf.input, (float)TICK_DT);   // --- voice --- before the tick, so a
             // frame captured now rides out on this tick's input packet instead of the next one
             game_tick(&game, &pf.input, TICK_DT);
             platform_clear_edges(&pf);   // each press is seen by exactly one tick
             accumulator -= TICK_DT;
+            ticks_this_frame++;
         }
+        if (accumulator >= TICK_DT) accumulator = fmod(accumulator, TICK_DT);   // drop the backlog, keep the phase
         prof_end(PROF_TICK);
 
         // The two-second probe (armed only when settings.txt had no `quality` line): never runs
@@ -315,6 +416,7 @@ int main(int argc, char **argv) {
             free(v);
         }
     }
+    stall_report(stall_ph, stall_n, PERF_WARMUP, stall_csv);
     prof_dump(game.level_path[0] ? game.level_path : "run");
     SDL_Log("stats: battle=%d enemy_hp=%d round=%d | state=%d parries=%u hits_taken=%u deaths=%u boss_hp=%.0f player_hp=%.0f player_yaw=%.0f flash=%.2f t=%.3f player=(%.1f %.1f %.1f) boss=(%.1f %.1f %.1f) cam=(%.1f %.1f %.1f) dist=%.1f",
             game.battle.state, game.battle.enemy_hp, game.battle.round, game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, PLAYER(&game).c.hp, PLAYER(&game).c.yaw / DEG2RAD, game.flash, game.time,

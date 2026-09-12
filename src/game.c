@@ -1078,6 +1078,36 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
                   if (strstr(ai, "slide"))
                       bot_in.crouch = (PLAYER(g).momentum > 0.95f && g->tick % 180 < 54)
                                       || PLAYER(g).trav == TM_SLIDE; }
+        // HOLLOW_SPRINT_TEST=1: walk for a second and a half, then hold Shift and write the speed
+        // every tick until the sprint tops out. "Shift reaches 7.5 m/s in a third of a second" is
+        // either a measurement or it is a claim; this is what makes it the first one. The movement
+        // table in README comes out of this run and nowhere else.
+        if (SDL_getenv("HOLLOW_SPRINT_TEST")) {
+            static double press_t = -1; static bool hit75 = false, hit85 = false;
+            float sp = hypotf(PLAYER(g).c.hvel.x, PLAYER(g).c.hvel.z);
+            if (g->time >= 1.5) {
+                bot_in.sprint = true;
+                if (press_t < 0) { press_t = g->time; dbg_log("sprint test: walk settled at %.3f m/s, Shift down", (double)sp); }
+                double el = g->time - press_t;
+                if (el < 4.0) dbg_log("sprint test: +%.3f s  %.3f m/s", el, (double)sp);
+                if (!hit75 && sp >= 7.5f) { hit75 = true; dbg_log("sprint test: 7.5 m/s reached %.3f s after Shift", el); }
+                if (!hit85 && sp >= 8.5f) { hit85 = true; dbg_log("sprint test: 8.5 m/s reached %.3f s after Shift", el); }
+                // Past six seconds the run is deliberately interrupted: one tick in twenty with no
+                // stick and no Shift, which is what turning a corner, swapping strafe keys or a
+                // key repeating actually looks like to the tick. The old code read each of those
+                // as letting go of Shift and started bleeding the run away, so the speed sawed up
+                // and down -- the stutter. Held speed here is the proof it does not any more.
+                if (el > 6.0) {
+                    static float lo = 1e9f, hi = 0; static int seen = 0;
+                    if (sp < lo) lo = sp; if (sp > hi) hi = sp; seen++;
+                    bool gap = (g->tick % 20) == 0;
+                    if (gap) { bot_in.sprint = false; bot_in.move_x = bot_in.move_y = 0; }
+                    if (seen >= 60) { dbg_log("sprint test: stutter phase  low %.3f high %.3f m/s (%.1f%% dip)  momentum %.2f surge %.2f",
+                                              (double)lo, (double)hi, (double)(100.0f * (hi - lo) / fmaxf(hi, 0.01f)), (double)PLAYER(g).momentum, (double)PLAYER(g).surge);
+                                      lo = 1e9f; hi = 0; seen = 0; }
+                }
+            } else if (g->time > 0.9) dbg_log("sprint test: walking %.3f m/s", (double)sp);
+        }
     }
     // A bot writes its look into its own copy of the input, which the frame-rate view update never
     // sees. Apply it here instead, at the tick rate: a bot has no hand and no monitor.
@@ -1151,9 +1181,11 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
         say(g, ok ? "reloaded level, player, boss" : "reload failed, see log");
         setup_level_content(g);
     }
+    prof_begin(PROF_TICK_RELOAD);
     if (level_reload_if_changed(&g->level)) { say(g, "level hot-reloaded"); setup_level_content(g); }
     { int n = props_hot_reload(&g->gfx, &g->props); if (n) { char m[64]; snprintf(m, sizeof m, "%d model file%s hot-reloaded", n, n > 1 ? "s" : ""); say(g, m); } }
     hero_hot_reload(g);
+    prof_end(PROF_TICK_RELOAD);
 
     // A paused or stalled host still has to answer its clients, or they time out.
     if (g->paused && !g->step_once) { netgame_pre_tick(g, dt); netgame_post_tick(g, dt); camera_update(&g->cam, dt); return; }
@@ -1161,7 +1193,8 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
 
     if (g->hitstop > 0) { g->hitstop -= dt; netgame_pre_tick(g, dt); netgame_post_tick(g, dt); camera_update(&g->cam, dt); return; }
 
-    netgame_pre_tick(g, dt);
+    prof_begin(PROF_TICK_NET); netgame_pre_tick(g, dt); prof_end(PROF_TICK_NET);
+    prof_begin(PROF_TICK_GAME);
     update_prop_actors(g, dt);
     switch (g->state) {
     case GS_EXPLORE: tick_explore(g, in, dt); break;
@@ -1172,7 +1205,8 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     case GS_BATTLE:  tick_battle(g, in, g->pf, dt); break;
     case GS_MENU:    break;   // --- menu --- the front door: nobody is being played, menu_tick has the input
     }
-    netgame_post_tick(g, dt);
+    prof_end(PROF_TICK_GAME);
+    prof_begin(PROF_TICK_NET); netgame_post_tick(g, dt); prof_end(PROF_TICK_NET);
     if (g->test_mode[0]) test_throw(g);
     for (int i = 0; i < g->nnpcs; i++) { Character *c = &g->npcs[i].c; character_script_update(c, dt); game_ground_character(g, c, dt); if (g->npcs[i].ok) charmodel_drive_simple(&g->npcs[i].model, c, dt); }
     if (g->daytime_dur > 0) { g->daytime_t += dt; float k = clampf(g->daytime_t / g->daytime_dur, 0, 1); g->level.look.daytime = lerpf(g->daytime_from, g->daytime_to, k * k * (3 - 2 * k)); if (k >= 1) g->daytime_dur = 0; }
@@ -1580,12 +1614,17 @@ static void trace_dump(void) {
 // shake, and a flat spread with a jumpy frame time is the renderer missing frames, not the camera.
 static void smooth_meter(const Game *g) {
     static Vec3 last_eye; static bool have; static double t0;
-    static float sum, sum2, ft, ft2, peak, tpeak; static int n, tn;
+    static float sum, sum2, ft, ft2, peak, tpeak, worst; static int n, tn, late;
     Vec3 e = g->cam.eye; double now = g->frame_wall;
     if (!have) { have = true; last_eye = e; t0 = now; return; }
     float d = v3_len(v3_sub(e, last_eye)); last_eye = e;
-    float dt = (float)(now - t0 > 0 ? g->render_frame_dt : 0);
+    // The RAW frame time, not the clamped one the simulation runs on: a 400 ms hitch reported as
+    // 250 ms is a meter covering for the thing it is supposed to catch. `worst` and `late` are the
+    // numbers a player's complaint is actually about -- the one bad frame and how many there were.
+    float dt = (float)(now - t0 > 0 ? (g->frame_dt_raw > 0 ? g->frame_dt_raw : g->render_frame_dt) : 0);
     sum += d; sum2 += d * d; ft += dt; ft2 += dt * dt; n++;
+    if (dt > worst) worst = dt;
+    if (dt > 0.012f) late++;
     if (d > peak) peak = d;
     // --- traversal --- A mantle is the one thing in the game that moves the eye on a curve of its
     // own, so it gets its own column: the frames spent climbing and the biggest single step any of
@@ -1595,11 +1634,12 @@ static void smooth_meter(const Game *g) {
     float m = sum / (float)n, v = sum2 / (float)n - m * m;
     float fm = ft / (float)n, fv = ft2 / (float)n - fm * fm;
     if (m > 0.001f)   // standing still has no smoothness to report
-        dbg_log("smooth: eye %.2f mm/frame sd %.1f%% peak %.2f mm | traverse %d frames peak %.2f mm | frame %.2f ms sd %.2f ms | %.0f fps",
+        dbg_log("smooth: eye %.2f mm/frame sd %.1f%% peak %.2f mm | traverse %d frames peak %.2f mm | frame %.2f ms sd %.2f ms worst %.1f ms late %d | %.0f fps",
                 (double)(m * 1000), (double)(100.0f * sqrtf(fmaxf(v, 0)) / m), (double)(peak * 1000),
                 tn, (double)(tpeak * 1000),
-                (double)(fm * 1000), (double)(sqrtf(fmaxf(fv, 0)) * 1000), (double)(n / (now - t0)));
-    sum = sum2 = ft = ft2 = 0; n = 0; t0 = now; peak = 0; tpeak = 0; tn = 0;
+                (double)(fm * 1000), (double)(sqrtf(fmaxf(fv, 0)) * 1000), (double)(worst * 1000), late,
+                (double)(n / (now - t0)));
+    sum = sum2 = ft = ft2 = 0; n = 0; t0 = now; peak = 0; tpeak = 0; tn = 0; worst = 0; late = 0;
 }
 
 static void trace_frame(const Game *g, float alpha) {
