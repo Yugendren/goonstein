@@ -262,7 +262,56 @@ void gfx_pixel_begin(Gfx *g, Mat4 view_proj, float off_x, float off_y);
 void gfx_portrait_begin(Gfx *g, Platform *pf, const FrameParams *fp, int size, Vec3 backdrop);
 void gfx_portrait_end(Gfx *g);
 void gfx_pixel_end(Gfx *g);
+// ---------------------------------------------------------------- the viewmodel's own lens
+// A first-person weapon is not at the same distance as the world and must not be drawn through
+// the same lens. Two knobs are all it takes, and both are cheap enough to flip twice a frame.
+//
+// gfx_set_view_proj swaps the projection every following draw is put through -- the gun gets its
+// own narrow field of view so it keeps its shape while the world's widens to 78 degrees at a
+// sprint. gfx_reset_view_proj puts the world's back.
+//
+// gfx_depth_range squeezes everything drawn after it into a slice of the depth buffer. Drawing the
+// viewmodel into 0 .. 0.12 puts it in front of every piece of world geometry without clearing the
+// depth buffer, which is what stops a shotgun barrel disappearing into a wall you are standing
+// against. It is the same trick Quake and Source use (glDepthRange), and unlike a mid-frame clear
+// it leaves the world's own depth intact for everything drawn afterwards.
+void gfx_set_view_proj(Gfx *g, Mat4 view_proj);
+void gfx_reset_view_proj(Gfx *g);
+void gfx_depth_range(Gfx *g, float near_z, float far_z);   // 0,1 restores the default
 // Reload assets/palette.txt if it changed (called once a frame; checks the file once a second).
 void gfx_palette_update(Gfx *g);
 bool gfx_screenshot(Gfx *g, const char *path);
 void gfx_end(Gfx *g, Platform *pf, const PostParams *pp, double time);
+
+// ---------------------------------------------------------------- warm-up
+// Everything below only ever costs once: a graphics pipeline's first bind is where Metal actually
+// compiles and specialises it (the .metallib on disk is portable IR; the pipeline state object is
+// built the first time something draws with it), a texture's first bind into a pipeline's argument
+// table is where that table gets built, and the first SDL_PumpEvents after the window exists pays
+// one of macOS's own one-off run-loop costs. Paid during play, each of those is a multi-frame
+// hitch with nothing wrong in the render loop that caused it; paid here, during loading, it is
+// however many extra milliseconds a loading screen already covers.
+//
+// gfx_warm_up drives a few complete offscreen frames through EVERY pipeline gfx_init created
+// (world, instanced world, skin, sky, both particle blends, bloom's bright/blur, post, both UI
+// pipelines, the letterbox blit, the pixel-art composite, and all three shadow variants) using the
+// renderer's own entry points -- gfx_begin/gfx_shadow_begin/gfx_pixel_begin/gfx_end and friends --
+// rather than hand-rolling a bind for each: that is the exact code a played frame runs, so nothing
+// about an argument layout, a uniform size or a render-pass format can drift out of sync with it.
+// Nothing is presented (pf->window's real swapchain is never touched: the blit and the debugger's
+// UI pipeline are exercised against throwaway offscreen targets of the same formats instead) and
+// platform_poll is not called, so this cannot consume real input or quit. Call once, right after
+// gfx_init and before the first frame is drawn.
+void gfx_warm_up(Gfx *g, Platform *pf);
+
+typedef struct PropCache PropCache;   // props.h; forward-declared here to avoid a header cycle
+typedef struct Level Level;           // level.h; same reason
+// Draws one instance of every prop model props.c has cached for `lv` -- the real mesh and, where
+// tools/make_lods.sh baked one, its `.lod.glb` stand-in too -- through one offscreen frame, so the
+// first swap to a stand-in is paid here rather than the moment a played camera pulls back far
+// enough to ask for it. Also forces every piece of every .part assembly into the cache first, via
+// props_bounds (which already recurses into a part's pieces to union their boxes): props_load_level
+// only loads the level's own top-level files, and a palm tree's thirty pieces would otherwise be
+// loaded on whatever the first camera pass is that actually walks the assembly. Call after
+// props_load_level, whenever a level (re)loads.
+void gfx_warm_up_props(Gfx *g, Platform *pf, PropCache *pc, const Level *lv);

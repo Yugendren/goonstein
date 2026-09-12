@@ -1,5 +1,10 @@
 #include "gfx.h"
 #include "prof.h"
+// Only for gfx_warm_up_props: PropCache and its PropModel entries are plain public structs (see
+// props.h), so their already-loaded model/lod pairs can be drawn straight through model_draw_tex
+// without props.c growing a new export. gfx.h forward-declares PropCache and Level so this include
+// stays local to gfx.c and nothing else that pulls in gfx.h inherits it.
+#include "props.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -709,6 +714,20 @@ static void repush_frame(Gfx *g) {
     SDL_PushGPUFragmentUniformData(g->cmd, 0, g->frame_uniforms, g->frame_uniforms_size);
     push_material(g, v4(1, 1, 1, 1), NULL);
     g->bound_pipe = NULL; g->bound_tex = NULL;
+}
+
+// ---------------------------------------------------------------- the viewmodel's own lens
+
+void gfx_set_view_proj(Gfx *g, Mat4 view_proj) { g->frame.view_proj = view_proj; }
+void gfx_reset_view_proj(Gfx *g) { g->frame.view_proj = g->main_vp; }
+
+// SDL_GPU's viewport carries the depth range, so this is one call and no pipeline state. It only
+// applies to the main world pass: the pixel and portrait layers render into their own targets at
+// their own sizes, and a viewport sized for the wrong target would clip the lot.
+void gfx_depth_range(Gfx *g, float near_z, float far_z) {
+    if (!g->pass || g->in_pix || g->in_shadow || g->in_portrait) return;
+    SDL_GPUViewport vp = { 0, 0, (float)g->iw, (float)g->ih, near_z, far_z };
+    SDL_SetGPUViewport(g->pass, &vp);
 }
 
 void gfx_pixel_begin(Gfx *g, Mat4 view_proj, float off_x, float off_y) {
@@ -1462,4 +1481,156 @@ bool gfx_screenshot(Gfx *g, const char *path) {
     int ok = stbi_write_png(path, g->iw, g->ih, 4, map, g->iw * 4);
     SDL_UnmapGPUTransferBuffer(g->dev, xfer); SDL_ReleaseGPUTransferBuffer(g->dev, xfer);
     return ok != 0;
+}
+
+// ---------------------------------------------------------------- warm-up
+//
+// Sane, harmless numbers for a frame nobody will ever see. Zeroed fields (fog, lights, sky glow)
+// are all valid -- they just draw an unlit grey box into a target that is thrown away -- so only
+// the ones a shader might divide by or normalise to garbage need a real value.
+static FrameParams warm_frame_params(void) {
+    FrameParams fp; memset(&fp, 0, sizeof fp);
+    fp.view_proj = m4_identity();
+    fp.cam_right = v3(1, 0, 0); fp.cam_up = v3(0, 1, 0);
+    fp.sun_dir = v3_norm(v3(0.3f, -1.0f, 0.2f)); fp.sun_intensity = 1.0f; fp.sun_color = v3(1, 1, 1);
+    fp.sky_ambient = v3(0.3f, 0.3f, 0.35f); fp.ground_ambient = v3(0.1f, 0.1f, 0.1f);
+    fp.fog_color = v3(0.5f, 0.6f, 0.7f); fp.fog_start = 1000.0f;
+    fp.sky_zenith = v3(0.2f, 0.4f, 0.8f); fp.sky_horizon = v3(0.6f, 0.7f, 0.9f); fp.sky_ground = v3(0.3f, 0.3f, 0.3f);
+    return fp;
+}
+
+// A one-triangle stand-in for whatever the level's skinned characters will bind: pipe_skin and
+// pipe_shadow_skin read joints through a vertex attribute, not a texture, so any two triangles with
+// a joint index of 0 and a full weight on it exercise exactly the same uniform layout a real
+// character does.
+static Mesh warm_skin_mesh(Gfx *g) {
+    SkinVertex v[4] = {
+        { {0, 0, 0}, {0, 1, 0}, {0, 0}, {0, 0, 0, 0}, {1, 0, 0, 0} },
+        { {1, 0, 0}, {0, 1, 0}, {1, 0}, {0, 0, 0, 0}, {1, 0, 0, 0} },
+        { {1, 1, 0}, {0, 1, 0}, {1, 1}, {0, 0, 0, 0}, {1, 0, 0, 0} },
+        { {0, 1, 0}, {0, 1, 0}, {0, 1}, {0, 0, 0, 0}, {1, 0, 0, 0} },
+    };
+    Uint16 idx[6] = { 0, 1, 2, 0, 2, 3 };
+    return gfx_skinned_mesh_create(g, v, 4, idx, 6);
+}
+
+// One offscreen frame, start to finish: instanced and non-instanced draws into the shadow map and
+// the camera pass, particles, the pixel-art composite, both UI lists, and (via `scratch_swap` /
+// `scratch_console`) the letterbox blit and the debugger's own UI pipeline -- everything gfx_end
+// can reach in a single frame. Shared by gfx_warm_up (synthetic geometry) and gfx_warm_up_props
+// (real prop models), so the two cannot quietly warm different subsets of the same pipeline list.
+static void warm_one_frame(Gfx *g, Platform *pf, const Mesh *skin_mesh, SDL_GPUTexture *scratch_swap, SDL_GPUTexture *scratch_console, int scratch_size) {
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(g->dev);
+    if (!cmd) return;
+    pf->cmd = cmd;
+    FrameParams fp = warm_frame_params();
+    Mat4 joint = m4_identity();
+
+    gfx_instances_begin(g);
+    gfx_instance(g, GFX_SET_SHADOW, &g->cube, &g->white, m4_identity(), v4(1, 1, 1, 1), v4(1, 1, 0, 0), false, v3(0, 0, 0));
+    gfx_instance(g, GFX_SET_WORLD,  &g->cube, &g->white, m4_identity(), v4(1, 1, 1, 1), v4(1, 1, 0, 0), false, v3(0, 0, 0));
+    gfx_instances_upload(g, pf);
+
+    gfx_shadow_begin(g, pf, fp.view_proj, 1.0f, 0.0025f);
+    if (g->in_shadow) {
+        gfx_draw(g, &g->cube, &g->white, m4_identity(), v4(1, 1, 1, 1), v4(1, 1, 0, 0));
+        if (skin_mesh->vb) gfx_draw_skinned(g, skin_mesh, &g->white, m4_identity(), v4(1, 1, 1, 1), &joint, 1);
+        gfx_instances_draw(g, GFX_SET_SHADOW);
+    }
+    gfx_shadow_end(g);
+
+    gfx_begin(g, pf, &fp);
+    if (g->pass) {
+        gfx_draw(g, &g->cube, &g->white, m4_identity(), v4(1, 1, 1, 1), v4(1, 1, 0, 0));
+        if (skin_mesh->vb) gfx_draw_skinned(g, skin_mesh, &g->white, m4_identity(), v4(1, 1, 1, 1), &joint, 1);
+        gfx_instances_draw(g, GFX_SET_WORLD);
+        gfx_billboard(g, v3(0, 0, 0), 1.0f, v4(1, 1, 1, 1), true);
+        gfx_billboard(g, v3(0, 0, 0), 1.0f, v4(1, 1, 1, 0.5f), false);
+        // The pixel-art layer, if a level ever turns it on, is its own render target and its own
+        // composite pipeline (pipe_pixcomp) -- neither exists until something asks for a nonzero
+        // scale, so ask for one here regardless of what the level wants; the next real frame's own
+        // gfx_set_pixel_look call (game.c re-applies it every frame) rebuilds it to the level's
+        // actual size right after, which gfx_set_pixel_look already treats as a cheap no-op when
+        // the scale it is asked for has not changed and a normal rebuild otherwise.
+        gfx_set_pixel_look(g, 2, 8.0f, 1.0f, 0.0f, 0.6f);
+        gfx_pixel_begin(g, fp.view_proj, 0, 0);
+        if (g->in_pix) gfx_draw(g, &g->cube, &g->white, m4_identity(), v4(1, 1, 1, 1), v4(1, 1, 0, 0));
+        gfx_pixel_end(g);
+        gfx_ui_target(g, 0); gfx_ui_rect(g, 0, 0, 4, 4, v4(1, 1, 1, 1));
+        gfx_ui_target(g, 1); gfx_ui_rect(g, 0, 0, 4, 4, v4(1, 1, 1, 1));
+        gfx_ui_target(g, 0);
+    }
+    PostParams pp; memset(&pp, 0, sizeof pp);
+    pp.exposure = pp.saturation = pp.contrast = 1.0f; pp.bloom = 0.3f; pp.bloom_threshold = 1.0f; pp.bloom_knee = 0.5f;
+    // Borrowed offscreen stand-ins for the real swapchain and the debugger window's swapchain, both
+    // the same format gfx_init picked for the real ones: gfx_end cannot tell the difference, so the
+    // letterbox blit (pipe_blit) and the debugger's UI pipeline (pipe_ui_swap) compile here instead
+    // of on whichever frame first opens the debugger or first calls platform_end_frame for real.
+    SDL_GPUTexture *saved_swap = pf->swapchain, *saved_console = pf->console_swap;
+    Uint32 saved_w = pf->swap_w, saved_h = pf->swap_h;
+    pf->swapchain = scratch_swap; pf->console_swap = scratch_console; pf->swap_w = pf->swap_h = (Uint32)scratch_size;
+    gfx_end(g, pf, &pp, 0.0);
+    pf->swapchain = saved_swap; pf->console_swap = saved_console; pf->swap_w = saved_w; pf->swap_h = saved_h;
+
+    SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+    if (fence) { SDL_WaitForGPUFences(g->dev, true, &fence, 1); SDL_ReleaseGPUFence(g->dev, fence); }
+    pf->cmd = NULL;
+    // Once per warmed frame, not once per loading screen: this is what moves macOS's one-off
+    // run-loop cost (the `in_pump` spike a fraction of a second into a headless island run) from
+    // the middle of play to here, and calling it more than once a frame buys nothing extra.
+    SDL_PumpEvents();
+}
+
+#define GFX_WARM_FRAMES 2   // one bind compiles a pipeline; a second catches anything that only
+
+// showed up once a resource had already cycled once (double-buffered transfer buffers, "cycle" targets).
+void gfx_warm_up(Gfx *g, Platform *pf) {
+    if (!pf) return;
+    Uint64 t0 = SDL_GetTicks();
+    const int size = 64;
+    SDL_GPUTexture *scratch_swap = make_target(g, g->swap_format, size, size, false);
+    SDL_GPUTexture *scratch_console = make_target(g, g->swap_format, size, size, false);
+    Mesh skin_mesh = warm_skin_mesh(g);
+    for (int i = 0; i < GFX_WARM_FRAMES; i++) warm_one_frame(g, pf, &skin_mesh, scratch_swap, scratch_console, size);
+    gfx_mesh_destroy(g, &skin_mesh);
+    if (scratch_swap) SDL_ReleaseGPUTexture(g->dev, scratch_swap);
+    if (scratch_console) SDL_ReleaseGPUTexture(g->dev, scratch_console);
+    SDL_Log("gfx: warmed %d pipelines in %d frame%s offscreen (%u ms)", 16, GFX_WARM_FRAMES, GFX_WARM_FRAMES == 1 ? "" : "s", (unsigned)(SDL_GetTicks() - t0));
+}
+
+void gfx_warm_up_props(Gfx *g, Platform *pf, PropCache *pc, const Level *lv) {
+    if (!pf || !pc || !lv || lv->nprops <= 0) return;
+    Uint64 t0 = SDL_GetTicks();
+    // props_load_level only loads the level's own top-level files; a `.part` assembly's pieces are
+    // otherwise resolved lazily, the first time a camera pass actually walks it (props.c's
+    // cache_pieces). props_bounds already recurses into every piece to union their boxes, which is
+    // exactly the walk that needs to happen here too -- so it is called for its side effect (every
+    // piece file loaded and on the GPU) and its actual answer is thrown away.
+    for (int i = 0; i < lv->nprops; i++) { Vec3 lo, hi; props_bounds(g, pc, lv->props[i].file, &lo, &hi); }
+
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(g->dev);
+    if (!cmd) return;
+    pf->cmd = cmd;
+    FrameParams fp = warm_frame_params();
+    gfx_begin(g, pf, &fp);
+    int drawn = 0, lods = 0;
+    if (g->pass) {
+        Material mat = material_default();
+        gfx_set_material(g, &mat);
+        for (int i = 0; i < pc->n; i++) {
+            PropModel *pm = &pc->models[i];
+            if (!pm->ok || pm->part) continue;   // a .part has no model of its own; its pieces are their own entries
+            model_draw_tex(g, &pm->model, &pm->rest, m4_identity(), v4(1, 1, 1, 1), NULL, 0);
+            drawn++;
+            if (pm->lod_ok) { model_draw_tex(g, &pm->lod, &pm->lod_rest, m4_identity(), v4(1, 1, 1, 1), NULL, 0); lods++; }
+        }
+        gfx_set_material(g, NULL);
+    }
+    PostParams pp; memset(&pp, 0, sizeof pp); pp.exposure = pp.saturation = pp.contrast = 1.0f;
+    gfx_end(g, pf, &pp, 0.0);
+    SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+    if (fence) { SDL_WaitForGPUFences(g->dev, true, &fence, 1); SDL_ReleaseGPUFence(g->dev, fence); }
+    pf->cmd = NULL;
+    SDL_PumpEvents();
+    SDL_Log("gfx: warmed %d prop model%s (%d with a far LOD) in %u ms", drawn, drawn == 1 ? "" : "s", lods, (unsigned)(SDL_GetTicks() - t0));
 }
