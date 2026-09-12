@@ -493,6 +493,15 @@ void charmodel_draw(Gfx *g, CharModel *cm, const Character *c, Vec4 tint) {
     charmodel_draw_posed(g, cm, &cm->pose, world, tint);
 }
 
+// --- weapons ---
+bool charmodel_bone_posed(const CharModel *cm, const char *bone, Mat4 *out) {
+    if (!cm->loaded || cm->is_sprite) return false;
+    int node = model_find_node(&cm->model, bone);
+    if (node < 0) return false;
+    *out = cm->pose.global[node];
+    return true;
+}
+
 bool charmodel_bone_world(const CharModel *cm, const Character *c, const char *bone, Mat4 *out) {
     if (!cm->loaded || cm->is_sprite) return false;
     int node = model_find_node(&cm->model, bone);

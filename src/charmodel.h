@@ -10,7 +10,7 @@
 //       on this character's skeleton. The KayKit rigs share joint names and inverse binds, so a
 //       Mage hat rides a Knight. Hiding the part it replaces is up to you (hide Knight_Helmet).
 //   spawn  ITEM               the weapon this character lands holding: an item file name from
-//       assets/items (shotgun, bat, pistol, wrench). The host spawns one per seated slot and puts
+//       assets/items (pistol, rifle, bat, wrench). The host spawns one per seated slot and puts
 //       it straight in the weapon hand; it is an ordinary item from then on. An unknown name is a
 //       warning and empty hands. See README.md, "Weapons".
 //   voice  PITCH FORMANT EFFECT
@@ -92,6 +92,12 @@ void charmodel_draw_posed(Gfx *g, const CharModel *cm, const ModelPose *pose, Ma
 // loaded, or has no bone of that name. This is how a weapon rides hand_r without rebuilding the
 // character: the caller draws its own model at the matrix that comes back.
 bool charmodel_bone_world(const CharModel *cm, const Character *c, const char *bone, Mat4 *out);
+// --- weapons --- The same bone out of a pose that has already been computed, WITHOUT a character
+// to stand it on: the caller supplies its own world matrix. That is what the first-person
+// viewmodel needs -- its arms hang off the camera, not off a body standing somewhere in the level
+// -- and it is how a gun ends up in the hand that is actually drawn on screen rather than in the
+// hand of the body the player is looking out of. Call model_pose (or charmodel_draw_posed) first.
+bool charmodel_bone_posed(const CharModel *cm, const char *bone, Mat4 *out);
 // Sprite helpers used by the battle: play a named sprite animation (fitted so the first contact lands at lead), and contact timing.
 void charmodel_sprite_play(CharModel *cm, const char *anim, float lead, bool restart);
 float charmodel_sprite_contact(const CharModel *cm, const char *anim, int i, float lead);
