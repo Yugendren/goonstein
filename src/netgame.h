@@ -26,7 +26,8 @@ typedef enum NetMode { NM_OFF, NM_HOST, NM_CLIENT } NetMode;
 
 // Buttons in a NetInput.
 enum { NB_ATTACK = 1, NB_PARRY = 2, NB_DODGE = 4, NB_INTERACT = 8, NB_SPRINT = 16, NB_GUARD = 32,
-       NB_JUMP = 64, NB_CROUCH = 128 };   // a remote goon has to be able to jump and duck like a local one
+       NB_JUMP = 64, NB_CROUCH = 128,     // a remote goon has to be able to jump and duck like a local one
+       NB_JUMPHELD = 256 };               // --- traversal --- the jump still held: a wall run lasts as long as you ask for it
 
 // One tick of intent. The move direction is world space and quantised on the client before it is
 // used locally, so the host's replay of it is bit-identical to the client's prediction.
@@ -87,6 +88,13 @@ typedef struct NetGame {
     unsigned  item_cursor;            // host: where the round-robin over sleeping items has got to
     // client prediction and reconciliation
     Vec3      hist_pos[NET_HIST]; uint32_t hist_tick[NET_HIST];
+    // --- traversal --- The same history, for the state the position is not enough to describe. A
+    // mantle is a curve the client is already partway along, and the correction has to know that
+    // before it decides whether to move the body or the curve; hvel is what the body carries out of
+    // it, and after a hard snap the predicted one is fiction and the acked one is not.
+    Vec3      hist_hvel[NET_HIST];
+    uint8_t   hist_trav[NET_HIST];
+    float     hist_trav_t[NET_HIST];
     Vec3      pos_error;              // visual offset that decays back to zero after a correction
     uint32_t  last_ack;               // newest input tick the host says it has consumed
     // stats, reset once a second for the log line

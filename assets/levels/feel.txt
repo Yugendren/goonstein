@@ -10,6 +10,16 @@
 #
 # walks +X from the spawn: flat, up the steps, along the deck, off its edge, across the gap, and off
 # the ledge at the end.
+#
+# --- traversal --- A second lane at z = -12, walked with --spawn -20 -12, holding sprint:
+#
+#     HOLLOW_SILENT=1 HOLLOW_AUTOWALK=90 HOLLOW_AUTOINPUT=sprint ./build/bin/goonstein \
+#         --level feel --first --no-scenes --volume 0 --spawn -20 -12 --frames 900
+#
+#     x  -6   a 0.9 m box     under vault_max: at a sprint it is vaulted, and the speed is kept
+#     x   6   a 1.6 m wall    a mantle, with room to stand on top and a 1.6 m step off the far side
+#     x  18   a slab at 1.05  nothing but a slide fits under it
+#     x  30   three 1.6 m steps to 4.8 m, then a run off the end: a fall deep enough to roll out of
 
 sun      0.35 -0.80 0.45   1.05   1.00 0.96 0.90
 ambient  0.40 0.44 0.52   0.18 0.17 0.15
@@ -39,3 +49,11 @@ block    16.0 1.000 0   6 2.00 14   flat   0.60 0.56 0.50   1   solid
 
 light    2 3 0     1.0 0.92 0.80   14 1.2
 light    16 4 0    1.0 0.92 0.80   16 1.2
+
+# --- traversal --- the parkour lane (see the header). Nothing here is art either.
+block   -6 0.450 -12    1.2 0.90 6   flat   0.70 0.54 0.42   1   solid
+block    6 0.800 -12    1.0 1.60 6   flat   0.52 0.56 0.64   1   solid
+block   18 2.025 -12    4.0 1.95 6   flat   0.62 0.60 0.52   1   solid
+block   30 0.800 -12    2.0 1.60 6   flat   0.58 0.56 0.50   1   solid
+block   32 1.600 -12    2.0 3.20 6   flat   0.54 0.52 0.48   1   solid
+block   34 2.400 -12    2.0 4.80 6   flat   0.50 0.48 0.46   1   solid

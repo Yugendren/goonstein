@@ -137,6 +137,7 @@ Vec3 netgame_local_input(Game *g, Vec3 dir, const Input *in) {
     if (in->dodge) b |= NB_DODGE;
     if (in->interact) b |= NB_INTERACT;
     if (in->sprint) b |= NB_SPRINT;
+    if (in->jump_held) b |= NB_JUMPHELD;
     if (in->rmouse_held) b |= NB_GUARD;
     if (in->jump) b |= NB_JUMP;
     if (in->crouch) b |= NB_CROUCH;
@@ -153,6 +154,7 @@ static Vec3 unpack_input(const NetInput *ni, Input *in) {
     in->interact = (ni->buttons & NB_INTERACT) != 0;
     in->sprint = (ni->buttons & NB_SPRINT) != 0;
     in->jump = (ni->buttons & NB_JUMP) != 0;
+    in->jump_held = (ni->buttons & NB_JUMPHELD) != 0;
     in->crouch = (ni->buttons & NB_CROUCH) != 0;
     in->rmouse_held = (ni->buttons & NB_GUARD) != 0;
     return v3(dq_dir(ni->mx), 0, dq_dir(ni->mz));
@@ -300,6 +302,7 @@ static void reconcile(Game *g, const NetSnapPlayer *auth, uint32_t ack_tick) {
     Vec3 err = v3_sub(auth->pos, n->hist_pos[k]);
     float mag = v3_len(err);
     if (mag < 0.0015f) return;
+    TravMode was = (TravMode)n->hist_trav[k];
     n->s_corrections++; n->t_corrections++;
     n->s_corr_sum += mag; n->t_corr_sum += mag;
     if (mag > n->s_corr_max) n->s_corr_max = mag;
@@ -307,13 +310,24 @@ static void reconcile(Game *g, const NetSnapPlayer *auth, uint32_t ack_tick) {
         p->c.pos = v3_add(p->c.pos, err);
         n->pos_error = v3(0, 0, 0);
         n->s_hard_snaps++; n->t_hard_snaps++;
-        dbg_log("net: hard snap %.2f m at tick %u", mag, ack_tick);
+        // --- traversal --- After a teleport the predicted velocity is fiction and a climb is a
+        // path to a ledge that is no longer in front of us. The acked tick's velocity is the last
+        // one the host agreed with; the climb is simply abandoned.
+        p->c.hvel = n->hist_hvel[k];
+        if (p->trav != TM_NONE) { p->trav = TM_NONE; p->c.traversing = false; }
+        dbg_log("net: hard snap %.2f m at tick %u (was %s)", mag, ack_tick, trav_name(was));
     } else {
         // The error at ack_tick carried forward unchanged through the inputs we have already
         // applied, so correcting the current position by it is right; the view lags behind and
         // decays back, so the player never sees the jump.
         p->c.pos = v3_add(p->c.pos, err);
         n->pos_error = v3_sub(n->pos_error, err);
+        // --- traversal --- A mantle is a curve the body is already halfway along: correcting the
+        // body alone would be undone by the next tick of that curve, and the eye would ring at the
+        // snapshot rate for the length of the climb. Move the curve with it instead.
+        player_traverse_shift(p, err);
+        if (was != TM_NONE && mag > 0.25f)
+            dbg_log("net: %.2f m correction during %s at tick %u", mag, trav_name(was), ack_tick);
     }
     for (int i = 0; i < NET_HIST; i++) n->hist_pos[i] = v3_add(n->hist_pos[i], err);   // do not correct twice
 }
@@ -501,7 +515,8 @@ static void host_simulate(Game *g, float dt) {
         // --- weapons --- A goon on the floor stays on the floor whatever its client keeps sending.
         if (weapons_frozen(g, i)) { dir = v3(0, 0, 0); in.sprint = false; in.attack = in.parry = in.dodge = in.interact = false; }
         CombatEvents ev = {0};
-        player_update(&g->players[i], &in, dir, &g->level, NULL, dt, &ev);
+        World world = { &g->level, &g->terrain };
+        player_update(&g->players[i], &in, dir, &world, NULL, dt, &ev);
         Character *c = &g->players[i].c;
         // First person: the client's body faces its view, not its movement, so replay the yaw it
         // sent instead of the one player_update turned toward the move direction. Without this a
@@ -762,7 +777,9 @@ void netgame_post_tick(Game *g, float dt) {
         host_send_events(g);   // --- weapons --- every tick, not every snapshot: a tracer is worth a packet
     } else {
         int k = (int)(n->net_tick % NET_HIST);
-        n->hist_pos[k] = g->players[g->local].c.pos; n->hist_tick[k] = n->net_tick;
+        const Player *lp = &g->players[g->local];
+        n->hist_pos[k] = lp->c.pos; n->hist_tick[k] = n->net_tick;
+        n->hist_hvel[k] = lp->c.hvel; n->hist_trav[k] = (uint8_t)lp->trav; n->hist_trav_t[k] = lp->trav_t;
         client_send_input(g);
         n->pos_error = v3_scale(n->pos_error, expf(-14.0f * dt));
         if (v3_len(n->pos_error) < 0.002f) n->pos_error = v3(0, 0, 0);
