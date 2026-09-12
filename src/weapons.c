@@ -11,6 +11,7 @@
 #include "weapons.h"
 #include "audio.h"
 #include "debug.h"
+#include "projectile.h"
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -82,6 +83,10 @@ Vec3 weapons_aim(const Game *g, int slot) {
 
 // ---------------------------------------------------------------- equipping
 
+// Forward: the pool bookkeeping lives further down with the rest of the ammo code, but equipping a
+// gun is where a goon is first handed rounds for it.
+static int pool_slot(Weapons *ws, int slot, uint8_t type, bool make);
+
 bool weapons_equip(Game *g, int slot, int item) {
     if (slot < 0 || slot >= NET_MAX_PLAYERS) return false;
     Items *its = &g->items;
@@ -101,6 +106,11 @@ bool weapons_equip(Game *g, int slot, int item) {
     it->held_by = slot; it->weapon_hand = true; it->dirty = true;
     w->item = item;
     w->ammo = d->weapon == 2 ? d->ammo : 0;
+    // --- ammo --- The first time a goon picks up a gun of a given kind they are handed its item
+    // file's `reserve` along with it. The second time they are not: the pool already exists, and
+    // putting a pistol down and picking it straight back up is not a resupply.
+    if (d->weapon == 2 && d->ammo_type[0] && pool_slot(W(g), slot, itemdef_kind_hash(d->ammo_type), false) < 0)
+        weapons_reserve_add(g, slot, d->ammo_type, d->reserve);
     w->cool = 0.25f; w->reload = 0; w->swing = 0; w->swing_hit = false; w->kick = 0;
     // Two hands on the painting is no hands for the gun: it comes out already holstered.
     w->drawn = !items_two_handed(g, slot);
@@ -154,6 +164,106 @@ void weapons_client_hold(Game *g, int slot, int item) {
     if (w->ammo <= 0) { const ItemDef *d = wdef(g, item); w->ammo = d ? d->ammo : 0; }
 }
 
+
+// ---------------------------------------------------------------- ammo pools
+
+// A pool is found by the hash of its `ammo_type` name rather than by the name itself, for the same
+// reason a projectile is: the number is identical in every process without the string ever going on
+// the wire, and it does not depend on the order the item files happened to be loaded in.
+#define POOL_CAP 999
+
+static int pool_slot(Weapons *ws, int slot, uint8_t type, bool make) {
+    if (slot < 0 || slot >= NET_MAX_PLAYERS || !type) return -1;
+    int free_slot = -1;
+    for (int i = 0; i < WEAP_AMMO_POOLS; i++) {
+        if (ws->pool[slot][i].type == type) return i;
+        if (!ws->pool[slot][i].type && free_slot < 0) free_slot = i;
+    }
+    if (!make || free_slot < 0) return -1;
+    ws->pool[slot][free_slot].type = type;
+    ws->pool[slot][free_slot].n = 0;
+    return free_slot;
+}
+
+int weapons_reserve(const Game *g, int slot, const char *type) {
+    if (!type || !type[0]) return 0;
+    uint8_t t = itemdef_kind_hash(type);
+    for (int i = 0; i < WEAP_AMMO_POOLS; i++)
+        if (slot >= 0 && slot < NET_MAX_PLAYERS && g->weapons.pool[slot][i].type == t)
+            return (int)g->weapons.pool[slot][i].n;
+    return 0;
+}
+
+int weapons_reserve_add(Game *g, int slot, const char *type, int n) {
+    if (!type || !type[0] || n <= 0) return 0;
+    Weapons *ws = W(g);
+    int i = pool_slot(ws, slot, itemdef_kind_hash(type), true);
+    if (i < 0) return 0;
+    int before = ws->pool[slot][i].n;
+    int after = before + n > POOL_CAP ? POOL_CAP : before + n;
+    ws->pool[slot][i].n = (uint16_t)after;
+    return after - before;
+}
+
+// Take up to `n` out of a pool. Returns how many were actually there.
+static int reserve_take(Game *g, int slot, const char *type, int n) {
+    if (!type || !type[0] || n <= 0) return 0;
+    Weapons *ws = W(g);
+    int i = pool_slot(ws, slot, itemdef_kind_hash(type), false);
+    if (i < 0) return 0;
+    int got = ws->pool[slot][i].n < n ? ws->pool[slot][i].n : n;
+    ws->pool[slot][i].n = (uint16_t)(ws->pool[slot][i].n - got);
+    return got;
+}
+
+int weapons_reserve_held(const Game *g, int slot) {
+    if (slot < 0 || slot >= NET_MAX_PLAYERS) return -1;
+    const ItemDef *d = wdef(g, g->weapons.w[slot].item);
+    if (!d || d->weapon != 2 || !d->ammo_type[0]) return -1;
+    return weapons_reserve(g, slot, d->ammo_type);
+}
+
+uint8_t weapons_pack_reserve(const Game *g, int slot) {
+    int r = weapons_reserve_held(g, slot);
+    return (uint8_t)(r < 0 ? 0 : (r > 255 ? 255 : r));
+}
+
+void weapons_apply_reserve(Game *g, int slot, uint8_t reserve) {
+    if (slot < 0 || slot >= NET_MAX_PLAYERS) return;
+    const ItemDef *d = wdef(g, g->weapons.w[slot].item);
+    if (!d || d->weapon != 2 || !d->ammo_type[0]) return;
+    Weapons *ws = W(g);
+    int i = pool_slot(ws, slot, itemdef_kind_hash(d->ammo_type), true);
+    if (i >= 0) ws->pool[slot][i].n = reserve;
+}
+
+// Walking over a box of rounds picks it up: no prompt, no button. Loot is a decision and ammo is
+// not -- stopping to press E on a box of pistol rounds is the least interesting thing this game
+// could ask anybody to do. Host only; a client sees the box vanish and its reserve go up in the
+// next snapshot, which is a thirtieth of a second and nobody notices.
+#define AMMO_PICKUP_REACH 1.5f
+
+static void ammo_pickups(Game *g) {
+    Items *its = &g->items;
+    for (int slot = 0; slot < NET_MAX_PLAYERS; slot++) {
+        if (!g->net.slots[slot].active || weapons_frozen(g, slot)) continue;
+        const Character *c = &g->players[slot].c;
+        Vec3 chest = v3(c->pos.x, c->pos.y + c->height * 0.5f, c->pos.z);
+        for (int i = 0; i < its->n; i++) {
+            Item *it = &its->it[i];
+            if (!it->used || it->broken || it->held_by >= 0) continue;
+            const ItemDef *d = &its->defs[it->def];
+            if (!d->pickup_type[0] || d->pickup_n <= 0) continue;
+            if (v3_len(v3_sub(it->pos, chest)) > AMMO_PICKUP_REACH + c->radius) continue;
+            int got = weapons_reserve_add(g, slot, d->pickup_type, d->pickup_n);
+            dbg_log("ammo: slot %d walked over %d %s round(s) (%d taken, now %d)",
+                    slot, d->pickup_n, d->pickup_type, got, weapons_reserve(g, slot, d->pickup_type));
+            items_break(g, i);   // how a thing leaves the level; an ammo box makes a different noise
+            break;               // one box a tick a goon: two at once would be one sound over another
+        }
+    }
+}
+
 // ---------------------------------------------------------------- where the weapon is
 
 // The grip point of the weapon hand. Off the model's own hand_r when there is a model to ask,
@@ -170,7 +280,8 @@ Vec3 weapons_hand_point(const Game *g, int slot) {
 
 // ---------------------------------------------------------------- hitscan
 
-typedef struct RayHit { int kind, idx; Vec3 point, normal; float dist; } RayHit;
+// RayHit is WeapHit under its old name; weapons.h exports the type and weapons_trace below.
+typedef WeapHit RayHit;
 
 // Closest approach of the ray to a capsule standing on `base`, or -1 when it misses.
 static float ray_capsule(Vec3 from, Vec3 dir, Vec3 base, float radius, float height, Vec3 *point) {
@@ -191,7 +302,7 @@ static float ray_capsule(Vec3 from, Vec3 dir, Vec3 base, float radius, float hei
 }
 
 // The first thing a ray meets. `shooter` is ignored (nobody shoots themselves in a comedy).
-static RayHit weapons_ray(Game *g, int shooter, Vec3 from, Vec3 dir, float range) {
+RayHit weapons_trace(Game *g, int shooter, Vec3 from, Vec3 dir, float range) {
     RayHit h = { .kind = FH_NONE, .idx = -1, .dist = range, .point = v3_add(from, v3_scale(dir, range)), .normal = v3_scale(dir, -1) };
     Vec3 to = v3_add(from, v3_scale(dir, range));
 
@@ -265,7 +376,7 @@ static void get_up(Game *g, int slot, const char *why) {
 }
 
 // Host only. Wind down, shove back, and over you go when it runs out.
-static void hurt_player(Game *g, int slot, float damage, Vec3 dir, float knock) {
+void weapons_hurt_player(Game *g, int slot, float damage, Vec3 dir, float knock) {
     if (slot < 0 || slot >= NET_MAX_PLAYERS || !g->net.slots[slot].active) return;
     Weapon *w = &W(g)->w[slot];
     w->wind_quiet = 0;
@@ -280,7 +391,7 @@ static void hurt_player(Game *g, int slot, float damage, Vec3 dir, float knock) 
 }
 
 // Host only. An item takes a shove, and a fragile one that took a solid shove gives up on the spot.
-static void hurt_item(Game *g, int item, Vec3 dir, float knock, Vec3 at) {
+void weapons_hurt_item(Game *g, int item, Vec3 dir, float knock, Vec3 at) {
     Items *its = &g->items;
     if (item < 0 || item >= its->n || !its->it[item].used || its->it[item].broken) return;
     Item *it = &its->it[item];
@@ -327,6 +438,33 @@ static void resolve_fire(Game *g, int slot, Vec3 origin, Vec3 dir) {
     }
     w->ammo--; ws->shots++;
 
+    // --- projectiles --- A gun with a `projectile` line does not decide anything on this frame.
+    // It puts one object per pellet in the air, aimed on the same fixed golden-angle fan the
+    // hitscan spread uses, and whatever those hit they hit later, in projectiles_tick, from the
+    // host's own copy of the world. The event that goes out therefore says "a shot was fired
+    // here", not "a shot landed there": no tracer, no hit, because neither is known yet.
+    if (d->proj) {
+        Vec3 pr = v3_norm(v3_cross(dir, v3(0, 1, 0)));
+        if (v3_len(pr) < 0.1f) pr = v3(1, 0, 0);
+        Vec3 pu = v3_cross(pr, dir);
+        Vec3 muzzle = v3_add(origin, v3_scale(dir, 0.35f));   // clear of the shooter's own hitbox
+        float cone = d->proj_spread * DEG2RAD;
+        for (int i = 0; i < pellets; i++) {
+            Vec3 rd = dir;
+            if (pellets > 1 || cone > 0.0f) {
+                float a = (float)i * 2.399963f;                                  // the golden angle
+                float r = cone * sqrtf(((float)i + 0.5f) / (float)pellets);
+                rd = v3_norm(v3_add(dir, v3_add(v3_scale(pr, cosf(a) * r), v3_scale(pu, sinf(a) * r))));
+            }
+            projectile_spawn(g, slot, w->item >= 0 ? g->items.it[w->item].def : -1, muzzle, rd, false, 0);
+        }
+        FireEvent pe = { .slot = (uint8_t)slot, .kind = FE_SHOT, .hit = FH_NONE, .pellets = (uint8_t)pellets,
+                         .from = origin, .to = v3_add(origin, v3_scale(dir, range)) };
+        weapons_event(g, &pe);
+        dbg_log("weapon: slot %d fired %d %s round(s), %d left", slot, pellets, d->display, w->ammo);
+        return;
+    }
+
     // Pellets spread on a fixed pattern rather than a random one: the host and every client have to
     // draw the same fan of tracers, and a shared seed is one more thing to get out of step.
     Vec3 right = v3_norm(v3_cross(dir, v3(0, 1, 0)));
@@ -341,12 +479,12 @@ static void resolve_fire(Game *g, int slot, Vec3 origin, Vec3 dir) {
             float r = 0.055f * sqrtf(((float)p + 0.5f) / (float)pellets);
             rd = v3_norm(v3_add(dir, v3_add(v3_scale(right, cosf(a) * r), v3_scale(up, sinf(a) * r))));
         }
-        RayHit h = weapons_ray(g, slot, origin, rd, range);
+        RayHit h = weapons_trace(g, slot, origin, rd, range);
         if (p == 0) first = h;
         if (h.kind == FH_NONE) continue;
         if (any_hit == FH_NONE || h.kind == FH_PLAYER) any_hit = (uint8_t)h.kind;
-        if (h.kind == FH_PLAYER) hurt_player(g, h.idx, per, rd, d->knock);
-        else if (h.kind == FH_ITEM) hurt_item(g, h.idx, rd, d->knock, h.point);
+        if (h.kind == FH_PLAYER) weapons_hurt_player(g, h.idx, per, rd, d->knock);
+        else if (h.kind == FH_ITEM) weapons_hurt_item(g, h.idx, rd, d->knock, h.point);
     }
     if (any_hit != FH_NONE) ws->hits++; else ws->misses++;
 
@@ -376,6 +514,15 @@ static void start_reload(Game *g, int slot) {
     Weapon *w = &W(g)->w[slot];
     const ItemDef *d = wdef(g, w->item);
     if (!d || d->weapon != 2 || w->reload > 0 || w->ammo >= d->ammo) return;
+    // --- ammo --- Nothing to load is not a reload. A gun with an `ammo_type` and an empty pool
+    // just clicks; one whose item file names no pool at all reloads out of thin air, which is what
+    // every gun in this game did before pools existed and is still the sane default for a new one.
+    if (d->ammo_type[0] && weapons_reserve(g, slot, d->ammo_type) <= 0) {
+        FireEvent ce = { .slot = (uint8_t)slot, .kind = FE_CLICK, .hit = FH_NONE, .pellets = 1,
+                         .from = weapons_eye(g, slot), .to = weapons_eye(g, slot) };
+        weapons_event(g, &ce);
+        return;
+    }
     w->reload = WEAP_RELOAD_TIME;
     W(g)->reloads++;
     FireEvent e = { .slot = (uint8_t)slot, .kind = FE_RELOAD, .hit = FH_NONE, .pellets = 1,
@@ -485,7 +632,8 @@ static void local_input(Game *g, const Input *in) {
     if (!w->drawn) return;
 
     // R reloads. So does an empty gun's trigger, once it has clicked at you.
-    if (in->key_down[SDL_SCANCODE_R] && d->weapon == 2 && w->ammo < d->ammo && w->reload <= 0) {
+    bool have_spare = !d->ammo_type[0] || weapons_reserve(g, slot, d->ammo_type) > 0;
+    if (in->key_down[SDL_SCANCODE_R] && d->weapon == 2 && w->ammo < d->ammo && w->reload <= 0 && have_spare) {
         start_reload(g, slot);
         if (client) netgame_send_weapon_reload(g);
     }
@@ -509,6 +657,27 @@ static void local_input(Game *g, const Input *in) {
         // the host decide what it actually hit. A shot that the host refuses costs one round on the
         // client for a tenth of a second and then the snapshot puts it back.
         netgame_send_weapon_fire(g, origin, dir);
+        // --- projectiles --- Predict the object, not just the noise. A bullet that only appears
+        // once the host has heard about it leaves the barrel a round trip after the click, which
+        // is the single most obvious way a networked gun can feel broken. This copy never hurts
+        // anybody; the host's own arrives a snapshot later and takes it over (projectiles_net_sample).
+        if (d->proj) {
+            int pel = d->pellets < 1 ? 1 : d->pellets;
+            Vec3 pr = v3_norm(v3_cross(dir, v3(0, 1, 0)));
+            if (v3_len(pr) < 0.1f) pr = v3(1, 0, 0);
+            Vec3 pu = v3_cross(pr, dir);
+            Vec3 muzzle = v3_add(origin, v3_scale(dir, 0.35f));
+            float cone = d->proj_spread * DEG2RAD;
+            for (int i = 0; i < pel; i++) {
+                Vec3 rd = dir;
+                if (pel > 1 || cone > 0.0f) {
+                    float a = (float)i * 2.399963f;
+                    float r = cone * sqrtf(((float)i + 0.5f) / (float)pel);
+                    rd = v3_norm(v3_add(dir, v3_add(v3_scale(pr, cosf(a) * r), v3_scale(pu, sinf(a) * r))));
+                }
+                projectile_spawn(g, slot, g->items.it[w->item].def, muzzle, rd, true, 0);
+            }
+        }
         if (d->weapon == 2) w->ammo--;
         w->pending = 0.4f;
         w->cool = 1.0f / fmaxf(d->rate, 0.05f);
@@ -533,9 +702,26 @@ void weapons_net_revive_local(Game *g, int slot, int target, bool holding) {
 
 // ---------------------------------------------------------------- the tick
 
+// --- projectiles --- One line at shutdown, next to the net and physics reports: what left a barrel
+// this run and what it found. Reading it is how a headless test says "the guns worked" without
+// anybody watching a screen.
+void weapons_report(const Game *g) {
+    const Weapons *ws = &g->weapons;
+    const Projectiles *ps = &g->projectiles;
+    // hit/missed are the HITSCAN tally: a gun that throws projectiles decides nothing on the frame
+    // the trigger goes down, so its arithmetic is on the second line.
+    dbg_log("weapons: %u shot%s (%u hitscan hit, %u missed) %u swing%s | %u knockdown%s %u revive%s %u reload%s",
+            ws->shots, ws->shots == 1 ? "" : "s", ws->hits, ws->misses, ws->swings, ws->swings == 1 ? "" : "s",
+            ws->knockdowns, ws->knockdowns == 1 ? "" : "s", ws->revives, ws->revives == 1 ? "" : "s",
+            ws->reloads, ws->reloads == 1 ? "" : "s");
+    dbg_log("projectiles: %u spawned %u hit something %u expired %u blast%s %u dropped (sky full), %d still in the air",
+            ps->spawned, ps->hits, ps->expired, ps->booms, ps->booms == 1 ? "" : "s", ps->dropped, projectiles_live(g));
+}
+
 void weapons_reset(Game *g) {
     Weapons *ws = W(g);
     memset(ws, 0, sizeof *ws);
+    projectiles_reset(g);   // --- projectiles --- the sky empties with the level
     for (int i = 0; i < NET_MAX_PLAYERS; i++) {
         ws->w[i].item = -1;
         ws->w[i].wind = WEAP_WIND;
@@ -591,8 +777,8 @@ static void melee_contact(Game *g, int slot) {
     int kind, idx; Vec3 at;
     if (!melee_arc(g, slot, &kind, &idx, &at)) { W(g)->misses++; return; }
     Vec3 dir = weapons_aim(g, slot);
-    if (kind == FH_PLAYER) hurt_player(g, idx, d->damage, dir, d->knock);
-    else hurt_item(g, idx, dir, d->knock, at);
+    if (kind == FH_PLAYER) weapons_hurt_player(g, idx, d->damage, dir, d->knock);
+    else weapons_hurt_item(g, idx, dir, d->knock, at);
     W(g)->hits++;
     // The swing event has already gone out; this one carries what it found, so every client draws
     // the sparks and plays the thud in the right place.
@@ -636,7 +822,12 @@ void weapons_tick(Game *g, const Input *in, float dt) {
             if (w->reload <= 0) {
                 w->reload = 0;
                 const ItemDef *def = wdef(g, w->item);
-                if (def && def->weapon == 2) w->ammo = def->ammo;
+                // --- ammo --- The magazine is filled out of the reserve, not out of nowhere. A gun
+                // with no `ammo_type` keeps the old behaviour and simply comes back full.
+                if (def && def->weapon == 2) {
+                    if (!def->ammo_type[0]) w->ammo = def->ammo;
+                    else w->ammo += reserve_take(g, i, def->ammo_type, def->ammo - w->ammo);
+                }
             }
         }
         // Wind comes back after a quiet moment, so a run of small hits stacks but a bad afternoon
@@ -692,7 +883,11 @@ void weapons_tick(Game *g, const Input *in, float dt) {
         dbg_log("test down: knocking the local goon over at tick %u", g->tick);
         knock_down(g, g->local);
     }
+    if (host) ammo_pickups(g);   // --- ammo --- before the local input, so a box walked over this
+                                 // tick is already in the pool when R is pressed on the same frame
     if (g->net.slots[g->local].active) local_input(g, in);
+    projectiles_tick(g, dt);   // --- projectiles --- after the trigger, so a round fired this tick
+                               // has already started travelling by the time the frame is drawn
     weapons_fx_tick(g, dt);
 }
 

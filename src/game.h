@@ -20,6 +20,7 @@
 #include "phys.h"
 #include "items.h"
 #include "weapons.h"
+#include "projectile.h"   // --- projectiles --- nails, grenades and the things that carry them
 
 #define INTERNAL_W 1280
 #define INTERNAL_H 800
@@ -46,6 +47,7 @@ typedef struct Game {
     PropCache props; Particles particles; Battle battle; Uifx fx; bool battle_loaded;
     PhysWorld phys; Items items;   // M2: rigid bodies and the loot that rides on them
     Weapons  weapons;              // --- weapons --- what is in the other hand, and who is on the floor
+    Projectiles projectiles;       // --- projectiles --- everything in the air with a fuse or a point on it
     LevelEd leveled; bool leveled_ready;
     Builder builder; bool builder_ready;
     Terrain terrain; bool gen_done;

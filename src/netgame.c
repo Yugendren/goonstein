@@ -8,6 +8,7 @@
 #include "game.h"
 #include "netgame.h"
 #include "weapons.h"
+#include "projectile.h"   // --- projectiles ---
 #include "debug.h"
 #include <math.h>
 #include <string.h>
@@ -21,6 +22,16 @@ enum { NRM_JOIN = 1, NRM_ACCEPT = 2, NRM_REJECT = 3, NRM_JOINED = 4, NRM_LEFT = 
        // --- weapons ---
        NRM_WEAP_FIRE = 9, NRM_WEAP_RELOAD = 10, NRM_WEAP_SWAP = 11, NRM_WEAP_REVIVE = 12 };
 enum { NET_ENT_PLAYER = 1, NET_ENT_ITEM = 2 };
+
+// --- projectiles --- Projectile entities: 15 bytes each, appended after the items with a count of
+// their own so they need no type byte. id and owner share one u16 (ids are a per-level counter and
+// never come near 16384 in a fifteen-minute run); kind is the item file's own hash; position is
+// centimetres and velocity is twentieths of a metre per second, which reaches 1600 m/s and is finer
+// than anything a client could see. Everything in the air goes out every snapshot: a bullet lives
+// for a second or two and there is no round robin worth the complexity. Twenty live projectiles
+// cost 15 x 20 x 30 = 9 kB/s, which is the whole reason the format is this tight.
+#define NET_PROJ_BYTES 15
+#define NET_PROJ_MAX   40   // per snapshot; more than that in the air at once and the oldest wait
 
 // Item entities: 14 bytes each (type, id, position in centimetres, orientation in four bytes, one
 // flag byte). Everything held, changed or actually moving goes out at the full snapshot rate; the
@@ -165,6 +176,10 @@ static Vec3 unpack_input(const NetInput *ni, Input *in) {
 // A position in centimetres: 0.01 m over +-327 m, which is a good deal more island than there is.
 static int16_t q_pos(float v)  { return (int16_t)lrintf(clampf(v, -327.0f, 327.0f) * 100.0f); }
 static float   dq_pos(int16_t v) { return (float)v * 0.01f; }
+// --- projectiles --- A velocity in twentieths of a metre per second: +-1638 m/s, which is four
+// times the fastest thing this game fires, at a resolution nobody can see.
+static int16_t q_vel(float v)  { return (int16_t)lrintf(clampf(v, -1638.0f, 1638.0f) * 20.0f); }
+static float   dq_vel(int16_t v) { return (float)v * 0.05f; }
 
 static void write_item(NetBuf *b, const Item *it) {
     nb_u8(b, NET_ENT_ITEM); nb_u16(b, it->id);
@@ -217,9 +232,11 @@ static void write_snapshot(Game *g, int for_slot, uint8_t *out, int *out_len, in
         nb_u16(&b, (uint16_t)(clampf(c->anim_t, 0, 60.0f) * 1000.0f));
         nb_u16(&b, (uint16_t)clampf(c->hp, 0, 65535.0f));
         nb_u8(&b, (uint8_t)g->players[i].state);
-        // --- weapons --- three bytes: the weapon hand, what is in it, and how much wind is left
+        // --- weapons --- four bytes: the weapon hand, what is in it, what is left in the pockets
+        // for it, and how much wind its owner has before they end up on the floor.
         nb_u8(&b, weapons_pack_flags(g, i));
         nb_u8(&b, (uint8_t)clampf((float)g->weapons.w[i].ammo, 0, 255));
+        nb_u8(&b, weapons_pack_reserve(g, i));
         nb_u8(&b, (uint8_t)clampf(g->weapons.w[i].wind, 0, 255));
     }
     // Pass one: everything that is moving, in someone's hands, or has just changed hands or broken.
@@ -244,6 +261,26 @@ static void write_snapshot(Game *g, int for_slot, uint8_t *out, int *out_len, in
         }
     }
     if (!b.err) out[item_count_at] = (uint8_t)(nitems > 255 ? 255 : nitems);
+
+    // --- projectiles --- Everything in the air, after the items, with its own count. A predicted
+    // copy on the machine that fired it is not a thing that exists yet as far as anybody else is
+    // concerned, so it is never written; only the host's own are.
+    size_t proj_count_at = b.len;
+    nb_u8(&b, 0);
+    int nproj = 0;
+    const Projectiles *ps = &g->projectiles;
+    for (int i = 0; i < ps->n && nproj < NET_PROJ_MAX; i++) {
+        const Projectile *p = &ps->p[i];
+        if (!p->used || p->predicted || !p->id) continue;
+        if (b.len + NET_PROJ_BYTES > b.cap) break;
+        nb_u16(&b, (uint16_t)((p->id & 0x3FFFu) | ((unsigned)(p->owner & 3u) << 14)));
+        nb_u8(&b, p->kind);
+        nb_i16(&b, q_pos(p->pos.x)); nb_i16(&b, q_pos(p->pos.y)); nb_i16(&b, q_pos(p->pos.z));
+        nb_i16(&b, q_vel(p->vel.x)); nb_i16(&b, q_vel(p->vel.y)); nb_i16(&b, q_vel(p->vel.z));
+        nproj++;
+    }
+    if (!b.err) out[proj_count_at] = (uint8_t)nproj;
+
     *out_len = b.err ? 0 : (int)b.len;
 }
 
@@ -365,7 +402,7 @@ static void read_snapshot(Game *g, const uint8_t *data, int len) {
         sp.anim_t = (float)rb_u16(&b) * 0.001f;
         sp.hp = (float)rb_u16(&b);
         sp.pstate = rb_u8(&b);
-        sp.wflags = rb_u8(&b); sp.wammo = rb_u8(&b); sp.wwind = rb_u8(&b);   // --- weapons ---
+        sp.wflags = rb_u8(&b); sp.wammo = rb_u8(&b); sp.wreserve = rb_u8(&b); sp.wwind = rb_u8(&b);   // --- weapons ---
         if (b.err) return;
         seen[id] = true;
         if (!n->slots[id].active) {
@@ -374,6 +411,7 @@ static void read_snapshot(Game *g, const uint8_t *data, int len) {
             dbg_log("net: slot %d appeared", id);
         }
         weapons_apply_flags(g, id, sp.wflags, sp.wammo, sp.wwind);   // --- weapons ---
+        weapons_apply_reserve(g, id, sp.wreserve);
         if (id == (uint8_t)g->local) reconcile(g, &sp, ack);
         else push_hist(&n->slots[id], n->now, &sp);
     }
@@ -386,6 +424,17 @@ static void read_snapshot(Game *g, const uint8_t *data, int len) {
         if (b.err || type != NET_ENT_ITEM) return;
         int held = (int)((flags >> 1) & 7u) - 1;
         items_net_sample(g, id, pos, quat_norm(rot), held, (flags & 1u) != 0, (flags & 16u) != 0, n->now);
+    }
+    // --- projectiles --- Everything the host says is in the air. A projectile this client fired
+    // itself and predicted is adopted rather than duplicated; see projectiles_net_sample.
+    int nproj = rb_u8(&b);
+    for (int e = 0; e < nproj; e++) {
+        uint16_t io = rb_u16(&b);
+        uint8_t kind = rb_u8(&b);
+        Vec3 pp; pp.x = dq_pos(rb_i16(&b)); pp.y = dq_pos(rb_i16(&b)); pp.z = dq_pos(rb_i16(&b));
+        Vec3 pv; pv.x = dq_vel(rb_i16(&b)); pv.y = dq_vel(rb_i16(&b)); pv.z = dq_vel(rb_i16(&b));
+        if (b.err) return;
+        projectiles_net_sample(g, (uint16_t)(io & 0x3FFFu), kind, (uint8_t)((io >> 14) & 3u), pp, pv, n->now);
     }
     for (int i = 0; i < NET_MAX_PLAYERS; i++)
         if (i != g->local && n->slots[i].active && !seen[i]) { dbg_log("net: slot %d (%s) left", i, n->slots[i].name); unseat(g, i); }

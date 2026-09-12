@@ -545,11 +545,11 @@ void game_spawn_player(Game *g, int slot) {
     game_ground_character(g, &g->players[slot].c, 0);
 }
 
-// --- loadouts --- What a goon lands holding. The character file says `spawn shotgun`; the item is
+// --- loadouts --- What a goon lands holding. The character file says `spawn pistol`; the item is
 // an ordinary item from the moment it exists -- droppable, throwable, breakable, worth what it is
 // worth -- it is simply put in the hand by the host instead of by a hand. Equipping goes through
 // weapons_equip, the same call E makes, so a client learns about it exactly as it learns about a
-// mate picking a shotgun up off the sand.
+// mate picking a rifle up off the sand.
 void game_give_loadout(Game *g, int slot) {
     if (slot < 0 || slot >= NET_MAX_PLAYERS) return;
     game_ensure_player_model(g, slot);

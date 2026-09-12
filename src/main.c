@@ -440,6 +440,7 @@ int main(int argc, char **argv) {
             game.battle.state, game.battle.enemy_hp, game.battle.round, game.state, game.parries, game.hits_taken, game.deaths, game.boss.c.hp, PLAYER(&game).c.hp, PLAYER(&game).c.yaw / DEG2RAD, game.flash, game.time,
             PLAYER(&game).c.pos.x, PLAYER(&game).c.pos.y, PLAYER(&game).c.pos.z, game.boss.c.pos.x, game.boss.c.pos.y, game.boss.c.pos.z, game.cam.eye.x, game.cam.eye.y, game.cam.eye.z, game.cam.cur_dist);
 
+    weapons_report(&game);   // --- weapons --- what the guns did this run, and what left them
     voice_shutdown();   // --- voice --- before the audio device goes away with game_shutdown
     netgame_shutdown(&game);
     game_shutdown(&game);

@@ -8,6 +8,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <stdlib.h>
+#include "debug.h"
 
 // ---------------------------------------------------------------- tuning
 
@@ -109,11 +111,6 @@ static const ItemDef *weap_def(const Game *g, int item) {
     return d->ok ? d : NULL;
 }
 
-// Shotgun and bat read as two hands on the grip; a pistol and a wrench read as one.
-static bool two_handed_look(const ItemDef *d) {
-    return d && (!strcmp(d->name, "shotgun") || !strcmp(d->name, "bat"));
-}
-
 static float atten(const Game *g, Vec3 at, float gain) {
     float dist = v3_len(v3_sub(at, g->cam.eye));
     return gain * clampf(1.0f - dist / 25.0f, 0.08f, 1.0f);
@@ -129,10 +126,10 @@ static void push_tracer(Weapons *ws, Vec3 a, Vec3 b) {
     ws->tracer[i].life = VM_TRACER_LIFE; ws->tracer[i].max_life = VM_TRACER_LIFE;
 }
 
-static void push_flash(Weapons *ws, Vec3 at) {
+static void push_flash(Weapons *ws, Vec3 at, bool world_vis) {
     if (ws->nflash >= WEAP_FLASHES) return;
     int i = ws->nflash++;
-    ws->flash[i].at = at; ws->flash[i].life = VM_FLASH_LIFE;
+    ws->flash[i].at = at; ws->flash[i].life = VM_FLASH_LIFE; ws->flash[i].world_vis = world_vis;
 }
 
 static void draw_tracers(Gfx *x, const Weapons *ws) {
@@ -152,9 +149,238 @@ static void draw_tracers(Gfx *x, const Weapons *ws) {
 static void draw_flashes(Gfx *x, const Weapons *ws) {
     for (int i = 0; i < ws->nflash; i++) {
         float k = clampf(ws->flash[i].life / VM_FLASH_LIFE, 0, 1);
-        if (k <= 0) continue;
+        if (k <= 0 || !ws->flash[i].world_vis) continue;
         gfx_billboard(x, ws->flash[i].at, 0.28f * (0.7f + 0.3f * k), v4(1.0f, 0.85f, 0.55f, k), true);
     }
+}
+
+// ---------------------------------------------------------------- the viewmodel's own lens
+
+// The world's first-person lens is 70 degrees and opens to 78 at a sprint. A gun held at arm's
+// length through that lens is a plank: the barrel stretches away toward the edge of frame, the
+// grip swells, and the whole thing swims every time the player starts running. Every shooter since
+// Quake has drawn the viewmodel through a narrower lens of its own -- Half-Life 2 and Titanfall
+// expose it as a setting, Doom 2016 bakes it in -- and somewhere around 55 to 60 degrees is where
+// a gun stops looking like a caricature of one. The world keeps its own field of view, and the
+// sprint still opens it, which is the entire point: speed is sold by the world, not by the gun.
+#define VM_FOV_DEFAULT 58.0f
+#define VM_NEAR         0.02f   // the grip sits 25 cm from the eye; 10 cm of near plane would clip it
+#define VM_FAR         12.0f
+// The slice of the depth buffer the viewmodel is squeezed into. Nothing in the world can be in
+// front of it, so a barrel pressed against a wall stays a barrel instead of vanishing into the
+// plaster, and -- unlike clearing the depth buffer -- the world's own depth survives for the sky,
+// the particles and everything else drawn after this. See gfx_depth_range.
+#define VM_DEPTH        0.12f
+
+// Where the gun sits when nothing is happening to it: down and to the right, with the muzzle
+// angled back toward the middle of the screen. Doom and Quake both put it there, and for the same
+// reason: the lower right corner is the one part of the frame a player never needs to read.
+#define VM_REST_RIGHT   0.145f
+#define VM_REST_DOWN    0.175f
+#define VM_REST_FWD     0.500f
+
+// Recoil is a spring, not a curve. A shot hands the gun a velocity and the spring brings it home;
+// a second shot fired before the first has settled therefore stacks on top of it instead of
+// restarting an animation halfway through, which is what makes a fast gun feel fast. omega picks
+// the settling time: 34 rad/s is critically damped back to nothing in about 120 ms.
+#define VM_KICK_OMEGA  34.0f
+#define VM_KICK_BACK    0.055f  // metres straight back, per unit of recoil
+#define VM_KICK_UP      0.013f  // and a little up, so the gun rises out of the rest pose
+#define VM_KICK_PITCH  10.0f    // degrees of muzzle rise
+#define VM_KICK_YAW     2.2f    // degrees sideways, alternating shot to shot so it never drifts
+#define VM_KICK_ROLL    3.5f
+#define VM_FLASH_VM     0.045f  // seconds the first-person flash is on screen: two frames at 60 Hz
+
+// A sprint takes the gun out of the aim: down, turned across the body, muzzle up. It is the
+// clearest "you cannot shoot right now" the game has, and it costs nothing to read.
+#define VM_SPRINT_RATE  9.0f
+#define VM_SPRINT_DROP  0.085f
+#define VM_SPRINT_ROLL 26.0f
+#define VM_SPRINT_YAW  17.0f
+#define VM_SPRINT_PITCH 13.0f
+
+#define VM_SHELL_LIFE   0.85f   // seconds a spent case is on screen before it is gone
+#define VM_SHELL_G      7.5f    // metres per second squared; a touch light, so it arcs readably
+
+// Framing and grip, tunable without a rebuild while the numbers are being found by eye -- the same
+// bargain HOLLOW_GRIP strikes for a weapon's own placement.
+//   HOLLOW_VM_REST="right down fwd"    where the grip sits, metres from the eye
+//   HOLLOW_VM_HAND="yaw pitch roll"    the rotation between the hand bone and the gun's own frame
+//   HOLLOW_VM_ARMS="yaw pitch roll"    the arms turned about the grip, to keep the idle hand out
+//                                      of the middle of the picture without moving the gun
+static void vm_rest(float *r, float *d, float *f) {
+    *r = VM_REST_RIGHT; *d = VM_REST_DOWN; *f = VM_REST_FWD;
+    const char *e = SDL_getenv("HOLLOW_VM_REST");
+    if (e) sscanf(e, "%f %f %f", r, d, f);
+}
+// A hand bone's axes are whatever the rigger chose; a weapon model's are "+Z is the muzzle". The
+// clip already points the pistol somewhere sensible, so this is a correction and not a full
+// reorientation -- but it has to exist, because "somewhere sensible for a body standing in a
+// field" and "down the middle of a first-person screen" are not the same direction.
+// The rotation that takes a hand bone's own axes back to the model's, measured once from the first
+// pose the arms ever strike. A rigger's hand bone points wherever the rig wanted it to; a weapon
+// model's +Z is its muzzle, by the convention in ASSETS.md. Cancelling the bone's REST rotation
+// makes a gun leave the hand pointing the way the body faces -- which, for arms hung off the
+// camera, is down the middle of the screen -- while every later frame of the clip still turns it,
+// so the flick of a shot and the roll of a reload survive intact. Measuring it beats a table of
+// per-rig magic numbers: a new character with a differently-built hand needs nothing added here.
+// The arms, turned about the grip point. The gun does not move: only the body hanging off it does.
+// Zero by default -- the arms are the trigger arm alone (tools/blender/make_arms.py --side right),
+// which is where Doom and Quake left theirs, and it needs no correction. The knob stays because the
+// day this cast gets a two-handed rifle clip, the second hand will want nudging out of the middle
+// of the picture and nobody should have to rebuild to find the angle.
+static void vm_arms_turn(float *yaw, float *pitch, float *roll) {
+    *yaw = 0.0f; *pitch = 0.0f; *roll = 0.0f;
+    const char *e = SDL_getenv("HOLLOW_VM_ARMS");
+    if (e) sscanf(e, "%f %f %f", yaw, pitch, roll);
+}
+
+static Mat4 vm_rest_fix(Mat4 hb) {
+    Vec3 ax = v3_norm(v3(hb.m[0], hb.m[1], hb.m[2]));
+    Vec3 ay = v3(hb.m[4], hb.m[5], hb.m[6]);
+    ay = v3_norm(v3_sub(ay, v3_scale(ax, v3_dot(ax, ay))));   // Gram-Schmidt, in case the bone is scaled
+    Vec3 az = v3_cross(ax, ay);
+    Mat4 inv = m4_identity();   // the transpose of an orthonormal basis is its inverse
+    inv.m[0] = ax.x; inv.m[4] = ax.y; inv.m[8]  = ax.z;
+    inv.m[1] = ay.x; inv.m[5] = ay.y; inv.m[9]  = ay.z;
+    inv.m[2] = az.x; inv.m[6] = az.y; inv.m[10] = az.z;
+    return inv;
+}
+
+static void vm_hand_fix(float *yaw, float *pitch, float *roll) {
+    *yaw = 0; *pitch = 0; *roll = 0;
+    const char *e = SDL_getenv("HOLLOW_VM_HAND");
+    if (e) sscanf(e, "%f %f %f", yaw, pitch, roll);
+}
+
+static float vm_fov(void) {
+    const char *e = SDL_getenv("HOLLOW_VM_FOV");
+    float f = e ? (float)atof(e) : VM_FOV_DEFAULT;
+    return clampf(f, 20.0f, 110.0f);
+}
+
+// ---------------------------------------------------------------- hands
+
+// The arms are not two boxes any more. They are the local goon's OWN arms: the same MakeHuman body
+// everybody else can see, trimmed to the two limbs by tools/blender/make_arms.py and posed by the
+// same Quaternius pistol clips the third-person body uses. Fidelity is not the main prize -- the
+// prize is that the gun now rides `hand_r` on this model exactly as it rides `hand_r` on a remote
+// goon, so there is one grip to tune instead of two that quietly disagree with each other.
+//
+// It lives in a file static rather than in Weapons because it is a mesh and a texture belonging to
+// whoever is sitting at this keyboard: never replicated, never saved, never reset with the level.
+static struct {
+    CharModel cm;
+    char      from[256];        // the character file it was built from; "" = nothing tried yet
+    Vec3      anchor;           // hand_r in the model's own space, taken on the first posed frame
+    Mat4      rest_fix;         // and the rotation that cancels that bone's rest orientation
+    bool      anchored;
+    Character body;             // a goon who does not exist, so the clip player has state to read
+} s_arms;
+
+// "models/characters/goon_a.glb" -> "goon_a" -> assets/characters/goon_a_fp.txt. Deriving the
+// arms from the model the player is already wearing means a new goon needs no table in here; a
+// goon with no _fp file simply gets the old blocky arms and a line in the log.
+static CharModel *vm_arms(Game *g, int slot) {
+    const CharModel *worn = &g->player_models[slot];
+    if (!worn->loaded || worn->is_sprite || !worn->spec.model[0]) return NULL;
+    const char *slash = strrchr(worn->spec.model, '/');
+    char stem[96]; SDL_strlcpy(stem, slash ? slash + 1 : worn->spec.model, sizeof stem);
+    char *dot = strrchr(stem, '.'); if (dot) *dot = '\0';
+    char path[256];
+    snprintf(path, sizeof path, "%s/characters/%s_fp.txt", HOLLOW_ASSET_DIR, stem);
+    if (strcmp(path, s_arms.from) != 0) {
+        if (s_arms.cm.loaded) charmodel_destroy(&g->gfx, &s_arms.cm);
+        memset(&s_arms, 0, sizeof s_arms);
+        SDL_strlcpy(s_arms.from, path, sizeof s_arms.from);
+        s_arms.body.height = 1.8f; s_arms.body.anim = ANIM_IDLE;
+        if (!charmodel_load(&g->gfx, &s_arms.cm, path))
+            dbg_log("viewmodel: no first-person arms at %s, using the blocky ones", path);
+    }
+    return s_arms.cm.loaded ? &s_arms.cm : NULL;
+}
+
+// ---------------------------------------------------------------- recoil, sprint, spent cases
+
+// One axis of a critically damped spring, advanced by dt. Critically damped rather than merely
+// damped because a gun that overshoots its rest position wobbles, and a wobbling gun reads as
+// rubber. x and v are the caller's; nothing here allocates or remembers.
+static void vm_spring(float *x, float *v, float omega, float dt) {
+    if (dt <= 0.0f) return;
+    float a = -omega * omega * (*x) - 2.0f * omega * (*v);
+    *v += a * dt;
+    *x += (*v) * dt;
+    if (fabsf(*x) < 1e-5f && fabsf(*v) < 1e-4f) { *x = 0; *v = 0; }
+}
+
+// A shot happened in front of this player's own eye. Everything that makes it feel like one --
+// the gun going back and up, the muzzle rising, the camera flinching, the lens punching open, the
+// reticle blooming, the flash, the case -- starts here, in one place, so a weapon that fires
+// twice as fast automatically kicks twice as often rather than needing its own code.
+static void vm_recoil(Game *g, const ItemDef *d) {
+    Weapons *ws = &g->weapons;
+    // Weight the kick by what the gun does rather than by which gun it is: a heavy, slow round
+    // shoves harder than a light, fast one, and a text file is where that lives.
+    float heft = clampf(d ? (d->damage / 60.0f) * (1.4f - clampf(d->rate / 8.0f, 0, 0.9f)) : 1.0f, 0.35f, 2.2f);
+    float side = (ws->vm.shots++ & 1u) ? 1.0f : -1.0f;
+    ws->vm.back_v  -= VM_KICK_BACK  * heft * VM_KICK_OMEGA;
+    ws->vm.up_v    += VM_KICK_UP    * heft * VM_KICK_OMEGA;
+    ws->vm.pitch_v -= VM_KICK_PITCH * heft * VM_KICK_OMEGA;
+    ws->vm.yaw_v   += VM_KICK_YAW   * heft * VM_KICK_OMEGA * side;
+    ws->vm.roll_v  += VM_KICK_ROLL  * heft * VM_KICK_OMEGA * side;
+    ws->vm.flash = VM_FLASH_VM;
+    ws->vm.flash_seed = (float)(ws->vm.shots * 37u % 360u);
+    ws->vm.bloom = fminf(1.0f, ws->vm.bloom + 0.55f * heft);
+    camera_add_shake(&g->cam, clampf(0.10f * heft, 0.05f, 0.30f));
+    camera_add_fov_punch(&g->cam, clampf(1.6f * heft, 0.6f, 3.5f));
+    // A spent case, thrown out of the port and a little forward, tumbling. Camera-local metres.
+    if (d && d->weapon == 2 && ws->vm.nshell < (int)(sizeof ws->vm.shell / sizeof ws->vm.shell[0])) {
+        int i = ws->vm.nshell++;
+        float ex = d->eject.x != 0.0f || d->eject.y != 0.0f || d->eject.z != 0.0f ? 1.0f : 0.0f;
+        ws->vm.shell[i].pos = v3(VM_REST_RIGHT + (ex ? d->eject.x : 0.02f),
+                                 -VM_REST_DOWN + (ex ? d->eject.y : 0.03f),
+                                 VM_REST_FWD + (ex ? d->eject.z : 0.05f));
+        ws->vm.shell[i].vel = v3(1.5f + 0.4f * side, 1.1f, -0.25f);
+        ws->vm.shell[i].spin = 16.0f + 4.0f * side;
+        ws->vm.shell[i].roll = 0;
+        ws->vm.shell[i].life = VM_SHELL_LIFE;
+    }
+}
+
+// Everything the viewmodel owns that moves on its own, advanced once a rendered frame. Kept apart
+// from the draw so a frame that draws nothing (third person, holstered, down) still lets the
+// springs settle and the last case finish falling.
+static void vm_advance(Game *g, float dt) {
+    Weapons *ws = &g->weapons;
+    if (dt <= 0.0f) return;
+    vm_spring(&ws->vm.back,  &ws->vm.back_v,  VM_KICK_OMEGA, dt);
+    vm_spring(&ws->vm.up,    &ws->vm.up_v,    VM_KICK_OMEGA, dt);
+    vm_spring(&ws->vm.side,  &ws->vm.side_v,  VM_KICK_OMEGA, dt);
+    vm_spring(&ws->vm.pitch, &ws->vm.pitch_v, VM_KICK_OMEGA, dt);
+    vm_spring(&ws->vm.yaw,   &ws->vm.yaw_v,   VM_KICK_OMEGA, dt);
+    vm_spring(&ws->vm.roll,  &ws->vm.roll_v,  VM_KICK_OMEGA, dt);
+    ws->vm.flash = fmaxf(0.0f, ws->vm.flash - dt);
+    ws->vm.hitmark = fmaxf(0.0f, ws->vm.hitmark - dt);
+    ws->vm.bloom = fmaxf(0.0f, ws->vm.bloom - dt * 2.6f);
+
+    // Sprinting: measured off the body's own speed rather than off the sprint key, so a goon
+    // shoved down a hill puts the gun away too.
+    const Player *p = &g->players[g->local];
+    float hspd = hypotf(p->c.hvel.x, p->c.hvel.z);
+    float want = clampf((hspd - 4.9f) / 1.8f, 0.0f, 1.0f);
+    ws->vm.sprint = lerpf(ws->vm.sprint, want, 1.0f - expf(-VM_SPRINT_RATE * dt));
+
+    int j = 0;
+    for (int i = 0; i < ws->vm.nshell; i++) {
+        ws->vm.shell[i].life -= dt;
+        if (ws->vm.shell[i].life <= 0) continue;
+        ws->vm.shell[i].vel.y -= VM_SHELL_G * dt;
+        ws->vm.shell[i].pos = v3_add(ws->vm.shell[i].pos, v3_scale(ws->vm.shell[i].vel, dt));
+        ws->vm.shell[i].roll += ws->vm.shell[i].spin * dt;
+        if (j != i) ws->vm.shell[j] = ws->vm.shell[i];
+        j++;
+    }
+    ws->vm.nshell = j;
 }
 
 // ---------------------------------------------------------------- the local viewmodel
@@ -169,27 +395,90 @@ static float mantle_reach(const Player *p) {
            (1.0f - smoothstep(clampf((k - 0.55f) / 0.45f, 0.0f, 1.0f)));
 }
 
-static void draw_viewmodel(Game *g) {
+// A reload, animated by code rather than by a clip, because the clip belongs to a body we are not
+// drawing. Three beats: the gun drops out of frame and rolls over as the hand comes off the grip,
+// it sits there while the magazine is dealt with, and it snaps back level at the end. Returns the
+// 0..1 depth of the dip and writes the roll and pitch that go with it.
+static float vm_reload_curve(float reload_left, float *roll, float *pitch) {
+    float r = clampf(1.0f - reload_left / WEAP_RELOAD_TIME, 0.0f, 1.0f);
+    // The drop takes 0.22 of the reload and the snap back takes 0.16 of it, and that asymmetry is
+    // the whole trick: a reload that ends slowly feels broken, because the gun is back in the fight
+    // the instant the magazine seats and the picture has to agree with that.
+    float down = smoothstep(clampf(r / 0.22f, 0, 1)) * (1.0f - smoothstep(clampf((r - 0.80f) / 0.16f, 0, 1)));
+    *roll = 34.0f * down;
+    *pitch = 26.0f * down;
+    return down;
+}
+
+// --- traversal --- Unarmed, there is no weapon and no arms below to carry the beat of a mantle or
+// a vault, so a bare hand stands in: one forearm swinging up and forward to slap the ledge and
+// back again. It takes the picture's axes from the caller because it is drawn inside the
+// viewmodel's own lens, where a hand-rolled cross product of the camera would not match.
+static void draw_mantle_hand(Game *g, float reach, Vec3 eye, Vec3 right, Vec3 up, Vec3 fwd) {
+    Gfx *x = &g->gfx;
+    // Elbow: where an armed right arm would start from. Hand: swings from resting near the hip up
+    // and out to the ledge as reach rises, then eases back as the move finishes.
+    Vec3 elbow = v3_add(eye, v3_add(v3_scale(fwd, 0.10f), v3_add(v3_scale(right, 0.34f), v3_scale(up, -0.55f))));
+    Vec3 hand = v3_add(eye, v3_add(v3_scale(fwd, 0.30f + 0.35f * reach),
+                        v3_add(v3_scale(right, 0.26f - 0.06f * reach), v3_scale(up, -0.42f + 0.62f * reach))));
+    Mat4 hm = limb_matrix(elbow, hand, VM_ARM_THICK);
+    gfx_set_material(x, NULL);
+    gfx_draw(x, &x->cube, &x->white, hm, g->net.slots[g->local].tint, v4(1, 1, 0, 0));
+}
+
+
+// Which clip the hands should be playing. The arms are a character like any other, so this is the
+// same question weapons.c asks about the third-person body -- asked again here because the hands
+// answer to the gun's own clock (a flash, a reload) rather than to the locomotion.
+static Anim vm_hand_anim(const Game *g, const Weapon *w, const ItemDef *d) {
+    if (w->reload > 0) return ANIM_GUN_RELOAD;
+    if (w->swing > 0) return ANIM_MELEE_SWING;
+    if (d && d->weapon == 1) return ANIM_MELEE_IDLE;
+    if (g->weapons.vm.flash > 0) return ANIM_GUN_FIRE;
+    return ANIM_GUN_IDLE;
+}
+
+// The muzzle in the gun model's own frame. An item file that has measured it says so; one that has
+// not gets the front of its own bounding box, which is right for a pistol and roughly right for
+// anything else. Guessing is better than putting the flash in the shooter's palm.
+static Vec3 vm_muzzle_local(const ItemDef *d) {
+    if (d->muzzle.x != 0.0f || d->muzzle.y != 0.0f || d->muzzle.z != 0.0f) return d->muzzle;
+    return v3(0.0f, d->half.y * 0.55f, d->half.z * 1.55f);
+}
+
+static Vec3 mat_point(Mat4 m, Vec3 p) {
+    return v3(m.m[0] * p.x + m.m[4] * p.y + m.m[8] * p.z + m.m[12],
+              m.m[1] * p.x + m.m[5] * p.y + m.m[9] * p.z + m.m[13],
+              m.m[2] * p.x + m.m[6] * p.y + m.m[10] * p.z + m.m[14]);
+}
+
+void weapons_draw_viewmodel(Game *g) {
     Gfx *x = &g->gfx;
     Weapons *ws = &g->weapons;
     int slot = g->local;
+    float dt = fmaxf(game_frame_dt(g), 0.0f);
+    vm_advance(g, dt);                      // springs settle even on a frame that draws nothing
+    if (x->in_shadow || g->cam.mode != CAM_FIRST) return;
+
     Weapon *w = &ws->w[slot];
-    const ItemDef *d = weap_def(g, w->item);
-    if (!d || !d->model[0]) return;
+    const ItemDef *d = weapons_drawn(g, slot) ? weap_def(g, w->item) : NULL;
+    float reach = mantle_reach(&g->players[slot]);
+    if ((!d || !d->model[0]) && reach <= 0.001f && ws->vm.nshell == 0) return;
 
-    Vec3 eye = g->cam.eye;
-    Vec3 fwd = v3_norm(v3_sub(g->cam.target, eye));
-    Vec3 right = v3_norm(v3_cross(fwd, v3(0, 1, 0)));
-    if (v3_len(right) < 1e-3f) right = v3(1, 0, 0);
-    Vec3 up = v3_cross(right, fwd);
+    // The picture's own eye and axes -- shake included, roll included. Placing the gun against
+    // these rather than against cam.eye is what keeps it still on screen while the world rattles.
+    Vec3 eye, right, up, fwd;
+    camera_view_basis(&g->cam, &eye, &right, &up, &fwd);
 
-    Vec3 pos = v3_add(eye, v3_add(v3_scale(fwd, 0.45f), v3_add(v3_scale(right, 0.20f), v3_scale(up, -0.18f))));
+    float rest_r, rest_d, rest_f;
+    vm_rest(&rest_r, &rest_d, &rest_f);
+    Vec3 pos = v3_add(eye, v3_add(v3_scale(fwd, rest_f),
+                                  v3_add(v3_scale(right, rest_r), v3_scale(up, -rest_d))));
 
     // Bob: the camera's own render-rate bob phase and gain, not the character's walk_phase (which
-    // only advances at the 60 Hz sim tick and, driven at 4x for the vertical figure-of-eight, was a
-    // ~10 Hz vibration at a jog). Riding the same phase as the head means the gun and the eye bob to
-    // one beat instead of two, and it is deliberately a little larger than the eye's own bob -- that
-    // is what sells motion in first person without shaking the horizon.
+    // only advances at the 60 Hz sim tick). Riding the same phase as the head means the gun and the
+    // eye bob to one beat instead of two, and it is deliberately a little larger than the eye's own
+    // bob -- that is what sells motion in first person without shaking the horizon.
     float ph = camera_bob_phase(&g->cam), gain = camera_bob_gain(&g->cam);
     pos = v3_add(pos, v3_scale(right, sinf(ph) * 0.022f * gain));          // one sway a stride
     pos = v3_add(pos, v3_scale(up, sinf(ph * 2.0f) * 0.014f * gain));      // one dip a footfall
@@ -197,15 +486,15 @@ static void draw_viewmodel(Game *g) {
     Vec3 extra_pos = v3(0, 0, 0);
     float extra_yaw = 0, extra_pitch = 0, extra_roll = 0;
 
-    // Momentum sway: see the VM_RUN_* comment above. right is already flat (cross(fwd, world-up)
-    // has no y component by construction), so only fwd needs its own y zeroed and renormalised.
+    // --- traversal --- Momentum sway: the gun is a mass on the end of an arm, not welded to the
+    // eye, so it lags a run, drifts with a strafe, sinks a little at speed, and floats or drops
+    // with the feet leaving and finding the ground. Driven by Player.c.hvel/vy, never by camera
+    // motion -- that is the mouse sway below, a different signal smoothed at a different rate.
     const Player *p = &g->players[slot];
-    Vec3 fwd_flat = v3_norm(v3(fwd.x, 0, fwd.z));
-    float vf = v3_dot(p->c.hvel, fwd_flat);   // + is running forward
-    float vl = v3_dot(p->c.hvel, right);      // + is strafing right
+    float vf = v3_dot(p->c.hvel, v3_norm(v3(fwd.x, 0, fwd.z)));   // + is running forward
+    float vl = v3_dot(p->c.hvel, right);                          // + is strafing right
     float hspd = hypotf(p->c.hvel.x, p->c.hvel.z);
-    float dt = fmaxf(game_frame_dt(g), 0.0f);
-    float rk = 1.0f - expf(-VM_RUN_RATE * dt);   // 0 when dt <= 0, so a paused frame leaves state untouched
+    float rk = 1.0f - expf(-VM_RUN_RATE * dt);   // 0 when dt <= 0, so a paused frame changes nothing
     static float s_run_lag = 0.0f, s_run_side = 0.0f, s_run_drop = 0.0f, s_run_roll = 0.0f, s_air_lift = 0.0f;
     // -0.075..0.075 rather than a one-sided clamp: backpedalling flips the sign of vf and the lag
     // should flip with it, not pin against a wall the forward case never touches.
@@ -213,8 +502,6 @@ static void draw_viewmodel(Game *g) {
     s_run_side = lerpf(s_run_side, clampf(-VM_RUN_SIDE * vl, -0.05f, 0.05f), rk);
     s_run_drop = lerpf(s_run_drop, clampf(-VM_RUN_DROP * hspd, -0.03f, 0.0f), rk);
     s_run_roll = lerpf(s_run_roll, clampf(VM_RUN_ROLL * vl, -4.0f, 4.0f), rk);
-    // Air lift snaps its target to 0 the instant the feet are down, so landing eases the gun back
-    // to rest at the same smoothed rate it floated up on the way into the jump.
     float lift_target = p->c.grounded ? 0.0f : clampf(p->c.vy * VM_AIR_LIFT, -0.04f, 0.04f);
     s_air_lift = lerpf(s_air_lift, lift_target, rk);
     extra_pos = v3_add(extra_pos, v3_scale(fwd, s_run_lag));
@@ -222,43 +509,52 @@ static void draw_viewmodel(Game *g) {
     extra_pos = v3_add(extra_pos, v3_scale(up, s_run_drop + s_air_lift));
     extra_roll += s_run_roll;
 
+    // Sprint: the gun comes down and across the body, muzzle up. It is the clearest "you cannot
+    // shoot right now" the game has, and it is free to read at a glance.
+    float sp = ws->vm.sprint;
+    extra_pos = v3_add(extra_pos, v3_scale(up, -VM_SPRINT_DROP * sp));
+    extra_pos = v3_add(extra_pos, v3_scale(right, -0.03f * sp));
+    extra_roll += VM_SPRINT_ROLL * sp;
+    extra_yaw -= VM_SPRINT_YAW * sp;
+    extra_pitch -= VM_SPRINT_PITCH * sp;
+
     // Hand-plant: a mantle or vault borrows the gun hand to slap the ledge, so the weapon dips out
     // of frame and rolls with it instead of floating in place while the arms do something else.
-    // Unarmed, draw_mantle_hand below covers the same beat instead of this offset.
-    float reach = mantle_reach(p);
     if (reach > 0.0f) {
         extra_pos = v3_add(extra_pos, v3_scale(up, -0.30f * reach));
         extra_pos = v3_add(extra_pos, v3_scale(right, 0.12f * reach));
         extra_roll += 35.0f * reach;
     }
 
-    // Recoil: w->kick is already decayed for us. m4_rotate_x's handedness tips +Z toward -Y for a
-    // positive angle, so a negative pitch here is what raises the muzzle.
-    extra_pos = v3_add(extra_pos, v3_scale(fwd, -w->kick * 0.10f));
-    extra_pos = v3_add(extra_pos, v3_scale(up, -w->kick * 0.02f));
-    extra_pitch += -w->kick * 9.0f;
+    // Recoil, out of the spring: back along the barrel, up out of the rest pose, muzzle rising.
+    // m4_rotate_x tips +Z toward -Y for a positive angle, so a negative pitch is what raises it.
+    extra_pos = v3_add(extra_pos, v3_scale(fwd, ws->vm.back));
+    extra_pos = v3_add(extra_pos, v3_scale(up, ws->vm.up));
+    extra_pos = v3_add(extra_pos, v3_scale(right, ws->vm.side));
+    extra_pitch += ws->vm.pitch; extra_yaw += ws->vm.yaw; extra_roll += ws->vm.roll;
+
+    // Reload, animated by code: the clip belongs to a body we are not drawing.
+    if (w->reload > 0) {
+        float rr, rp;
+        float down = vm_reload_curve(w->reload, &rr, &rp);
+        extra_pos = v3_add(extra_pos, v3_scale(up, -0.20f * down));
+        extra_pos = v3_add(extra_pos, v3_scale(right, 0.04f * down));
+        extra_roll += rr; extra_pitch += rp;
+    }
 
     // Melee swing: wind-up, contact, follow-through, driven by code rather than a linear sweep.
-    // weapons.c's own contact frame lands at s == 0.45 (WEAP_SWING_TIME * 0.55 left to go), which
-    // is why the first leg of the curve runs to s == 0.6 rather than ending exactly on contact --
-    // the swing keeps snapping through for a beat after the hit lands.
+    // weapons.c's own contact frame lands at s == 0.45, which is why the first leg runs to s == 0.6
+    // -- the swing keeps snapping through for a beat after the hit lands.
     if (w->swing > 0) {
         float s = clampf(1.0f - w->swing / WEAP_SWING_TIME, 0, 1);
-        float sy, sp;
-        if (s < 0.6f) {
-            float t = smoothstep(s / 0.6f);
-            sy = lerpf(40.0f, -50.0f, t);
-            sp = lerpf(-25.0f, 35.0f, t);
-        } else {
-            float t = smoothstep((s - 0.6f) / 0.4f);
-            sy = lerpf(-50.0f, -10.0f, t);
-            sp = lerpf(35.0f, 5.0f, t);
-        }
-        extra_yaw += sy; extra_pitch += sp;
+        float sy, spi;
+        if (s < 0.6f) { float t = smoothstep(s / 0.6f); sy = lerpf(40.0f, -50.0f, t); spi = lerpf(-25.0f, 35.0f, t); }
+        else { float t = smoothstep((s - 0.6f) / 0.4f); sy = lerpf(-50.0f, -10.0f, t); spi = lerpf(35.0f, 5.0f, t); }
+        extra_yaw += sy; extra_pitch += spi;
         extra_pos = v3_add(extra_pos, v3_scale(fwd, sinf(s * PI) * 0.18f));
     }
 
-    // Sway: ws->sway_x/sway_y were updated for this frame in weapons_draw, since that is where the
+    // Mouse sway: ws->sway_x/sway_y were updated for this frame in weapons_draw, which is where the
     // camera's yaw/pitch delta gets measured.
     extra_pos = v3_add(extra_pos, v3_scale(right, ws->sway_x));
     extra_pos = v3_add(extra_pos, v3_scale(up, ws->sway_y));
@@ -271,50 +567,102 @@ static void draw_viewmodel(Game *g) {
         extra_roll += k * 55.0f;
     }
 
-    Vec3 pos_total = v3_add(pos, extra_pos);
-    Mat4 frame = basis_matrix(pos_total, right, up, fwd, v3(1, 1, 1));
-    frame = m4_mul(frame, m4_mul(m4_rotate_y(extra_yaw * DEG2RAD), m4_mul(m4_rotate_x(extra_pitch * DEG2RAD), m4_rotate_z(extra_roll * DEG2RAD))));
+    Mat4 frame = basis_matrix(v3_add(pos, extra_pos), right, up, fwd, v3(1, 1, 1));
+    frame = m4_mul(frame, m4_mul(m4_rotate_y(extra_yaw * DEG2RAD),
+                    m4_mul(m4_rotate_x(extra_pitch * DEG2RAD), m4_rotate_z(extra_roll * DEG2RAD))));
 
-    Vec3 gpos; float gyaw, gpitch, groll, gscale;
-    grip_xform(d, &gpos, &gyaw, &gpitch, &groll, &gscale);
-    Mat4 world = m4_mul(frame, grip_matrix(gpos, gyaw, gpitch, groll, gscale));
-    props_draw_matrix(&g->gfx, &g->props, d->model, world, d->tint, v3(0, 0, 0), NULL, 0, 0);
+    // ---- everything below is drawn through the viewmodel's own lens and its own depth slice ----
+    Mat4 vp = camera_view_proj_lens(&g->cam, (float)INTERNAL_W / (float)INTERNAL_H, vm_fov(), VM_NEAR, VM_FAR);
+    gfx_set_view_proj(x, vp);
+    gfx_depth_range(x, 0.0f, VM_DEPTH);
 
-    // Arms: two blocky, untextured limbs in the goon's slot colour, off the bottom of the frame.
-    Vec4 tint = g->net.slots[slot].tint;
-    Vec3 rfrom = v3_add(eye, v3_add(v3_scale(fwd, 0.10f), v3_add(v3_scale(right, 0.32f), v3_scale(up, -0.55f))));
-    Mat4 rm = limb_matrix(rfrom, pos_total, VM_ARM_THICK);
-    gfx_set_material(x, NULL);
-    gfx_draw(x, &x->cube, &x->white, rm, tint, v4(1, 1, 0, 0));
-    if (two_handed_look(d)) {
-        Vec3 lfrom = v3_add(eye, v3_add(v3_scale(fwd, 0.10f), v3_add(v3_scale(right, -0.10f), v3_scale(up, -0.55f))));
-        Vec3 fore = v3_add(pos_total, v3_scale(fwd, 0.12f));
-        Mat4 lm = limb_matrix(lfrom, fore, VM_ARM_THICK);
-        gfx_draw(x, &x->cube, &x->white, lm, tint, v4(1, 1, 0, 0));
+    // Hands. It is the ARMS that are hung off the gun, not the other way round: the weapon sits in
+    // `frame`, where the framing, the recoil springs, the sprint and the reload curve have already
+    // put it, and the arms model is placed so that its hand_r bone lands exactly on frame's origin.
+    // Doing it in that order is what keeps the barrel pointing down the middle of the screen -- a
+    // gun hung off a bone points wherever the animator aimed a body standing in a field, which is
+    // never where a first-person crosshair is -- and it means the `grip` numbers in the item files
+    // still mean what they always meant. The anchor is measured once, from the settled aim pose, so
+    // the clip's own motion still shows in the hands.
+    Mat4 hand = frame;
+    CharModel *arms = d && d->model[0] ? vm_arms(g, slot) : NULL;
+    if (arms) {
+        static unsigned s_last_shots = 0;
+        Anim want = vm_hand_anim(g, w, d);
+        if (s_arms.body.anim != want) { s_arms.body.anim = want; s_arms.body.anim_t = 0; }
+        else if (want == ANIM_GUN_FIRE && ws->vm.shots != s_last_shots) s_arms.body.anim_t = 0;
+        else s_arms.body.anim_t += dt;
+        s_last_shots = ws->vm.shots;
+        charmodel_drive_simple(arms, &s_arms.body, dt);
+        model_pose(&arms->model, &arms->player, &arms->pose);
+        Mat4 hb;
+        if (charmodel_bone_posed(arms, "hand_r", &hb)) {
+            // The reference pose is the settled gun-idle one, not whatever the model happened to be
+            // holding on its first frame -- which is the bind pose, arms out sideways, and taking
+            // the reference from that would leave the gun rotated by however far the aim clip moves
+            // the hand away from a T-pose. Waiting for the cross-fade to finish costs a quarter of a
+            // second on the very first draw and nothing ever again.
+            if (!s_arms.anchored && want == ANIM_GUN_IDLE && s_arms.body.anim_t > 0.25f) {
+                s_arms.anchor = v3(hb.m[12], hb.m[13], hb.m[14]);
+                s_arms.rest_fix = vm_rest_fix(hb);
+                s_arms.anchored = true;
+            }
+            if (!s_arms.anchored) { s_arms.anchor = v3(hb.m[12], hb.m[13], hb.m[14]); s_arms.rest_fix = vm_rest_fix(hb); }
+            float sc = arms->scale > 0.01f ? arms->scale : 1.0f;
+            float ay, ap, ar;
+            vm_arms_turn(&ay, &ap, &ar);
+            Mat4 turn = m4_mul(m4_rotate_y(ay * DEG2RAD), m4_mul(m4_rotate_x(ap * DEG2RAD), m4_rotate_z(ar * DEG2RAD)));
+            Mat4 world = m4_mul(m4_mul(frame, turn), m4_mul(m4_translate(v3_scale(s_arms.anchor, -sc)), m4_scale(v3(sc, sc, sc))));
+            charmodel_draw_posed(x, arms, &arms->pose, world, g->net.slots[slot].tint);
+        }
     }
-}
 
-// --- traversal --- Unarmed, there is no weapon and no arms below to carry the beat of a mantle or
-// a vault, so a bare hand stands in: one forearm swinging up and forward to slap the ledge and
-// back again. Same limb_matrix + untextured-cube draw the arms above use, so it reads as the same
-// body. `reach` is mantle_reach(p) from the caller; the caller has already checked it is > 0.
-static void draw_mantle_hand(Game *g, float reach) {
-    Gfx *x = &g->gfx;
-    int slot = g->local;
-    Vec3 eye = g->cam.eye;
-    Vec3 fwd = v3_norm(v3_sub(g->cam.target, eye));
-    Vec3 right = v3_norm(v3_cross(fwd, v3(0, 1, 0)));
-    if (v3_len(right) < 1e-3f) right = v3(1, 0, 0);
-    Vec3 up = v3_cross(right, fwd);
+    // The weapon itself, with a hint of rim light so its silhouette survives against a dark wall
+    // without lighting it differently from the world it is standing in.
+    if (d && d->model[0]) {
+        Vec3 gpos; float gyaw, gpitch, groll, gscale;
+        grip_xform(d, &gpos, &gyaw, &gpitch, &groll, &gscale);
+        float hy, hp, hr;
+        vm_hand_fix(&hy, &hp, &hr);
+        Mat4 fix = m4_mul(m4_rotate_y(hy * DEG2RAD), m4_mul(m4_rotate_x(hp * DEG2RAD), m4_rotate_z(hr * DEG2RAD)));
+        Mat4 world = m4_mul(m4_mul(hand, fix), grip_matrix(gpos, gyaw, gpitch, groll, gscale));
+        Material mat = material_default();
+        mat.rim = 0.35f; mat.rim_color = v3(0.85f, 0.90f, 1.0f);
+        gfx_set_material(x, &mat);
+        props_draw_matrix(&g->gfx, &g->props, d->model, world, d->tint, v3(0, 0, 0), NULL, 0, 0);
+        gfx_set_material(x, NULL);
 
-    // Elbow: the same point the armed right arm starts from. Hand: swings from resting near the
-    // hip up and out to the ledge as reach rises, then eases back as the move finishes.
-    Vec3 elbow = v3_add(eye, v3_add(v3_scale(fwd, 0.10f), v3_add(v3_scale(right, 0.34f), v3_scale(up, -0.55f))));
-    Vec3 hand = v3_add(eye, v3_add(v3_scale(fwd, 0.30f + 0.35f * reach),
-                        v3_add(v3_scale(right, 0.26f - 0.06f * reach), v3_scale(up, -0.42f + 0.62f * reach))));
-    Mat4 hm = limb_matrix(elbow, hand, VM_ARM_THICK);
-    gfx_set_material(x, NULL);
-    gfx_draw(x, &x->cube, &x->white, hm, g->net.slots[slot].tint, v4(1, 1, 0, 0));
+        // Muzzle flash, at the model's real muzzle rather than a fixed distance down the barrel:
+        // a stubby star and a soft glow, gone in two frames. The point light that goes with it is
+        // in weapons_lights, in world space, where the rest of the level's lighting lives.
+        if (ws->vm.flash > 0) {
+            float k = clampf(ws->vm.flash / VM_FLASH_VM, 0, 1);
+            Vec3 at = mat_point(world, v3_scale(vm_muzzle_local(d), 1.0f / fmaxf(gscale, 0.0001f)));
+            gfx_billboard(x, at, 0.13f + 0.05f * k, v4(1.0f, 0.92f, 0.70f, k), true);
+            gfx_billboard(x, at, 0.30f * (1.3f - k), v4(1.0f, 0.72f, 0.35f, k * 0.5f), true);
+        }
+    }
+
+    // Unarmed, the bare hand carries the mantle plant on its own.
+    if ((!d || !d->model[0]) && reach > 0.001f) draw_mantle_hand(g, reach, eye, right, up, fwd);
+
+    // Spent cases: camera-local, so they stay in the frame the gun is drawn in rather than being
+    // left behind in a world the viewmodel lens is not looking at.
+    for (int i = 0; i < ws->vm.nshell; i++) {
+        float k = clampf(ws->vm.shell[i].life / VM_SHELL_LIFE, 0, 1);
+        Vec3 at = v3_add(eye, v3_add(v3_scale(right, ws->vm.shell[i].pos.x),
+                          v3_add(v3_scale(up, ws->vm.shell[i].pos.y), v3_scale(fwd, ws->vm.shell[i].pos.z))));
+        Mat4 m = basis_matrix(at, right, up, fwd, v3(0.009f, 0.009f, 0.024f));
+        m = m4_mul(m, m4_rotate_x(ws->vm.shell[i].roll));
+        Material mat = material_default();
+        mat.emissive = v3(0.10f, 0.07f, 0.02f);
+        gfx_set_material(x, &mat);
+        gfx_draw(x, &x->cube, &x->white, m, v4(0.72f, 0.56f, 0.24f, k), v4(1, 1, 0, 0));
+        gfx_set_material(x, NULL);
+    }
+
+    gfx_depth_range(x, 0.0f, 1.0f);
+    gfx_reset_view_proj(x);
 }
 
 // ---------------------------------------------------------------- remote goons
@@ -386,17 +734,10 @@ void weapons_draw(Game *g) {
     ws->sway_x = lerpf(ws->sway_x, clampf(-dyaw * VM_SWAY_YAW_GAIN, -VM_SWAY_MAX, VM_SWAY_MAX), k);
     ws->sway_y = lerpf(ws->sway_y, clampf(-dpitch * VM_SWAY_PITCH_GAIN, -VM_SWAY_MAX, VM_SWAY_MAX), k);
 
-    bool did_viewmodel = false;
-    if (g->cam.mode == CAM_FIRST && weapons_drawn(g, g->local)) { draw_viewmodel(g); did_viewmodel = true; }
-
-    // --- traversal --- Unarmed (or between weapons), draw_viewmodel above never ran, so the hand
-    // that would otherwise carry the mantle/vault plant (see draw_viewmodel's own hand-plant block)
-    // gets drawn on its own here instead. A weapon with a model always wins this over the bare hand.
-    if (!did_viewmodel && g->cam.mode == CAM_FIRST) {
-        float mreach = mantle_reach(&g->players[g->local]);
-        const ItemDef *hd = weap_def(g, ws->w[g->local].item);
-        if (mreach > 0.001f && (!hd || !hd->model[0])) draw_mantle_hand(g, mreach);
-    }
+    // The local viewmodel is NOT drawn here. It has its own lens and its own slice of the depth
+    // buffer, and both of those only work if it goes in after everything else the world draws --
+    // so game.c calls weapons_draw_viewmodel at the end of the pass instead. See weapons.h.
+    bool did_viewmodel = g->cam.mode == CAM_FIRST && weapons_drawn(g, g->local);
 
     for (int i = 0; i < NET_MAX_PLAYERS; i++) {
         if (!g->net.slots[i].active) continue;
@@ -406,11 +747,14 @@ void weapons_draw(Game *g) {
 
     draw_tracers(&g->gfx, ws);
     draw_flashes(&g->gfx, ws);
+    projectiles_draw(g);   // --- projectiles --- in the world, through the world's own lens
 }
 
 int weapons_lights(const Game *g, PointLight *out, int max) {
     const Weapons *ws = &g->weapons;
-    int n = 0;
+    int n = projectiles_lights(g, out, max);   // --- projectiles --- blasts first: they are bigger
+                                               // and rarer than a muzzle flash, and the light
+                                               // budget is sixteen for the whole frame
     for (int i = 0; i < ws->nflash && n < max; i++) {
         float life = ws->flash[i].life;
         if (life <= 0) continue;
@@ -452,16 +796,39 @@ void weapons_event_apply(Game *g, const FireEvent *e) {
     int slot = e->slot < NET_MAX_PLAYERS ? (int)e->slot : -1;
     const ItemDef *d = slot >= 0 ? weap_def(g, ws->w[slot].item) : NULL;
 
+    // --- projectiles --- An impact is feedback and nothing else: the machine that owned the
+    // projectile already drew the dust and played the thud when it died, and doubling those is
+    // worse than missing them. All that is left is the one thing only the host knew.
+    if (e->kind == FE_IMPACT) {
+        if (slot == g->local && e->hit != FH_NONE) { ws->vm.hitmark = 0.30f; ws->vm.hitmark_solid = e->hit == FH_PLAYER; }
+        return;
+    }
+    // --- projectiles --- A detonation: everyone draws the same bang in the same place.
+    if (e->kind == FE_BOOM) { projectiles_boom_fx(g, e->from, (float)e->pellets * 0.1f); return; }
+
     switch (e->kind) {
     case FE_SHOT: {
-        push_tracer(ws, e->from, e->to);
+        bool mine = slot == g->local;
+        bool first_person = mine && g->cam.mode == CAM_FIRST;
+        // A gun that throws a projectile draws its own streak as it travels; a second, instant one
+        // from the muzzle to wherever the shot was aimed would arrive before the bullet did.
+        if (!d || !d->proj) push_tracer(ws, e->from, e->to);
         Vec3 dir = v3_sub(e->to, e->from);
         Vec3 muzzle = v3_len(dir) > 1e-4f ? v3_add(e->from, v3_scale(v3_norm(dir), 0.35f)) : e->from;
-        push_flash(ws, muzzle);
-        particles_burst(&g->particles, PT_SMOKE, muzzle, v3(0, 1, 0), 3, 0.6f, v3(0.6f, 0.58f, 0.55f), 0.10f, 0.35f);
+        // The light always: a shot in a dark room lights the room whoever fired it. The billboard
+        // only when somebody else fired it, or when we are watching ourselves in third person --
+        // our own first-person flash belongs on the model's muzzle, in the viewmodel pass.
+        push_flash(ws, muzzle, !first_person);
+        // The smoke is in world space and would sit 35 cm from the eye, in the middle of the
+        // picture, drawn through the wrong lens -- a white blob over the crosshair on every shot.
+        // In first person the viewmodel's own flash at the model's real muzzle covers this beat.
+        if (!first_person)
+            particles_burst(&g->particles, PT_SMOKE, muzzle, v3(0, 1, 0), 3, 0.6f, v3(0.6f, 0.58f, 0.55f), 0.10f, 0.35f);
         SoundId snd = (d && d->fire_sound >= 0) ? (SoundId)d->fire_sound : SND_SHOT;
         audio_play(snd, atten(g, e->from, 0.9f), 1.0f);
-        if (slot == g->local) camera_add_shake(&g->cam, 0.15f);
+        // Recoil: the kick, the shake, the lens punch, the reticle bloom and the spent case, all
+        // from one call, so a gun that fires twice as fast kicks twice as often for free.
+        if (mine) vm_recoil(g, d);
         break;
     }
     case FE_SWING:
@@ -484,6 +851,13 @@ void weapons_event_apply(Game *g, const FireEvent *e) {
     default: break;
     }
 
+    // A hit marker is the one piece of feedback a shooter cannot get from the world: at thirty
+    // metres a goon taking a round looks exactly like a goon not taking one. Ours only.
+    if (slot == g->local && (e->kind == FE_SHOT || e->kind == FE_SWING) && e->hit != FH_NONE) {
+        ws->vm.hitmark = 0.30f;
+        ws->vm.hitmark_solid = e->hit == FH_PLAYER;
+    }
+
     switch (e->hit) {
     case FH_WORLD:
         particles_burst(&g->particles, PT_SMOKE, e->to, v3(0, 0, 0), 4, 0.5f, v3(0.5f, 0.45f, 0.4f), 0.10f, 0.4f);
@@ -496,6 +870,23 @@ void weapons_event_apply(Game *g, const FireEvent *e) {
         audio_play(SND_HIT, atten(g, e->to, 0.7f), 1.0f);
         particles_burst(&g->particles, PT_SMOKE, e->to, v3(0, 0, 0), 2, 0.4f, v3(0.6f, 0.6f, 0.6f), 0.12f, 0.35f);
         break;
+    default: break;
+    }
+}
+
+// A shot we fired ourselves, coming back from the host with the one thing we could not know: what
+// it hit. Replaying the whole event would double the bang and the kick, so this plays the marker
+// and the impact effect and nothing else.
+void weapons_event_own_echo(Game *g, const FireEvent *e) {
+    Weapons *ws = &g->weapons;
+    if (e->hit == FH_NONE) return;
+    ws->vm.hitmark = 0.30f;
+    ws->vm.hitmark_solid = e->hit == FH_PLAYER;
+    switch (e->hit) {
+    case FH_WORLD:  particles_burst(&g->particles, PT_SMOKE, e->to, v3(0, 0, 0), 4, 0.5f, v3(0.5f, 0.45f, 0.4f), 0.10f, 0.4f); break;
+    case FH_ITEM:   particles_burst(&g->particles, PT_SPARK, e->to, v3(0, 0, 0), 5, 2.2f, v3(1.0f, 0.85f, 0.5f), 0.05f, 0.2f); break;
+    case FH_PLAYER: audio_play(SND_HIT, atten(g, e->to, 0.7f), 1.0f);
+                    particles_burst(&g->particles, PT_SMOKE, e->to, v3(0, 0, 0), 2, 0.4f, v3(0.6f, 0.6f, 0.6f), 0.12f, 0.35f); break;
     default: break;
     }
 }
@@ -531,11 +922,17 @@ void weapons_draw_hud(Game *g) {
                 float tw = gfx_ui_text_width(1.1f, s);
                 gfx_ui_text(x, W - tw - 24, H - 40, 1.1f, dim, s);
             } else if (d->weapon == 2) {
-                char s[32]; snprintf(s, sizeof s, "%d / %d", w->ammo, d->ammo);
+                // --- ammo --- What is in the gun, big, and what is left in the pockets, small
+                // beside it. Two numbers with different weights, because at a glance the one that
+                // decides whether you can keep shooting right now is the first one.
+                char s[32]; snprintf(s, sizeof s, "%d", w->ammo);
                 float frac = d->ammo > 0 ? (float)w->ammo / (float)d->ammo : 0.0f;
                 Vec4 c = w->ammo <= 0 ? v4(0.85f, 0.2f, 0.15f, 1) : frac < (1.0f / 3.0f) ? v4(0.9f, 0.6f, 0.2f, 1) : white;
-                float tw = gfx_ui_text_width(1.8f, s);
-                gfx_ui_text(x, W - tw - 24, H - 46, 1.8f, c, s);
+                int reserve = weapons_reserve_held(g, slot);
+                char r[32]; snprintf(r, sizeof r, reserve >= 0 ? " / %d" : " / %d", reserve >= 0 ? reserve : d->ammo);
+                float tw = gfx_ui_text_width(1.8f, s), rw = gfx_ui_text_width(1.1f, r);
+                gfx_ui_text(x, W - tw - rw - 24, H - 46, 1.8f, c, s);
+                gfx_ui_text(x, W - rw - 24, H - 40, 1.1f, reserve == 0 ? v4(0.85f, 0.2f, 0.15f, 1) : dim, r);
             } else {
                 float tw = gfx_ui_text_width(1.4f, d->display);
                 gfx_ui_text(x, W - tw - 24, H - 42, 1.4f, white, d->display);
@@ -573,11 +970,26 @@ void weapons_draw_hud(Game *g) {
     // first person.
     if (g->cam.mode == CAM_FIRST && weapons_drawn(g, slot)) {
         float cx = W * 0.5f, cy = H * 0.5f;
-        float gap = 6.0f + w->kick * 10.0f, len = 6.0f, th = 2.0f;
+        // The reticle opens with the recoil and with the run, and closes again as both settle. It
+        // is the only honest thing a crosshair can say about a gun whose next shot will not go
+        // where this one did: a fixed cross is a promise the weapon cannot keep.
+        float spread = ws->vm.bloom + ws->vm.sprint * 1.2f;
+        float gap = 6.0f + spread * 12.0f, len = 6.0f, th = 2.0f;
         Vec4 c = v4(0.9f, 0.92f, 0.9f, 0.85f);
         gfx_ui_rect(x, cx - gap - len, cy - th * 0.5f, len, th, c);
         gfx_ui_rect(x, cx + gap, cy - th * 0.5f, len, th, c);
         gfx_ui_rect(x, cx - th * 0.5f, cy - gap - len, th, len, c);
         gfx_ui_rect(x, cx - th * 0.5f, cy + gap, th, len, c);
+        // Hit marker: four diagonal ticks, brighter for a goon than for a crate. At thirty metres
+        // a goon taking a round looks exactly like a goon not taking one, and this is the only
+        // place the game can say otherwise.
+        if (ws->vm.hitmark > 0) {
+            float k = clampf(ws->vm.hitmark / 0.30f, 0, 1);
+            Vec4 hc = ws->vm.hitmark_solid ? v4(1.0f, 0.95f, 0.85f, k) : v4(0.75f, 0.78f, 0.75f, k * 0.8f);
+            float in0 = 7.0f, in1 = 14.0f, t = 2.0f;
+            for (int sx = -1; sx <= 1; sx += 2) for (int sy = -1; sy <= 1; sy += 2)
+                for (float u = in0; u < in1; u += 1.0f)
+                    gfx_ui_rect(x, cx + (float)sx * u - t * 0.5f, cy + (float)sy * u - t * 0.5f, t, t, hc);
+        }
     }
 }

@@ -69,13 +69,23 @@ typedef struct Downed {
 
 // One thing everyone has to see. Host -> clients as an unreliable payload; also applied locally by
 // whoever caused it so a client sees its own shot on the frame it pressed the button.
-enum { FE_SWING = 0, FE_SHOT = 1, FE_CLICK = 2, FE_RELOAD = 3, FE_DOWN = 4, FE_UP = 5 };
+enum { FE_SWING = 0, FE_SHOT = 1, FE_CLICK = 2, FE_RELOAD = 3, FE_DOWN = 4, FE_UP = 5,
+       // --- projectiles --- a detonation: `from` is the centre and `pellets` is the blast radius
+       // in tenths of a metre, which is all a client needs to draw the same bang in the same place.
+       FE_BOOM = 6,
+       // --- projectiles --- something that was fired a moment ago has just arrived. A hitscan
+       // shot knows what it hit on the frame the trigger goes down; a bullet with travel time does
+       // not, so the host sends this after the fact and the shooter gets a hit marker out of it.
+       // It carries feedback only -- the damage was applied on the host, and the dust and the thud
+       // were played by each machine's own copy of the projectile when it died.
+       FE_IMPACT = 7 };
 enum { FH_NONE = 0, FH_ITEM = 1, FH_PLAYER = 2, FH_WORLD = 3 };
 typedef struct FireEvent {
     uint8_t slot, kind, hit, pellets;   // pellets: 1 for a pistol, several for a shotgun
     Vec3    from, to;                   // tracer ends; from == to for anything that is not a shot
 } FireEvent;
 
+#define WEAP_AMMO_POOLS 6   // distinct kinds of round one goon can be carrying at once
 #define WEAP_EVENTS  24
 #define WEAP_TRACERS 24
 #define WEAP_FLASHES 8
@@ -87,11 +97,40 @@ typedef struct Weapons {
     float  bob;                     // viewmodel bob phase
     float  sway_x, sway_y;          // viewmodel lag behind the mouse
     float  swap_t;                  // seconds into a draw/holster
+    // --- viewmodel --- Everything the first-person gun does that nobody else can see. Recoil is
+    // a spring rather than a ramp: a shot hands the gun a velocity and the spring brings it home,
+    // so a second shot fired before the first has settled stacks on top of it instead of
+    // restarting the animation. See weaponview.c and docs/weapons_feel.md.
+    struct {
+        float back, up, side;              // metres of position kick, and their velocities
+        float back_v, up_v, side_v;
+        float pitch, yaw, roll;            // degrees of rotation kick, and their velocities
+        float pitch_v, yaw_v, roll_v;
+        float flash;                       // seconds left on the first-person muzzle flash
+        float flash_seed;                  // so two flashes running are not the same shape
+        float sprint;                      // 0..1, how far the gun is lowered and turned for a run
+        float bloom;                       // crosshair bloom, 0..1, decays with the kick
+        float hitmark; bool hitmark_solid; // hit marker timer, and whether it was a goon
+        unsigned shots;                    // so the sideways kick can alternate rather than drift
+        // Spent cases, in camera-local metres (right, up, forward). They live under a second and
+        // never leave the frame, so there is nothing to gain by putting them in the world -- and
+        // a lot to lose, because the world is drawn through a different lens than this is.
+        struct { Vec3 pos, vel; float spin, roll, life; } shell[12]; int nshell;
+    } vm;
     float  prompt_t;
     char   prompt[64];              // "E   pick up the bat" / "HOLD E   PICK UP DEZ"
     // effects, local only
     struct { Vec3 a, b; float life, max_life; } tracer[WEAP_TRACERS]; int ntracer;
-    struct { Vec3 at; float life; } flash[WEAP_FLASHES]; int nflash;
+    // A muzzle flash is two things: a billboard out in the world and a point light. `world_vis`
+    // turns the billboard off for the local player's own shot in first person, because that one is
+    // drawn at the model's real muzzle inside the viewmodel pass instead -- the light still counts.
+    struct { Vec3 at; float life; bool world_vis; } flash[WEAP_FLASHES]; int nflash;
+    // --- ammo --- What each goon is carrying beyond what is in the gun, one entry per kind of
+    // round. Keyed by the same one-byte hash of the `ammo_type` name that names a projectile on the
+    // wire, so a pool is the same pool in every process and the name itself is never sent. A `type`
+    // of 0 is an empty slot; an entry that exists with n == 0 means "carried this, spent it all",
+    // which is a different thing from "never picked one up" and is why the slot is not freed.
+    struct { uint8_t type; uint16_t n; } pool[NET_MAX_PLAYERS][WEAP_AMMO_POOLS];
     // events queued by the host this tick, drained into the outgoing packet
     FireEvent ev[WEAP_EVENTS]; int nev;
     // counters for the log line and the closing report
@@ -100,11 +139,19 @@ typedef struct Weapons {
 
 // ---- lifetime and the tick -----------------------------------------------------------------
 void weapons_reset(struct Game *g);
+// --- projectiles --- Two lines at shutdown: what the guns did, and what left them. Called from
+// the same place the net and physics reports are.
+void weapons_report(const struct Game *g);
 // One tick: local input (fire, reload, swap, revive), host authority, timers, effects. Called from
 // game.c's explore tick after items_tick, so the item the player just grabbed is already in hand.
 void weapons_tick(struct Game *g, const struct Input *in, float dt);
 // World pass: the local viewmodel, every remote goon's held or holstered weapon, tracers, flashes.
 void weapons_draw(struct Game *g);
+// --- viewmodel --- The first-person gun, its hands, its flash and its spent cases, drawn LAST in
+// the world pass through their own narrow lens and their own slice of the depth buffer. Separate
+// from weapons_draw because it has to happen after everything else the world draws: see
+// docs/weapons_feel.md, "The gun is not in the world".
+void weapons_draw_viewmodel(struct Game *g);
 // Lights the muzzle flash contributes this frame. Returns how many were written (0..2).
 int  weapons_lights(const struct Game *g, PointLight *out, int max);
 // Screen: ammo, the DOWN line, the pick-up prompt.
@@ -137,6 +184,18 @@ bool weapons_camera(const struct Game *g, float *roll_deg, float *eye_height);
 // items.c asks this before running the carry spring: a weapon is not on a string.
 bool weapons_holds_item(const struct Game *g, int slot, int item);
 
+// ---- ammo ------------------------------------------------------------------------------------
+// Rounds this goon is carrying for `type` ("pistol", "rifle", ...), outside the gun. 0 for a type
+// they have never picked up, which is the same number as one they have run dry.
+int  weapons_reserve(const struct Game *g, int slot, const char *type);
+// Put rounds into a pool, creating it if this is the first box of that kind. Returns how many
+// actually went in (a pool is capped, so walking over the tenth box of pistol rounds is allowed to
+// be worth nothing). Host and single player; a client waits for the snapshot.
+int  weapons_reserve_add(struct Game *g, int slot, const char *type, int n);
+// What the HUD shows next to the magazine: the reserve for whatever is in this slot's hands, or
+// -1 when that is a bat, a fist, or a gun whose item file names no ammo_type.
+int  weapons_reserve_held(const struct Game *g, int slot);
+
 // ---- equipping ------------------------------------------------------------------------------
 // E on a weapon. Host (and single player) call it directly; a client predicts it and lets the
 // snapshot correct it. Returns false when the hand is full or the item is not a weapon.
@@ -159,11 +218,36 @@ void weapons_client_hold(struct Game *g, int slot, int item);
 // 0 down, 1 getting up, 2 weapon drawn, 3..4 kind (0 none, 1 melee, 2 gun), 5 reloading, 6 swinging.
 uint8_t weapons_pack_flags(const struct Game *g, int slot);
 void    weapons_apply_flags(struct Game *g, int slot, uint8_t flags, uint8_t ammo, uint8_t wind);
+// --- ammo --- A fourth byte: the reserve for whatever that slot is holding, clamped to 255. It is
+// one byte a player a snapshot -- 120 B/s for a full game -- to save a client guessing at a number
+// the host has already decided, and it is what makes the "12 / 96" on the HUD true rather than hopeful.
+uint8_t weapons_pack_reserve(const struct Game *g, int slot);
+void    weapons_apply_reserve(struct Game *g, int slot, uint8_t reserve);
 // Events. The host queues; netgame drains into the packet; everyone applies what arrives.
 void weapons_event(struct Game *g, const FireEvent *e);      // queue (host) and play locally
 void weapons_event_apply(struct Game *g, const FireEvent *e);// play only (a client receiving one)
+// The host's answer to a shot this client already played for itself. Everything in it has been
+// seen once already except what only the host could know -- what it hit -- so this plays that and
+// nothing else, and is why a client gets a hit marker at all.
+void weapons_event_own_echo(struct Game *g, const FireEvent *e);
 int  weapons_events_take(struct Game *g, FireEvent *out, int max);   // host: drain the queue
 // Client -> host senders live in netgame.c: netgame_send_weapon_fire / _reload / _swap / _revive.
+
+// ---- tracing --------------------------------------------------------------------------------
+// --- projectiles --- The first thing a ray meets: the level's blocks, the terrain, the other
+// goons (fat cylinders) and the loose items (spheres), in that order, nearest wins. `shooter` is
+// skipped, and so is whatever the shooter is carrying. This is the hitscan the pistol uses; a
+// projectile sweeps its own segment through the same function every tick, so a nail and a bullet
+// agree about what a wall is.
+typedef struct WeapHit { int kind, idx; Vec3 point, normal; float dist; } WeapHit;
+WeapHit weapons_trace(struct Game *g, int shooter, Vec3 from, Vec3 dir, float range);
+
+// ---- damage, for anything that is not a shot ------------------------------------------------
+// --- projectiles --- The host applying a hit that a hitscan ray did not make: a nail arriving, a
+// grenade going off nearby. Same wind pool, same knockdown, same no-gore rules as a bullet, so
+// there is exactly one place that decides what being hit means.
+void weapons_hurt_player(struct Game *g, int slot, float damage, Vec3 dir, float knock);
+void weapons_hurt_item(struct Game *g, int item, Vec3 dir, float knock, Vec3 at);
 
 // ---- bot (weaponbot.c) ----------------------------------------------------------------------
 // HOLLOW_BOT=shoot: walk to a weapon, pick it up, and shoot the nearest other player or item every

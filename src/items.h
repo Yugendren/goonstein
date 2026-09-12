@@ -37,8 +37,37 @@ typedef struct ItemDef {
     float wrange;          // metres a shot carries; a melee swing uses WEAP_SWING_ARC instead
     int   ammo;            // rounds in a full gun
     float knock;           // metres per second of shove given to whatever it hits
-    int   pellets;         // hitscan rays per shot: 1 for a pistol, a handful for a shotgun
+    int   pellets;         // rays or projectiles per shot: 1 for a pistol, a handful for a shotgun
     int   fire_sound;      // SoundId played on firing, -1 = none
+    // --- projectiles --- A gun with a `projectile` line throws something with travel time instead
+    // of casting a ray. One line carries the lot:
+    //     projectile SPEED GRAVITY BOUNCE LIFE DAMAGE RADIUS SOUND MODEL
+    // and the four `proj_*` knobs below tune it. See src/projectile.h and README, "Weapons".
+    bool  proj;            // true once a `projectile` line has been read
+    uint8_t proj_kind;     // a stable 8-bit id derived from the item's file name, so the host and
+                           // its clients can name the same projectile without sending the name
+    float proj_speed;      // m/s at the muzzle
+    float proj_gravity;    // m/s^2 pulling it down; 0 is a nail, 9.8 is a grenade
+    float proj_bounce;     // restitution off the world; 0 stops dead (or goes off) on contact
+    float proj_life;       // seconds before it expires -- a grenade's fuse, a nail's patience
+    float proj_damage;     // wind at the centre of the blast, or on a direct hit
+    float proj_radius;     // metres of blast; 0 = a point hit and no explosion
+    int   proj_sound;      // SoundId on impact or detonation, -1 = none
+    char  proj_model[128]; // model drawn for the flying thing; "" = a lit streak
+    float proj_scale;      // that model's scale
+    float proj_spread;     // degrees of half-cone the shot is scattered into
+    float proj_drag;       // fraction of speed lost per second
+    // --- ammo --- What a gun carries beyond its magazine and which pool it draws on. An item with
+    // a `pickup` is not a gun at all: it is a box of rounds lying on the ground.
+    int   reserve;         // rounds carried outside the gun when it is first picked up
+    char  ammo_type[16];   // the reserve pool this gun draws on ("pistol", "shell", "nail", ...)
+    char  pickup_type[16]; // `ammo TYPE N` on a pickup item: the pool it fills; "" = not a pickup
+    int   pickup_n;        // how many rounds that pickup is worth
+    // --- weapons --- Where the business happens, in the model's own frame (the frame `grip` is
+    // quoted in): `muzzle` is where the flash, the tracer and the projectile leave, and `eject` is
+    // where a spent case is thrown from. All zero means "not measured", and the code falls back to
+    // a point straight down +Z from the grip.
+    Vec3  muzzle, eject;
     // How the model sits in a hand: the offset and rotation that turn the file's own rest pose
     // into "grip at the origin, business end down +Z", which is what the viewmodel and the hand
     // attachment both assume. A model authored that way needs no `grip` line at all.
@@ -108,6 +137,12 @@ typedef struct Items {
 // ---- assets/items/NAME.txt (itemdef.c) ----------------------------------------------------
 // Loads (and caches) one item file. Returns an index into `its->defs`, or -1 if it failed.
 int  itemdef_get(Items *its, const char *name);
+// --- projectiles --- The one byte that names a projectile on the wire, hashed from the item
+// file's name so it does not depend on the order the files were loaded in, and the reverse lookup
+// a client does when a snapshot mentions a projectile it has never fired itself. -1 when no
+// loaded def claims that kind.
+uint8_t itemdef_kind_hash(const char *name);
+int     itemdef_by_kind(const Items *its, uint8_t kind);
 
 // ---- debris, local only (debris.c) --------------------------------------------------------
 void debris_burst(Items *its, Vec3 at, Vec4 tint, float size, int count, float speed);

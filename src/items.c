@@ -289,6 +289,16 @@ void items_break(Game *g, int idx) {
     if (it->held_by >= 0 && it->held_by < 4) its->carry[it->held_by].item = -1;
     it->held_by = -1; it->broken = true; it->dirty = true; it->seen_broken = true;
     if (it->body >= 0) { phys_remove(&g->phys, it->body); it->body = -1; }
+    // --- ammo --- A box of rounds does not break, it is collected. `broken` is still how a thing
+    // leaves the level and how that fact reaches every client, so all the bookkeeping above is
+    // shared and only the picture and the noise change: a scoop of sparks and a hand closing on
+    // something, not a smash, no debris, and nothing subtracted from the run's takings.
+    if (d->pickup_type[0]) {
+        particles_burst(&g->particles, PT_SPARK, at, v3(0, 0.8f, 0), 8, 2.4f, v3(1.0f, 0.9f, 0.55f), 0.05f, 0.3f);
+        audio_play(SND_GRAB, 0.7f, 1.25f);
+        dbg_log("item %u (%s) collected: %d %s round(s)", it->id, d->display, d->pickup_n, d->pickup_type);
+        return;
+    }
     float size = d->radius > 0 ? d->radius : fmaxf(d->half.x, fmaxf(d->half.y, d->half.z));
     debris_burst(its, at, d->tint, size * 0.55f, 6 + (int)(it->id % 5), 3.6f);
     particles_burst(&g->particles, PT_SPARK, at, v3(0, 0.6f, 0), 22, 5.0f,

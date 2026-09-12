@@ -43,9 +43,10 @@ typedef struct NetSnapPlayer {
     Vec3    pos; float yaw;
     uint8_t anim, pstate;
     float   anim_t, hp;
-    // --- weapons --- three bytes: what the weapon hand is doing, what is left in it, and how much
-    // wind its owner has before they end up on the floor. See weapons_pack_flags.
-    uint8_t wflags, wammo, wwind;
+    // --- weapons --- four bytes: what the weapon hand is doing, what is left in it, what is left
+    // in the pockets for it, and how much wind its owner has before they end up on the floor.
+    // See weapons_pack_flags and weapons_pack_reserve.
+    uint8_t wflags, wammo, wreserve, wwind;
 } NetSnapPlayer;
 
 typedef struct NetSlot {

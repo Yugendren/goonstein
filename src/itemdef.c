@@ -44,7 +44,34 @@ static void itemdef_defaults(ItemDef *def, const char *name) {
     def->weapon = 0; def->damage = 0; def->rate = 1.0f; def->wrange = 0;
     def->ammo = 0; def->knock = 0; def->pellets = 1; def->fire_sound = -1;
     def->grip = v3(0, 0, 0); def->grip_yaw = def->grip_pitch = def->grip_roll = 0;
+    // --- projectiles / ammo --- inert until a `projectile`, `reserve` or `ammo TYPE N` line says
+    // otherwise; proj_kind is derived from the name so it is the same number in every process.
+    def->proj = false; def->proj_kind = itemdef_kind_hash(name);
+    def->proj_speed = 0; def->proj_gravity = 0; def->proj_bounce = 0; def->proj_life = 0;
+    def->proj_damage = 0; def->proj_radius = 0; def->proj_sound = -1; def->proj_model[0] = '\0';
+    def->proj_scale = 1.0f; def->proj_spread = 0; def->proj_drag = 0;
+    def->reserve = 0; def->ammo_type[0] = '\0'; def->pickup_type[0] = '\0'; def->pickup_n = 0;
+    def->muzzle = v3(0, 0, 0); def->eject = v3(0, 0, 0);
     def->ok = false;
+}
+
+// A projectile's kind travels as one byte, and both ends have to agree what that byte means
+// without the name being on the wire. Taking it from the item file's name rather than from the
+// def's index is what makes it independent of the order the files happened to be loaded in: a
+// client that has loaded three item files and a host that has loaded nine still call a nail a nail.
+// FNV-1a, folded to 8 bits, with 0 reserved for "no projectile".
+uint8_t itemdef_kind_hash(const char *name) {
+    uint32_t h = 2166136261u;
+    for (const unsigned char *p = (const unsigned char *)name; *p; p++) { h ^= *p; h *= 16777619u; }
+    uint8_t k = (uint8_t)((h ^ (h >> 8) ^ (h >> 16) ^ (h >> 24)) & 0xFFu);
+    return k ? k : 1;
+}
+
+int itemdef_by_kind(const Items *its, uint8_t kind) {
+    if (!kind) return -1;
+    for (int i = 0; i < its->ndefs; i++)
+        if (its->defs[i].ok && its->defs[i].proj && its->defs[i].proj_kind == kind) return i;
+    return -1;
 }
 
 // Read and apply `path` onto `def` (defaults already set). Returns true if the file existed,
@@ -169,13 +196,82 @@ static bool itemdef_parse(ItemDef *def, const char *path) {
             else if (key[0] == 'r') def->wrange = fmaxf(f, 0);
             else def->knock = fmaxf(f, 0);
 
-        } else if (strcmp(key, "ammo") == 0 || strcmp(key, "pellets") == 0) {
+        } else if (strcmp(key, "ammo") == 0) {
+            // Two lines share one word, told apart by shape. `ammo 12` is a magazine size on a
+            // gun; `ammo pistol 24` is a box of rounds lying on the ground, which is a different
+            // kind of item entirely. The brief asks for both spellings, so both are read here.
+            char *tok[4];
+            char copy[64]; SDL_strlcpy(copy, value, sizeof copy);
+            int n = tokenize(copy, tok, 4);
+            if (n == 2) {
+                SDL_strlcpy(def->pickup_type, tok[0], sizeof def->pickup_type);
+                def->pickup_n = SDL_atoi(tok[1]);
+                if (def->pickup_n < 1) { SDL_Log("itemdef:%d: '%s' ammo pickup of %d rounds", line_no, path, def->pickup_n); def->pickup_n = 1; }
+            } else if (n == 1) {
+                char *end = NULL;
+                float f = (float)SDL_strtod(tok[0], &end);
+                if (end == tok[0]) { SDL_Log("itemdef:%d: '%s' bad ammo", line_no, path); continue; }
+                int c = (int)f; if (c < 0) c = 0; if (c > 255) c = 255;
+                def->ammo = c;
+            } else { SDL_Log("itemdef:%d: '%s' bad ammo (want N, or TYPE N)", line_no, path); continue; }
+
+        } else if (strcmp(key, "pellets") == 0) {
+            char *end = NULL;
+            float f = (float)SDL_strtod(value, &end);
+            if (end == value) { SDL_Log("itemdef:%d: '%s' bad pellets", line_no, path); continue; }
+            int n = (int)f;
+            def->pellets = n < 1 ? 1 : (n > 24 ? 24 : n);
+
+        } else if (strcmp(key, "reserve") == 0) {
+            char *end = NULL;
+            float f = (float)SDL_strtod(value, &end);
+            if (end == value) { SDL_Log("itemdef:%d: '%s' bad reserve", line_no, path); continue; }
+            int n = (int)f; if (n < 0) n = 0; if (n > 999) n = 999;
+            def->reserve = n;
+
+        } else if (strcmp(key, "ammo_type") == 0) {
+            if (*value == '\0') { SDL_Log("itemdef:%d: '%s' empty ammo_type", line_no, path); continue; }
+            SDL_strlcpy(def->ammo_type, value, sizeof def->ammo_type);
+
+        // --- projectiles --- One line for the whole flying thing, in the order the brief names
+        // them: projectile SPEED GRAVITY BOUNCE LIFE DAMAGE RADIUS SOUND MODEL. SOUND is a sound
+        // name or "-"; MODEL is a path under assets/ or "-" for a lit streak with no mesh.
+        } else if (strcmp(key, "projectile") == 0) {
+            char *tok[12];
+            int n = tokenize(value, tok, 12);
+            float f[6];
+            if (n < 8 || !parse_floats(tok, 6, f)) {
+                SDL_Log("itemdef:%d: '%s' bad projectile (want SPEED GRAVITY BOUNCE LIFE DAMAGE RADIUS SOUND MODEL)", line_no, path);
+                continue;
+            }
+            def->proj = true;
+            def->proj_speed = fmaxf(f[0], 0.1f);
+            def->proj_gravity = f[1];
+            def->proj_bounce = clampf(f[2], 0.0f, 0.95f);
+            def->proj_life = fmaxf(f[3], 0.05f);
+            def->proj_damage = fmaxf(f[4], 0.0f);
+            def->proj_radius = fmaxf(f[5], 0.0f);
+            if (strcmp(tok[6], "-") != 0) {
+                int s = audio_sound_from_name(tok[6]);
+                if (s < 0) SDL_Log("itemdef:%d: '%s' unknown projectile sound '%s'", line_no, path, tok[6]);
+                def->proj_sound = s;
+            }
+            if (strcmp(tok[7], "-") != 0) SDL_strlcpy(def->proj_model, tok[7], sizeof def->proj_model);
+
+        } else if (strcmp(key, "proj_spread") == 0 || strcmp(key, "proj_drag") == 0 || strcmp(key, "proj_scale") == 0) {
             char *end = NULL;
             float f = (float)SDL_strtod(value, &end);
             if (end == value) { SDL_Log("itemdef:%d: '%s' bad %s", line_no, path, key); continue; }
-            int n = (int)f; if (n < 0) n = 0;
-            if (key[0] == 'a') { if (n > 255) n = 255; def->ammo = n; }
-            else def->pellets = n < 1 ? 1 : (n > 24 ? 24 : n);
+            if (key[5] == 's' && key[6] == 'p') def->proj_spread = fmaxf(f, 0.0f);
+            else if (key[5] == 'd') def->proj_drag = clampf(f, 0.0f, 10.0f);
+            else def->proj_scale = fmaxf(f, 0.001f);
+
+        } else if (strcmp(key, "muzzle") == 0 || strcmp(key, "eject") == 0) {
+            char *tok[8];
+            int n = tokenize(value, tok, 8);
+            float f[3];
+            if (n != 3 || !parse_floats(tok, 3, f)) { SDL_Log("itemdef:%d: '%s' bad %s (want 3 numbers)", line_no, path, key); continue; }
+            if (key[0] == 'm') def->muzzle = v3(f[0], f[1], f[2]); else def->eject = v3(f[0], f[1], f[2]);
 
         } else if (strcmp(key, "grip") == 0) {
             char *tok[8];
