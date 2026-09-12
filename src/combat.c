@@ -142,11 +142,16 @@ bool boss_def_load(BossDef *d, const char *path) {
 bool player_def_load(PlayerDef *d, const char *path) {
     size_t n; char *text = SDL_LoadFile(path, &n);
     if (!text) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "player def missing: %s", path); return false; }
-    PlayerDef o = { .hp = 100, .speed = 3.2f, .sprint_mult = 1.6f, .turn_speed = 14,
-                    .accel = 10, .air_accel = 10, .friction = 8, .stop_speed = 1.4f, .jump_height = 1.0f, .crouch_mult = 0.5f,
-                    .sprint_ramp = 1.4f, .speed_cap = 8.8f, .coyote = 0.12f, .jump_buffer = 0.15f, .air_wish = 1.6f,
-                    .slide_time = 0.8f, .slide_decel = 1.6f, .slide_enter = 4.6f, .slide_exit = 2.2f,
-                    .mantle_min = 0.55f, .mantle_max = 2.2f, .vault_max = 1.2f, .roll_fall = 4.0f, .wallrun_time = 1.2f,
+    // These are the fallbacks for a missing assets/player.txt, so they are the same numbers the
+    // file carries rather than an older tuning nobody plays: walk 4.8 (Half-Life 2's 190 u/s),
+    // sprint 7.5 in a third of a second, 8.5 on a long run. See assets/player.txt for the sources.
+    PlayerDef o = { .hp = 100, .speed = 4.8f, .sprint_mult = 1.5625f, .turn_speed = 16,
+                    .accel = 12, .air_accel = 12, .friction = 5, .stop_speed = 2.5f, .jump_height = 1.05f, .crouch_mult = 0.42f,
+                    .sprint_ramp = 0.35f, .speed_cap = 9.5f, .coyote = 0.12f, .jump_buffer = 0.15f, .air_wish = 1.6f,
+                    .sprint_surge = 1.0f, .surge_ramp = 2.5f, .sprint_grace = 0.25f, .sprint_decay = 0.6f,
+                    .slide_time = 0.85f, .slide_decel = 2.2f, .slide_enter = 6.0f, .slide_exit = 3.0f,
+                    .mantle_min = 0.55f, .mantle_max = 2.2f, .vault_max = 1.2f, .vault_speed = 5.5f,
+                    .roll_fall = 4.0f, .wallrun_time = 1.2f, .wallrun_speed = 6.0f,
                     .attack_windup = 0.18f, .attack_active = 0.12f,
                     .attack_recovery = 0.35f, .attack_damage = 8, .attack_range = 1.9f, .attack_posture = 6,
                     .parry_window = 0.15f, .parry_recovery = 0.35f, .parry_hitstop = 0.12f,
@@ -164,10 +169,13 @@ bool player_def_load(PlayerDef *d, const char *path) {
         KEYF("jump_height", o.jump_height) KEYF("crouch_mult", o.crouch_mult)
         KEYF("sprint_ramp", o.sprint_ramp) KEYF("speed_cap", o.speed_cap)
         KEYF("coyote", o.coyote) KEYF("jump_buffer", o.jump_buffer) KEYF("air_wish", o.air_wish)
+        KEYF("sprint_surge", o.sprint_surge) KEYF("surge_ramp", o.surge_ramp)
+        KEYF("sprint_grace", o.sprint_grace) KEYF("sprint_decay", o.sprint_decay)
         KEYF("slide_time", o.slide_time) KEYF("slide_decel", o.slide_decel)
         KEYF("slide_enter", o.slide_enter) KEYF("slide_exit", o.slide_exit)
         KEYF("mantle_min", o.mantle_min) KEYF("mantle_max", o.mantle_max) KEYF("vault_max", o.vault_max)
-        KEYF("roll_fall", o.roll_fall) KEYF("wallrun_time", o.wallrun_time)
+        KEYF("vault_speed", o.vault_speed)
+        KEYF("roll_fall", o.roll_fall) KEYF("wallrun_time", o.wallrun_time) KEYF("wallrun_speed", o.wallrun_speed)
         KEYF("attack_windup", o.attack_windup) KEYF("attack_active", o.attack_active) KEYF("attack_recovery", o.attack_recovery)
         KEYF("attack_damage", o.attack_damage) KEYF("attack_range", o.attack_range) KEYF("attack_posture", o.attack_posture)
         KEYF("parry_window", o.parry_window) KEYF("parry_recovery", o.parry_recovery) KEYF("parry_hitstop", o.parry_hitstop)
@@ -204,11 +212,11 @@ void player_reset(Player *p, Vec3 pos, float yaw) {
     c->posture = c->posture_max = p->def.posture > 0 ? p->def.posture : 100;
     c->anim = ANIM_IDLE; c->anim_t = 0; c->flash = 0; c->tell = 0; c->speed = 0; c->scripted_moving = false;
     p->state = PS_FREE; p->t = 0; p->hit_applied = false;
-    p->combo = 0; p->sprint_t = 0; p->guarding = false; p->staggered = false;
+    p->combo = 0; p->sprint_hold_t = 999.0f; p->guarding = false; p->staggered = false;
     p->buf_attack = p->buf_parry = p->buf_dodge = 0; p->regen_delay = 0; p->iframes = 0; p->knock = v3(0, 0, 0);
     // --- traversal --- a reset lands you standing still on the ground with no run built up
     p->trav = TM_NONE; p->trav_t = p->trav_dur = 0; p->trav_speed = 0; p->trav_arc = 0; p->wall_side = 0;
-    p->momentum = 0; p->run_speed = 0; p->air_t = 0; p->buf_jump = 0; p->slide_cd = 0; p->last_vy = 0;
+    p->momentum = 0; p->surge = 0; p->run_speed = 0; p->air_t = 0; p->buf_jump = 0; p->slide_cd = 0; p->last_vy = 0;
     c->hvel = v3(0, 0, 0); c->vy = 0; c->traversing = false; c->body_height = c->height;
     c->land_impact = c->land_drop = 0; c->fall_from = pos.y;
     memcpy(p->swing_lead, lead, sizeof lead);
@@ -291,7 +299,6 @@ const char *trav_name(TravMode m) {
 #define SLIDE_JUMP_KEEP 1.10f   // a slide jumped out of leaves with a tenth more speed than it had: the long hop
 #define ROLL_TIME      0.55f
 #define ROLL_KEEP      0.78f    // a hard landing costs a fifth of the run, not all of it
-#define WALL_MIN_SPEED 4.6f
 #define WALL_GRAVITY   0.22f    // fraction of gravity a wall run leaves you: it sags, it does not float
 #define MANTLE_LIFT    0.62f    // fraction of the move spent going up before the forward half finishes
 // Gravity and the ground contact are game.c's (game_ground_character runs right after
@@ -338,7 +345,7 @@ static bool traverse_probe(const Player *p, const World *w, Vec3 dir, float spee
     out->top = top; out->at = v3(at.x, top, at.z); out->vault = false; out->land = out->at;
     // Low and fast is gone over, not climbed onto -- but only if there is somewhere to land, or a
     // vault over a parapet drops you off the roof.
-    if (h <= d->vault_max && speed >= 4.2f) {
+    if (h <= d->vault_max && speed >= d->vault_speed) {
         Vec3 land = v3_add(c->pos, v3_scale(dir, reach + 1.05f));
         float lt = world_top(w, land.x, land.z, top + 0.05f);
         if (lt > -1e8f && lt < top - 0.20f
@@ -413,14 +420,14 @@ static void traverse_try(Player *p, const Input *in, Vec3 move_dir, float mlen, 
 
     // A wall run is the last thing tried and the first thing to give up: airborne, quick, jump still
     // held, a face alongside and nothing under the feet. Anything less and it fires on every corner.
-    if (d->wallrun_time > 0 && !c->grounded && in->jump_held && carried >= WALL_MIN_SPEED && c->vy < 2.0f) {
+    if (d->wallrun_time > 0 && !c->grounded && in->jump_held && carried >= d->wallrun_speed && c->vy < 2.0f) {
         Vec3 n;
         float y0 = c->pos.y + 0.4f, y1 = c->pos.y + c->height * 0.9f;
         if (level_wall_near(w->lv, c->pos.x, c->pos.z, c->radius + 0.30f, y0, y1, &n, NULL)
             && world_top(w, c->pos.x, c->pos.z, c->pos.y - 0.6f) < c->pos.y - 1.2f) {
             Vec3 along = v3(-n.z, 0, n.x);
             float s = v3_dot(v3(c->hvel.x, 0, c->hvel.z), along);
-            if (fabsf(s) >= WALL_MIN_SPEED * 0.8f) {
+            if (fabsf(s) >= d->wallrun_speed * 0.8f) {
                 if (s < 0) { along = v3_scale(along, -1); s = -s; }
                 p->wall_normal = n;
                 p->wall_side = v3_dot(v3_cross(v3(0, 1, 0), along), n) > 0 ? 1.0f : -1.0f;
@@ -568,7 +575,6 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const World *w, Bo
     if (in->attack) p->buf_attack = INPUT_BUFFER;
     if (in->parry)  p->buf_parry = INPUT_BUFFER;
     if (in->dodge)  p->buf_dodge = INPUT_BUFFER;
-    p->sprint_t = in->sprint ? p->sprint_t + dt : 0;
     if (p->iframes > 0) p->iframes = fmaxf(0, p->iframes - dt);
     // --- traversal --- The jump is buffered like every other press and forgiven for a moment past
     // the edge, because the frame you left the deck on and the frame you meant to jump on are two
@@ -589,13 +595,27 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const World *w, Bo
         p->knock = v3_scale(p->knock, expf(-9.0f * dt));
     } else p->knock = v3(0, 0, 0);
 
-    bool sprinting = in->sprint && p->sprint_t > 0.25f && mlen > 0.05f;   // hold to sprint; a tap already dodged
+    // Sprint engages the tick Shift is seen -- no quarter-second gate, that is dead time the player
+    // feels as Shift doing nothing. A latch, not a raw expression, is what makes it stick: a gap of
+    // up to sprint_grace seconds in the stick reading zero (turning, a strafe-key transition, Shift
+    // lifting between presses) does not end it, only a gap longer than that does. sprint_hold_t is
+    // the length of the CURRENT gap; it resets to zero every tick sprint is genuinely engaged.
+    bool sprint_engaged = in->sprint && mlen > 0.05f;
+    p->sprint_hold_t = sprint_engaged ? 0.0f : p->sprint_hold_t + dt;
+    bool sprinting = p->sprint_hold_t <= d->sprint_grace;
     // --- traversal --- Momentum builds rather than switches on: sprint_ramp seconds of holding
-    // Shift to reach the top speed, and it is kept while the feet are off the ground, so a hop
-    // costs you nothing and a stop costs you the run-up. This ramp, not the accel coefficient, is
-    // what you feel -- Quake's accel reaches any wish speed inside a couple of ticks.
+    // Shift to reach sprint_mult, and it is kept while the feet are off the ground, so a hop costs
+    // you nothing and a stop costs you the run-up. This ramp, not the accel coefficient, is
+    // what you feel -- Quake's accel reaches any wish speed inside a couple of ticks. surge is a
+    // second, slower ramp on top: only while momentum is already maxed, grounded and actually
+    // moving does a long sprint keep earning sprint_surge more m/s (Mirror's Edge). Both bleed off
+    // together, over sprint_decay seconds, once the latch above lets go.
     if (sprinting && p->trav != TM_SLIDE) p->momentum = fminf(1.0f, p->momentum + dt / fmaxf(d->sprint_ramp, 0.05f));
-    else if (c->grounded && p->trav == TM_NONE) p->momentum = fmaxf(0.0f, p->momentum - dt / 0.5f);
+    else if (!sprinting && c->grounded && p->trav == TM_NONE) p->momentum = fmaxf(0.0f, p->momentum - dt / fmaxf(d->sprint_decay, 0.05f));
+    bool surging = sprinting && p->trav != TM_SLIDE && p->momentum >= 0.999f && c->grounded
+                   && hypotf(c->hvel.x, c->hvel.z) > 0.5f;
+    if (surging) p->surge = fminf(1.0f, p->surge + dt / fmaxf(d->surge_ramp, 0.05f));
+    else if (!sprinting && c->grounded && p->trav == TM_NONE) p->surge = fmaxf(0.0f, p->surge - dt / fmaxf(d->sprint_decay, 0.05f));
     c->body_height = p->trav == TM_SLIDE ? c->height * SLIDE_HEIGHT : c->height;
     // Running into a wall zeroes hvel inside one tick (level_move gives back what actually
     // happened), so by the time anything notices you are blocked the speed you arrived at is gone.
@@ -626,7 +646,11 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const World *w, Bo
 
         if (p->buf_parry > 0) { player_guard(p, in->parry ? in->parry_age : 0, dt); break; }
         if (p->buf_attack > 0) { player_swing(p, sprinting ? 3 : 0, boss, mlen, ev); break; }
-        if (p->buf_dodge > 0) { player_dodge(p, move_dir, mlen); break; }
+        // The Sekiro step is a combat move, not a run key: outside a fight (boss NULL, exploration
+        // or the overworld) Shift is sprint and nothing else, so a buffered dodge press just sits
+        // there unused instead of firing a 3-metre lunge every time Shift is tapped while walking.
+        // The gamepad EAST button still reaches this in a fight.
+        if (boss && p->buf_dodge > 0) { player_dodge(p, move_dir, mlen); break; }
         if (in->rmouse_held) { player_guard(p, 0, dt); p->t = d->parry_window; break; }   // held from before: straight to block
 
         // Half-Life/Quake ground movement: friction bleeds hvel toward zero every tick you are
@@ -634,7 +658,7 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const World *w, Bo
         // wishdir/wishspeed gets accelerated toward. accel/air_accel are Quake's sv_accelerate-shaped
         // coefficients, not m/s^2 -- what actually limits air control is AIR_WISH capping the
         // wishspeed the accel step chases while airborne.
-        float top_speed = d->speed * (1.0f + (d->sprint_mult - 1.0f) * p->momentum);
+        float top_speed = d->speed * (1.0f + (d->sprint_mult - 1.0f) * p->momentum) + d->sprint_surge * p->surge;
         float wishspeed = top_speed * mlen * (in->crouch ? d->crouch_mult : 1.0f);
         // A jump this tick skips the friction: one 60 Hz bite out of 7 m/s is most of a metre per
         // second, and paying it on every landing is the difference between a chain of hops and a

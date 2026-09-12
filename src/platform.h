@@ -67,6 +67,8 @@ typedef struct Platform {
     Uint64 parry_ns, click_ns;
     bool tool_focus;      // the tool window has keyboard focus: held keys and movement do not reach the game
     bool text_input;   // --- menu --- a text field owns the keyboard: no movement, no tool keys
+    bool sprint_toggle;   // sprint mode: false = hold Shift (default), true = press to toggle
+    bool sprint_latch;    // toggle mode's on/off state; see platform_set_sprint_mode
 } Platform;
 
 // Packaged (HOLLOW_PORTABLE) builds: make the executable's own directory the working directory so
@@ -92,6 +94,9 @@ const char *platform_present_mode_name(const Platform *pf);
 void platform_shutdown(Platform *pf);
 // Show a free cursor (menus, cards) or capture it for camera look.
 void platform_set_cursor(Platform *pf, bool free_cursor);
+// Sprint mode: hold (false, default) tracks Shift while it's down; toggle (true) flips a latch on
+// the press edge that in->sprint then follows, clearing itself if every movement key is let go.
+void platform_set_sprint_mode(Platform *pf, bool toggle);
 // --- menu --- Start or stop SDL text input for the game window. While it is on, typed characters
 // arrive in Input.text and no key reaches gameplay except the editing keys (Esc, Return, Backspace,
 // Tab, arrows, Delete), so typing a name cannot walk the player or open a tool window.

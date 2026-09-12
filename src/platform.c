@@ -153,7 +153,10 @@ bool platform_poll(Platform *pf) {
             case SDL_SCANCODE_F9: in->step = true; break;
             case SDL_SCANCODE_RETURN: in->skip = true; break;
             // Sekiro PC layout: LMB attack, RMB deflect, Shift step/sprint, MMB or Q lock-on, E interact.
-            case SDL_SCANCODE_LSHIFT: case SDL_SCANCODE_RSHIFT: in->dodge = true; break;
+            case SDL_SCANCODE_LSHIFT: case SDL_SCANCODE_RSHIFT:
+                in->dodge = true;
+                if (pf->sprint_toggle) pf->sprint_latch = !pf->sprint_latch;   // toggle mode: the press edge flips it, not the hold
+                break;
             case SDL_SCANCODE_SPACE: in->jump = true; break;
             case SDL_SCANCODE_E: in->interact = true; break;
             case SDL_SCANCODE_Q: case SDL_SCANCODE_TAB: in->lockon = true; break;
@@ -237,14 +240,22 @@ bool platform_poll(Platform *pf) {
     { Uint64 now = SDL_GetTicksNS(); in->parry_age = pf->parry_ns && now > pf->parry_ns ? (float)((now - pf->parry_ns) / 1e9) : 0; in->click_age = pf->click_ns && now > pf->click_ns ? (float)((now - pf->click_ns) / 1e9) : 0; }
     // Held movement: keyboard, overridden by stick if it's deflected.
     const bool *keys = SDL_GetKeyboardState(NULL);
-    in->sprint = keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT];
+    bool shift_down = keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT];
+    if (pf->sprint_toggle) {
+        // Toggle mode: the latch was flipped on the press edge above; it just needs clearing when
+        // there is nothing left to sprint at, so it cannot survive letting go of every movement key.
+        bool moving = !(pf->tool_focus || pf->text_input) &&
+                      (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_D]);
+        if (!moving) pf->sprint_latch = false;
+        in->sprint = pf->sprint_latch;
+    } else in->sprint = shift_down;   // hold mode: exactly as before
     in->jump_held = (pf->tool_focus || pf->text_input) ? false : keys[SDL_SCANCODE_SPACE];
     for (int i = 0; i < 512; i++) in->key_held[i] = keys[i];
     in->ctrl = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL] || keys[SDL_SCANCODE_LGUI] || keys[SDL_SCANCODE_RGUI];
     // Crouch is Ctrl alone: the tool shortcuts all take Ctrl WITH a letter, and Command is left out
     // of it so cmd-tabbing away from the game does not leave you squatting.
     in->crouch = (pf->tool_focus || pf->text_input) ? false : (keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL]);
-    in->shift_held = in->sprint;
+    in->shift_held = shift_down;   // the raw key, not the sprint latch -- toggle mode still needs to know Shift itself
     if (pf->tool_focus || pf->text_input) { memset(in->key_held, 0, sizeof in->key_held); in->sprint = false; }   // held keys belong to the focused window // --- menu --- or a text field
     if (pf->gamepad && SDL_GetGamepadButton(pf->gamepad, SDL_GAMEPAD_BUTTON_EAST)) in->sprint = true;
     // --- voice --- push to talk. On a pad the left bumper is also the old fight's deflect; the
@@ -437,6 +448,15 @@ void platform_shutdown(Platform *pf) {
 void platform_set_cursor(Platform *pf, bool free_cursor) {
     SDL_SetWindowRelativeMouseMode(pf->window, !free_cursor);
     if (free_cursor) SDL_ShowCursor(); else SDL_HideCursor();
+}
+
+// Hold (default): in->sprint tracks Shift for as long as it's down, same as always. Toggle: a
+// Shift press edge flips a latch kept here, and that latch is in->sprint until either it is
+// flipped again or the player lets go of every movement key (see the latch clear in poll) -- so
+// toggle-sprint cannot survive a full stop and carry into standing still or a menu.
+void platform_set_sprint_mode(Platform *pf, bool toggle) {
+    pf->sprint_toggle = toggle;
+    pf->sprint_latch = false;
 }
 
 // --- menu ---

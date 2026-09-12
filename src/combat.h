@@ -109,8 +109,17 @@ typedef struct PlayerDef {
     float slide_time, slide_decel, slide_enter, slide_exit;   // seconds, m/s^2, and the speeds that open and close it
     float mantle_min, mantle_max;    // the band of ledge heights that can be climbed
     float vault_max;                 // below this, at speed, it is vaulted instead of climbed
+    float vault_speed;               // the run needed to go OVER an obstacle under vault_max instead of climbing it
     float roll_fall;                 // metres of drop that turns a landing into a roll
     float wallrun_time;              // seconds a wall run can hold, 0 = no wall running
+    float wallrun_speed;             // the run needed to start a wall run
+    // A long sprint keeps paying out: momentum (above) gets you to sprint_mult in sprint_ramp
+    // seconds, surge is a second, slower ramp on top of that -- surge_ramp seconds of unbroken
+    // running for sprint_surge more m/s (Mirror's Edge). sprint_grace is how long the sprint
+    // survives a gap in the input (a stick reading zero for a tick, a turn, Shift lifting between
+    // presses) before it actually lets go; sprint_decay is how long the built-up momentum/surge
+    // then takes to bleed back to zero.
+    float sprint_surge, surge_ramp, sprint_grace, sprint_decay;
     float attack_windup, attack_active, attack_recovery, attack_damage, attack_range, attack_posture;
     float parry_window, parry_recovery, parry_hitstop;
     float dodge_time, dodge_iframes, dodge_dist;
@@ -156,7 +165,9 @@ typedef struct Player {
     bool  hit_applied;               // attack has already connected this swing (also: whiff logged)
     float step_timer;                // footstep cadence
     int   combo;                     // which swing: 0..2 chain, 3 sprint attack
-    float sprint_t;                  // seconds sprint has been held (dodge on tap, sprint on hold)
+    float sprint_hold_t;             // seconds since sprint was last actually engaged (shift + moving);
+                                      // inside sprint_grace the latch holds through the gap, past it the
+                                      // latch drops and momentum/surge start bleeding off
     // Swing timing read off the animation: swing_lead[i] is the seconds from the start of swing i's
     // clip to the frame the blade lands. Filled in by the game from the character model; 0 = unknown,
     // fall back to def.attack_windup.
@@ -177,6 +188,8 @@ typedef struct Player {
     float trav_arc;                  // metres the path bulges above the straight line: a vault goes OVER the thing
     Vec3  wall_normal; float wall_side;   // wall run: the face and which shoulder it is on (-1 left, +1 right)
     float momentum;                  // 0..1 sprint build-up, sprint_ramp seconds to the top
+    float surge;                     // 0..1 second, slower build on top of momentum: surge_ramp seconds
+                                      // of unbroken running at full momentum earns sprint_surge more m/s
     float run_speed;                 // the speed you were doing a moment ago: hvel collapses the tick you
                                       // hit a wall, and "how fast were you going when you hit it" is the
                                       // question a vault and a mantle both have to answer
