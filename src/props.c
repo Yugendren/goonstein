@@ -2,6 +2,7 @@
 #include "render_world.h"
 #include "prof.h"
 #include "quality.h"
+#include "debug.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -33,6 +34,26 @@ void props_load_level(Gfx *g, PropCache *pc, const Level *lv) {
 // keeps its real mesh out to twenty-five metres and is a decimated one past that. Above this line
 // the art is exactly what it always was.
 #define PROP_LOD_SIZE 0.04f
+// A prop that has never been through props_collect: no side of the hysteresis band to stay on, so
+// the first decision is the plain centre-line one and is not counted as a swap.
+#define PROP_STATE_NEW 2
+
+// A prop whose size/distance ratio sits exactly on PROP_CULL_SIZE or PROP_LOD_SIZE crosses that
+// line every other frame from nothing more than the camera's own jitter, and a threshold crossed
+// every other frame IS the flicker: the stand-in or the cull swaps in and out on alternating
+// frames. Widening each line into a +-10% band and remembering which side a prop was on last
+// frame (see PropCache's lod_state/cull_state) means it has to move a full 20% of the threshold,
+// not a hair, before it swaps again.
+#define PROP_LOD_HYST  0.10f
+#define PROP_CULL_HYST 0.10f
+
+// HOLLOW_LOD_TRACE=1: once a second, log how many props changed their stand-in/cull state that
+// second. Off by default -- it costs nothing but a log line nobody asked for.
+static bool props_lod_trace(void) {
+    static int v = -1;
+    if (v < 0) v = SDL_getenv("HOLLOW_LOD_TRACE") != NULL;
+    return v != 0;
+}
 
 // Rest-pose bounding sphere of a piece or assembly, computed once per file and cached.
 static bool prop_sphere(Gfx *g, PropCache *pc, PropModel *pm, Vec3 *cen, float *rad) {
@@ -145,6 +166,10 @@ static void collect_matrix(Gfx *g, PropCache *pc, unsigned sets, bool lod, PropM
 static void cache_prop_models(Gfx *g, PropCache *pc, const Level *lv) {
     if (pc->by_prop_lv == lv && pc->by_prop_n == lv->nprops && pc->by_prop_stamp == lv->mtime) return;
     pc->by_prop_lv = lv; pc->by_prop_n = lv->nprops; pc->by_prop_stamp = lv->mtime;
+    // A stale hysteresis bit from whatever level (or prop count) used to occupy these indices would
+    // otherwise decide the first frame's stand-in/cull choice for props it was never measured against.
+    memset(pc->lod_state, PROP_STATE_NEW, sizeof pc->lod_state);
+    memset(pc->cull_state, PROP_STATE_NEW, sizeof pc->cull_state);
     for (int i = 0; i < lv->nprops && i < LEVEL_MAX_PROPS; i++) {
         PropModel *pm = find(pc, lv->props[i].file);
         pc->by_prop[i] = (pm && pm->ok) ? pm : NULL;
@@ -160,6 +185,10 @@ void props_collect(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTex
     cache_prop_models(g, pc, lv);
     Frustum sun_fr = frustum_from_view_proj(shadow_vp), cam_fr = frustum_from_view_proj(camera_vp);
     unsigned drawn = 0, culled = 0;
+    bool trace = props_lod_trace();
+    static int hyst_off_cached = -1;
+    if (hyst_off_cached < 0) hyst_off_cached = SDL_getenv("HOLLOW_NOLODHYST") != NULL;
+    const bool hyst_off = hyst_off_cached != 0;
     for (int i = 0; i < lv->nprops; i++) {
         PropModel *pm = pc->by_prop[i];
         if (!pm) continue;
@@ -188,10 +217,37 @@ void props_collect(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTex
             // instead over-culls once the camera pulls back (at dist 120, 116 of 464 props inside
             // the box lost their shadows that way).
             in_sun = want_shadow && frustum_sees_sphere(&sun_fr, c, r);
-            // Camera set: also drop what is only a few pixels across.
+            // Camera set: also drop what is only a few pixels across. Both tests are hysteresised
+            // (see PROP_LOD_HYST/PROP_CULL_HYST above): whichever side of the band this prop was on
+            // last frame is where it stays until it clears the OTHER edge of the band, not just the
+            // centre line. The frustum test is not hysteresised -- it is a separate AND term and a
+            // prop crossing the frustum edge is actually leaving the screen, not flickering on it.
             float dist = v3_len(v3_sub(c, cam_pos));
-            in_cam = frustum_sees_sphere(&cam_fr, c, r) && r >= PROP_CULL_SIZE * dist;
-            cam_lod = r < PROP_LOD_SIZE * dist;
+            // PROP_STATE_NEW is a prop that has never been decided: the level just loaded and there
+            // is no previous side of the band to stay on. It is settled on the centre line, and the
+            // settling is not a swap -- counting it made the meter's first second read a thousand
+            // flickers a second on a level where nothing had moved yet.
+            // HOLLOW_NOLODHYST=1 collapses the band to nothing, which is what the code did before,
+            // so the swaps-per-second claim can be A/B'd rather than asserted.
+            bool cull_new = hyst_off || pc->cull_state[i] == PROP_STATE_NEW;
+            bool lod_new = hyst_off || pc->lod_state[i] == PROP_STATE_NEW;
+            bool was_culled = pc->cull_state[i] == 1;
+            bool cull_on  = r < PROP_CULL_SIZE * dist * (1.0f - PROP_CULL_HYST);
+            bool cull_off = r > PROP_CULL_SIZE * dist * (1.0f + PROP_CULL_HYST);
+            bool too_small = cull_new ? r < PROP_CULL_SIZE * dist : was_culled ? !cull_off : cull_on;
+            if (hyst_off && trace && (too_small ? 1 : 0) != pc->cull_state[i]) pc->cull_swaps++;
+            in_cam = frustum_sees_sphere(&cam_fr, c, r) && !too_small;
+            bool was_lod = pc->lod_state[i] == 1;
+            bool lod_on  = r < PROP_LOD_SIZE * dist * (1.0f - PROP_LOD_HYST);
+            bool lod_off = r > PROP_LOD_SIZE * dist * (1.0f + PROP_LOD_HYST);
+            cam_lod = lod_new ? r < PROP_LOD_SIZE * dist : was_lod ? !lod_off : lod_on;
+            if (hyst_off && trace && (cam_lod ? 1 : 0) != pc->lod_state[i]) pc->lod_swaps++;
+            if (trace) {
+                if (!cull_new && too_small != was_culled) { pc->cull_swaps++; if (pc->lod_flips[i] < 255) pc->lod_flips[i]++; }
+                if (!lod_new && cam_lod != was_lod) { pc->lod_swaps++; if (pc->lod_flips[i] < 255) pc->lod_flips[i]++; }
+            }
+            pc->cull_state[i] = too_small ? 1 : 0;
+            pc->lod_state[i] = cam_lod ? 1 : 0;
         }
         if (in_cam) drawn++; else culled++;
         if (!in_sun && !in_cam) continue;
@@ -212,6 +268,19 @@ void props_collect(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTex
     }
     pc->props_drawn = drawn; pc->props_culled = culled;
     prof_count(PROF_C_PROPS_DRAWN, drawn); prof_count(PROF_C_PROPS_CULLED, culled);
+    if (trace) {
+        Uint64 now = SDL_GetTicks();
+        if (pc->lod_trace_t0 == 0) pc->lod_trace_t0 = now;
+        Uint64 elapsed = now - pc->lod_trace_t0;
+        if (elapsed >= 1000) {
+            unsigned total = pc->cull_swaps + pc->lod_swaps, flickered = 0;
+            for (int i = 0; i < lv->nprops && i < LEVEL_MAX_PROPS; i++) if (pc->lod_flips[i] > 1) flickered++;
+            dbg_log("lod: %u swaps/s  (%u cull, %u stand-in)  %u flickered  of %d props", total, pc->cull_swaps, pc->lod_swaps, flickered, lv->nprops);
+            pc->cull_swaps = pc->lod_swaps = 0;
+            memset(pc->lod_flips, 0, sizeof pc->lod_flips);
+            pc->lod_trace_t0 = now;
+        }
+    }
 }
 
 void props_draw_fallback(Gfx *g, PropCache *pc, const Level *lv, const struct WorldTextures *wt, GfxInstSet set) {

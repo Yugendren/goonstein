@@ -43,6 +43,20 @@ typedef struct PropCache { PropModel models[PROPS_MAX_MODELS]; int n;
                            // per level rather than once per prop per pass, for the same reason.
                            // Dropped when the level or any model file is reloaded.
                            PropModel *by_prop[LEVEL_MAX_PROPS]; int by_prop_n; const Level *by_prop_lv; long long by_prop_stamp;
+                           // Per-prop hysteresis for the far-stand-in swap and the small-prop cull in
+                           // props_collect: 1 means "currently drawn that way", so the two-threshold
+                           // test can tell which side of the band a prop was on last frame instead of
+                           // re-deciding from scratch every frame. Reset with the rest of by_prop
+                           // whenever the level under it changes.
+                           unsigned char lod_state[LEVEL_MAX_PROPS], cull_state[LEVEL_MAX_PROPS];
+                           // HOLLOW_LOD_TRACE flicker meter: how many props flipped state this second.
+                           unsigned lod_swaps, cull_swaps; Uint64 lod_trace_t0;
+                           // Flips per prop inside the current trace second. One flip is a prop
+                           // genuinely crossing the threshold as you walk past it, which is not a
+                           // bug and cannot be removed. TWO in the same second is the prop changing
+                           // its mind and changing it back, which is the flicker, and is the number
+                           // hysteresis exists to drive to zero.
+                           unsigned char lod_flips[LEVEL_MAX_PROPS];
                            const struct WorldTextures *wt; } PropCache;
 
 void props_clear(Gfx *g, PropCache *pc);
