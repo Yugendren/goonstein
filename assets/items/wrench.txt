@@ -1,10 +1,18 @@
 # wrench.txt -- a pipe wrench from wherever the bunkhouse keeps its plumbing tools.
-# Same story as bat.txt: no direct-download CC0 wrench turned up, so this is built in-repo from
-# shape primitives: models/own/wrench.part, 8 pieces, grip at the part's origin and the jaw end
-# along +Z. Part bounds are 0.086 x 0.167 x 0.348 m (X x Y x Z), off-centre because the jaw sticks
-# up and the adjuster knob sticks sideways -- half below is half of the part's own total size on
-# each axis, same convention as every other shape-built item.
-model      models/own/wrench.part
+# Poly Haven photoscan "Pipe Wrench" (CC0, was assets/models/polyhaven/pipe_wrench/
+# pipe_wrench_1k.gltf), processed with tools/blender/weapon_prep.py into pipe_wrench.glb (one mesh,
+# 10746 tris, kept whole). Reoriented so the jaw points glTF +Z and up is glTF +Y (the jaw was
+# already +Z in the raw scan; up was set to the raw scan's +X, the direction the adjustable jaw's
+# knurled screw sticks out to the side, so that offset reads as the tool's vertical thickness
+# rather than screen depth -- judgement call, the wrench is otherwise flat and has no other feature
+# to align "up" to). Origin moved to 0.05 m up from the very end of the handle, just above the
+# hanging loop, where a hand closes for full leverage (raw z=-0.151, the model's own frame before
+# reorientation; found by rendering a 0.02 m ruler over the scan and reading off where the straight
+# grip shaft starts, above the loop and below the knurled adjustment screw), so the model is already
+# in the hand's frame -- grip below is therefore 0 0 0. Bounds are 0.034 x 0.084 x 0.405 m
+# (X x Y=up x Z=aim); a pipe wrench is ~0.40 m, this scan matches almost exactly, so scale stays
+# at 1.0.
+model      models/polyhaven/pipe_wrench/pipe_wrench.glb
 display    Pipe Wrench, Property of Maintenance
 weapon     melee                       # swings, does not shoot
 damage     40                          # of a 100-point wind pool
@@ -13,9 +21,10 @@ range      1.6                         # metres; fixed melee arc
 knock      5.0                         # m/s shove on whatever it hits
 fire_sound whoosh                      # swing sound
 mass       2.4                         # kg; cast iron
-half       0.043 0.083 0.174           # half the part's own bounds (0.086 x 0.167 x 0.348 m)
+half       0.017 0.042 0.202           # half the model's own bounds (0.034 x 0.084 x 0.405 m)
 fragile    0                           # unbreakable
 value      25                          # dollars; a wrench is still a wrench
+grip       0.03 -0.06 -0.30   -8 -25 5 # pulled close so the jaw reads, pitched up and yawed toward the crosshair
 two_handed no
-scale      1.0
-tint       1.0 1.0 1.0                 # the part's pieces carry their own paint
+scale      1.0                         # the scan is already real-world size
+tint       1.0 1.0 1.0                 # the scan carries its own (photoreal) paint

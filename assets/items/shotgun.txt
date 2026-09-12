@@ -1,14 +1,14 @@
-# shotgun.txt -- the loud one, found near the boat's mooring line. Two barrels' arguing.
-# Kenney Blaster Kit's blaster-f (models/kenney/blaster-kit/shotgun.glb): the kit's longest single
-# design (main body plus small scope and magazine sub-meshes), picked over the compact ones for a
-# "biggest, loudest gun in the box" silhouette. Raw model bounds are 0.17 x 0.37 x 1.31 m
-# (X x Y x Z, aggregated over all three sub-meshes), origin at the model's own geometric centre on
-# X and Z; Y is centred to within 5 mm, near enough to ignore. Scale 0.76 brings it to a long-gun
-# 1.0 m; half below is half of the scaled bounds, with the Y half taken from the larger of the
-# model's +Y/-Y reach so the box does not clip the scope or the magazine. NOTE for hand/viewmodel
-# attachment: the muzzle points -Z, not +Z -- the grip is not at the origin either, it is a cluster
-# of geometry around z=+0.29 (0.38 raw, offset from centre); see ASSETS.md.
-model      models/kenney/blaster-kit/shotgun.glb
+# shotgun.txt -- the loud one, found near the boat's mooring line. One barrel, and a lot of it.
+# No CC0 photoscan of a pump shotgun exists without going through a login-walled source, so
+# unlike the pistol, bat and wrench this one is ours: a real parametric CAD solid, built the same
+# way the island's buildings are, by tools/cad/build_weapons.py (the shotgun() function) and
+# tools/cad/weapon_stage.py, out to models/own/shotgun.glb. 3000 triangles, two flat colours
+# (blued steel, walnut), no texture. The model's own origin is the grip point -- the wrist of the
+# stock, just behind the trigger guard, where the hand closes -- and the muzzle points +Z in the
+# model's own (glTF) axes. Bounds are 0.054 x 0.174 x 1.020 m (X x Y x Z); half below is half of
+# those, with the origin off-centre on Y and Z (it sits at the grip, not the middle) and Z reaching
+# well behind it into the buttstock, the same way bat.txt's box reaches behind its own grip.
+model      models/own/shotgun.glb
 display    Shotgun, Duck Season Unclear
 weapon     gun
 damage     100                         # of a 100-point wind pool; puts a goon on the floor
@@ -19,10 +19,10 @@ pellets    6                           # hitscan rays per shot, on a fixed fan; 
 knock      9.0                         # m/s shove on whatever it hits
 fire_sound boom                        # firing sound
 mass       3.6                         # kg
-half       0.065 0.144 0.498           # half the scaled model bounds (0.129 x 0.288 x 0.996 m)
+half       0.027 0.087 0.510           # half the model's own bounds (0.054 x 0.174 x 1.020 m)
 fragile    0                           # unbreakable
 value      0                           # dollars; not evidence of anything
-grip       0 0.030 0.270   180 0 0        # same kit, same flip; the grip sits well back on a long gun
+grip       0.06 -0.10 -0.14   -6 -8 0  # shifts right/down and closer to fill the frame, muzzle swung toward centre
 two_handed no
-scale      0.76
-tint       1.0 1.0 1.0                 # the model carries its own (toy-bright) paint
+scale      1.0
+tint       1.0 1.0 1.0                 # the model carries its own paint

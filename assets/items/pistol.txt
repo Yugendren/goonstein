@@ -1,12 +1,15 @@
-# pistol.txt -- sidearm found wherever the boat keeps its "emergencies". Definitely a toy shape.
-# Kenney Blaster Kit's blaster-h (models/kenney/blaster-kit/pistol.glb): a single-mesh toy blaster,
-# picked for its compact one-hand proportions over the kit's bulkier designs. Raw model bounds are
-# 0.165 x 0.2745 x 0.648 m (X x Y x Z), origin at the model's own geometric centre (all three axes
-# roughly symmetric about it). Scale 0.31 brings it to a hand-sized 0.20 m long; half below is half
-# of the scaled bounds. NOTE for hand/viewmodel attachment: the muzzle points -Z, not +Z -- the
-# grip is not at the origin either, it is a cluster of geometry around z=+0.08 (0.26 x 0.31 raw,
-# offset from centre); see ASSETS.md.
-model      models/kenney/blaster-kit/pistol.glb
+# pistol.txt -- sidearm found wherever the boat keeps its "emergencies".
+# Poly Haven photoscan "Service Pistol" (CC0, was assets/models/polyhaven/service_pistol/
+# service_pistol_1k.gltf), processed with tools/blender/weapon_prep.py into service_pistol.glb.
+# The source file is actually two complete guns laid out side by side (variant "_a" and "_b") plus
+# two loose magazines and a loose bullet; kept only pistol_a/slide_a/hammer_a/trigger_a (7556 tris),
+# dropped everything else. Reoriented so the muzzle points glTF +Z and up is glTF +Y (barrel was
+# +X, up was +Z in the raw scan). Origin moved to the middle of the backstrap/grip (raw x=-0.024,
+# z=-0.015, the model's own frame before reorientation) so the model is already in the hand's
+# frame -- grip below is therefore 0 0 0. Kept-mesh bounds are 0.032 x 0.130 x 0.222 m
+# (X x Y=up x Z=aim); a real service pistol is ~0.21 m, this scan measures 0.222 m, close enough
+# that scale stays at 1.0. half below is half of those bounds, same convention as every other item.
+model      models/polyhaven/service_pistol/service_pistol.glb
 display    Pistol, Safety Allegedly On
 weapon     gun
 damage     34                          # of a 100-point wind pool
@@ -16,10 +19,10 @@ ammo       12                          # rounds in a full load
 knock      3.0                         # m/s shove on whatever it hits
 fire_sound shot                        # firing sound
 mass       1.0                         # kg
-half       0.026 0.043 0.100           # half the scaled model bounds (0.051 x 0.085 x 0.201 m)
+half       0.016 0.065 0.111           # half the model's own bounds (0.032 x 0.130 x 0.222 m)
 fragile    0                           # unbreakable
 value      0                           # dollars; not evidence of anything
-grip       0 0.019 0.025   180 0 0        # Kenney's blaster-h faces -Z with its grip behind centre
+grip       0 -0.02 0   -6 0 0          # lowers it a touch and swings the muzzle left, onto the crosshair
 two_handed no
-scale      0.31
-tint       1.0 1.0 1.0                 # the model carries its own (toy-bright) paint
+scale      1.0                         # the scan is already real-world size
+tint       1.0 1.0 1.0                 # the scan carries its own (photoreal) paint

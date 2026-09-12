@@ -1,12 +1,16 @@
 # bat.txt -- a rounders bat, found leaning by the bunkhouse door. Nobody claims it.
-# No CC0 baseball bat model turned up (Quaternius' medieval weapons pack only ships from a Google
-# Drive folder with no direct download link; see ASSETS.md), so this is built in-repo from shape
-# primitives: models/own/bat.part, 9 pieces, grip at the part's origin and the barrel along +Z.
-# Part bounds are 0.07 x 0.07 x 0.873 m (X x Y x Z) with the origin 0.015 m short of the butt end,
-# not centred -- half below is half of the part's own total size on each axis, same convention as
-# every other shape-built item, even though the box then reaches a little behind the grip that the
-# model itself does not.
-model      models/own/bat.part
+# Poly Haven photoscan "Baseball Bat" (CC0, was assets/models/polyhaven/baseball_bat/
+# baseball_bat_1k.gltf), processed with tools/blender/weapon_prep.py into baseball_bat.glb (one
+# mesh, 2672 tris, kept whole). Reoriented so the barrel points glTF +Z and up is glTF +Y (the
+# barrel was already +Z in the raw scan; up was picked arbitrarily as the raw scan's +X since a
+# bat is round and has no rotational feature to align to -- judgement call, doesn't affect a
+# rotationally-symmetric shape). Origin moved to 0.07 m up from the knob, on the taped grip where a
+# hand naturally closes (raw z=-0.184, the model's own frame before reorientation), so the model is
+# already in the hand's frame -- grip below is therefore 0 0 0. That leaves the box reaching a
+# little behind the grip that the model itself does not, same as every shape-built item before it.
+# Bounds are 0.064 x 0.064 x 0.913 m (X x Y=up x Z=aim); a league bat is ~0.86 m, this scan measures
+# 0.913 m, close enough that scale stays at 1.0.
+model      models/polyhaven/baseball_bat/baseball_bat.glb
 display    Bat, League Unknown
 weapon     melee                       # swings, does not shoot
 damage     55                          # of a 100-point wind pool
@@ -15,9 +19,10 @@ range      1.6                         # metres; fixed melee arc
 knock      7.0                         # m/s shove on whatever it hits
 fire_sound whoosh                      # swing sound
 mass       1.2                         # kg
-half       0.035 0.035 0.437           # half the part's own bounds (0.07 x 0.07 x 0.873 m)
+half       0.032 0.032 0.457           # half the model's own bounds (0.064 x 0.064 x 0.913 m)
 fragile    0                           # unbreakable
 value      0                           # dollars; not evidence of anything
+grip       0.05 -0.18 -0.02   -8 -22 8 # held low and close, pitched up so the barrel leads toward the crosshair
 two_handed no
-scale      1.0
-tint       1.0 1.0 1.0                 # the part's pieces carry their own paint
+scale      1.0                         # the scan is already real-world size
+tint       1.0 1.0 1.0                 # the scan carries its own (photoreal) paint
