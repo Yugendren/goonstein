@@ -121,8 +121,8 @@ except during a mantle or a vault, where turning to face the mouse would walk yo
 the thing you are going over.
 
 **Momentum.** The run is built, not switched on. Holding Shift ramps the wish speed from the
-`speed 3.2` walk to `speed * sprint_mult` = 7.0 m/s over `sprint_ramp 1.25` seconds (measured from
-a standing start: 3.7 m/s at half a second, 5.1 at one, 6.4 at one and a half, 7.0 at two), and the
+`speed 3.2` walk to `speed * sprint_mult` = 7.0 m/s over `sprint_ramp 1.05` seconds (measured from
+a standing start: 3.9 m/s at half a second, 5.7 at one, 7.0 at one and a half), and the
 build is *kept* while the feet are off the ground and spent by stopping, so a hop costs you nothing
 and a stop costs you the run-up. Underneath it is still Quake: `accel 10`, `friction 8`,
 `stop_speed 1.4`, and `air_wish 1.6` m/s of mid-air steering (0.9 was the classic "steer a little";

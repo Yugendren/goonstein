@@ -21,7 +21,7 @@ crouch_mult 0.5
 # kept through a hop and spent by stopping. speed_cap is the ceiling nothing gets past, which is
 # what keeps bunny hopping fun and finite. air_wish is the m/s the mid-air accel step chases: 0.9 is
 # Quake's "steer a little", 1.6 is enough to pick which side of a gap you land on.
-sprint_ramp 1.25
+sprint_ramp 1.05
 speed_cap 8.8
 coyote 0.12        # seconds past the edge a jump still counts
 jump_buffer 0.15   # seconds a jump press waits for the feet to land
