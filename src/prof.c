@@ -21,7 +21,7 @@ static int g_warmup = PROF_WARMUP;
 void prof_set_warmup(int frames) { g_warmup = frames < 0 ? 0 : frames; }
 
 static const char *PHASE_NAMES[PROF_COUNT] = {
-    "frame", "input", "in_events", "in_state", "in_look",
+    "frame", "input", "in_pump", "in_events", "in_state", "in_look",
     "tick", "phys", "items", "net", "game", "reload", "render", "cull", "shadow",
     "world", "water", "particles", "post", "ui", "present_wait", "submit", "cap_sleep",
 };
@@ -36,7 +36,7 @@ static const char *COUNTER_NAMES[PROF_C_COUNT] = {
 static bool phase_is_nested(ProfPhase p) {
     return p == PROF_TICK_PHYS || p == PROF_TICK_ITEMS || p == PROF_TICK_NET || p == PROF_TICK_GAME
         || p == PROF_TICK_RELOAD
-        || p == PROF_IN_EVENTS || p == PROF_IN_STATE || p == PROF_IN_LOOK
+        || p == PROF_IN_PUMP || p == PROF_IN_EVENTS || p == PROF_IN_STATE || p == PROF_IN_LOOK
         || p == PROF_CULL || p == PROF_SHADOW || p == PROF_WORLD || p == PROF_WATER
         || p == PROF_PARTICLES || p == PROF_POST || p == PROF_UI;
 }
