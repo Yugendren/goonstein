@@ -300,6 +300,15 @@ static CharModel *vm_arms(Game *g, int slot) {
     return s_arms.cm.loaded ? &s_arms.cm : NULL;
 }
 
+// Load the arms now rather than on the frame that first wants to draw them. A model load is a
+// buffer upload and a texture decode; paying for it in the middle of a rendered frame is a hitch,
+// and this game has a commit's worth of history about paying first-use costs somewhere quieter.
+// Called once a tick from weapons_tick, and does nothing at all once the model is in.
+void weapons_warm_viewmodel(Game *g) {
+    if (s_arms.cm.loaded || g->cam.mode != CAM_FIRST) return;
+    vm_arms(g, g->local);
+}
+
 // ---------------------------------------------------------------- recoil, sprint, spent cases
 
 // One axis of a critically damped spring, advanced by dt. Critically damped rather than merely

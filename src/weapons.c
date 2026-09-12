@@ -877,12 +877,21 @@ void weapons_tick(Game *g, const Input *in, float dt) {
     }
     weapons_pose(g);
 
+    // --- ammo --- --test empty leaves one round in the local gun, so the next shot empties it and
+    // the reload that follows can be captured on purpose. Without it a reload is thirty seconds of
+    // bot patience away, which is a long time to hold a camera open.
+    if (!strcmp(g->test_mode, "empty") && g->tick == 120 && ws->w[g->local].item >= 0 && ws->w[g->local].ammo > 1) {
+        ws->w[g->local].ammo = 1;
+        dbg_log("test empty: down to the last round at tick %u", g->tick);
+    }
+
     // --test down: put the local goon on the floor once, so a screenshot of the view from down
     // there is a thing that can be captured on purpose rather than waited for.
     if (!strcmp(g->test_mode, "down") && g->tick == 150 && !ws->dn[g->local].down) {
         dbg_log("test down: knocking the local goon over at tick %u", g->tick);
         knock_down(g, g->local);
     }
+    if (g->net.slots[g->local].active) weapons_warm_viewmodel(g);   // --- viewmodel ---
     if (host) ammo_pickups(g);   // --- ammo --- before the local input, so a box walked over this
                                  // tick is already in the pool when R is pressed on the same frame
     if (g->net.slots[g->local].active) local_input(g, in);

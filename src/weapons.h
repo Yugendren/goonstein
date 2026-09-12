@@ -152,6 +152,9 @@ void weapons_draw(struct Game *g);
 // from weapons_draw because it has to happen after everything else the world draws: see
 // docs/weapons_feel.md, "The gun is not in the world".
 void weapons_draw_viewmodel(struct Game *g);
+// --- viewmodel --- Load the first-person arms during the tick rather than during a frame, so the
+// buffer upload and the texture decode do not land in the middle of one. Idempotent and cheap.
+void weapons_warm_viewmodel(struct Game *g);
 // Lights the muzzle flash contributes this frame. Returns how many were written (0..2).
 int  weapons_lights(const struct Game *g, PointLight *out, int max);
 // Screen: ammo, the DOWN line, the pick-up prompt.
