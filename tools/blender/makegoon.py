@@ -98,11 +98,16 @@ dg = bpy.context.evaluated_depsgraph_get()
 meshes = []
 for o in [o for o in bpy.data.objects if o.type == "MESH"]:
     if o.data.shape_keys:                                     # bake the targets into the mesh
+        # Removing the last shape key leaves the mesh on the BASIS shape, not on the mix, so the
+        # mix has to be copied into the vertices before the keys go.
         sel([o], o)
-        o.shape_key_add(name="baked", from_mix=True)
-        for kb in list(o.data.shape_keys.key_blocks)[:-1]:
-            o.shape_key_remove(kb)
-        o.shape_key_remove(o.data.shape_keys.key_blocks[0])
+        mixed = o.shape_key_add(name="baked", from_mix=True)
+        co = [0.0] * (len(o.data.vertices) * 3)
+        mixed.data.foreach_get("co", co)
+        while o.data.shape_keys:
+            o.shape_key_remove(o.data.shape_keys.key_blocks[0])
+        o.data.vertices.foreach_set("co", co)
+        o.data.update()
     sel([o], o)
     for m in list(o.modifiers):
         if m.type != "ARMATURE":
@@ -154,6 +159,30 @@ for mat in bpy.data.materials:
         else: base.add(node.image)
     mat_images[mat.name] = base
 keep = {img for imgs in mat_images.values() for img in imgs}
+
+# Alpha is the mesh's real shape for hair, eyebrows and eyelashes -- shaders/lit.frag discards
+# below 0.5 and a hair cap without its cut-out is a helmet. Everywhere else it is a trap:
+# MakeHuman's cloth and skin maps carry an alpha channel with soft patches in it, and alpha
+# testing those punches holes in a trouser leg. So: opaque everywhere except the cut-outs.
+cutout = {os.path.basename(os.path.dirname(recipe[k])) for k in ("hair", "eyebrows", "eyelashes")
+          if recipe.get(k)}
+import numpy as np
+for mat in bpy.data.materials:
+    if not mat.use_nodes: continue
+    if any(c and c in mat.name for c in cutout): continue
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf and bsdf.inputs.get("Alpha"):
+        for l in list(bsdf.inputs["Alpha"].links): mat.node_tree.links.remove(l)
+        bsdf.inputs["Alpha"].default_value = 1.0
+    for img in mat_images.get(mat.name, ()):
+        if img.channels < 4: continue
+        buf = np.empty(len(img.pixels), dtype=np.float32)
+        img.pixels.foreach_get(buf)
+        buf = buf.reshape(-1, 4)
+        if buf[:, 3].min() >= 0.999: continue
+        buf[:, 3] = 1.0
+        img.pixels.foreach_set(buf.reshape(-1)); img.update()
+        print("OPAQUE %s (%s)" % (mat.name, img.name))
 for img in list(bpy.data.images):
     if img not in keep:
         if img.users == 0: bpy.data.images.remove(img)
@@ -166,7 +195,6 @@ for img in list(bpy.data.images):
 # Same idea as merge.py --tint: saturation towards grey, then a multiply. MakeHuman's six casual
 # suits are six cuts in three or four colours; this is what makes four goons out of them. It runs
 # after the shrink, so it repaints 512 px and not 2048.
-import numpy as np
 painted = set()
 for key, rule in recipe.get("tint", {}).items():
     rgb = rule[:3]

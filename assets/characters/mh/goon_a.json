@@ -1,15 +1,38 @@
 {
-  "_": "Dez. Sturdy and heavy, the oldest of the four, in a rust-red shirt and jeans. Slot 0, spawns with the shotgun.",
+  "_": "Dez. Sturdy and heavy, the oldest of the four, in a rust-red shirt and jeans. Slot 0, spawns with the shotgun. shoes04's sock pushes through this suit's trouser hem, so he wears shoes03; the suit is not decimated because at 10000 triangles the collapse opened the hem up as well.",
   "name": "dez",
-  "phenotype": { "gender": 0.95, "age": 0.62, "muscle": 0.70, "weight": 0.80,
-                 "proportions": 0.40, "height": 0.58,
-                 "race": { "asian": 0.10, "caucasian": 0.55, "african": 0.35 } },
+  "phenotype": {
+    "gender": 0.95,
+    "age": 0.62,
+    "muscle": 0.7,
+    "weight": 0.8,
+    "proportions": 0.4,
+    "height": 0.58,
+    "race": {
+      "asian": 0.1,
+      "caucasian": 0.55,
+      "african": 0.35
+    }
+  },
   "proxy": "male1591/male1591.proxy",
   "skin": "middleage_caucasian_male/middleage_caucasian_male.mhmat",
   "eyes": "low-poly/low-poly.mhclo",
   "eyebrows": "eyebrow010/eyebrow010.mhclo",
   "hair": "short02/short02.mhclo",
-  "clothes": ["male_casualsuit01/male_casualsuit01.mhclo", "shoes04/shoes04.mhclo"],
-  "budget": { "male_casualsuit01": 10000, "short02": 2600, "shoes04": 1800 },
-  "tint": { "male_casualsuit01": [1.40, 0.66, 0.38, 0.60] }
+  "clothes": [
+    "male_casualsuit01/male_casualsuit01.mhclo",
+    "shoes03/shoes03.mhclo"
+  ],
+  "budget": {
+    "short02": 2600,
+    "shoes03": 1800
+  },
+  "tint": {
+    "male_casualsuit01": [
+      1.4,
+      0.66,
+      0.38,
+      0.6
+    ]
+  }
 }
