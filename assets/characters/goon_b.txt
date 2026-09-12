@@ -6,8 +6,8 @@ model models/characters/goon_b.glb
 scale 1.18                       # 2.11 m tall, the same as the toon cast stood
 texture_size 512
 yaw_offset 0
-# lands with the bat in the weapon hand (assets/items/bat.txt)
-spawn bat
+# every goon lands with the pistol (assets/items/pistol.txt); the rifle is a pickup
+spawn pistol
 # voice chat: straight pitch, but everything he says sounds like a walkie-talkie
 voice 1.00 1.00 radio
 # No recolor lines: the clothes are repainted in the model by makegoon.py's "tint",
@@ -31,3 +31,8 @@ anim block      Push_Loop loop
 anim hurt_head  Hit_Head
 anim hurt_heavy Hit_Knockback
 anim attack_run OverhandThrow contact 0.35
+anim gun_idle   Pistol_Idle_Loop loop
+anim gun_fire   Pistol_Shoot
+anim gun_reload Pistol_Reload
+anim melee_idle Idle_Loop loop
+anim melee_swing Melee_Hook contact 0.45

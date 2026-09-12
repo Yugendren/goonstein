@@ -16,7 +16,8 @@ editor can load, edit and save. It is an authoring aid, not a build step: run it
 writing tildes, then keep editing numbers.
 
 Handled commands (and which token holds the y): prop 3, npc 4, spawn 2, boss 2, block 2,
-collider 2, light 2, emitter 3, trigger 3 and 6. `block` / `collider` y is the box centre, so
+collider 2, light 2, emitter 3, trigger 3 and 6, item 3 (an item has a physics body and will
+settle on its own, but starting it underground is a different and much worse problem). `block` / `collider` y is the box centre, so
 `~+4` there means "centre 4 m above the ground".
 
 Usage:
@@ -36,7 +37,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # command -> indices of the tokens that carry a y value
 Y_TOKENS = {
-    "prop": [3], "npc": [4], "spawn": [2], "boss": [2],
+    "prop": [3], "npc": [4], "spawn": [2], "boss": [2], "item": [3],
     "block": [2], "collider": [2], "light": [2], "emitter": [3],
     "trigger": [3, 6],
 }

@@ -1,0 +1,14 @@
+# ammo_rifle.txt -- a box of rifle rounds, heavier per shot but you get fewer of them.
+# Poly Haven photoscan "Ammo Box" (CC0, was assets/models/polyhaven/ammo_box/ammo_box_1k.gltf),
+# processed with tools/blender/weapon_prep.py into ammo_box.glb -- same model, mass and half as
+# ammo_pistol.txt; see that file's header for how the scan was converted. Tinted steel blue so it
+# reads apart from ammo_pistol.txt's rust-red box on the ground.
+model      models/polyhaven/ammo_box/ammo_box.glb
+display    Ammo Box, Big Bullets Presumably
+mass       3.0                         # kg; a hand-carriable box, not a full case
+half       0.043 0.089 0.129           # half the model's own bounds (0.087 x 0.178 x 0.258 m)
+fragile    0                           # unbreakable
+value      0                           # dollars; not evidence of anything
+scale      1.0
+tint       0.20 0.45 0.70              # steel blue, to tell it apart from ammo_pistol.txt on the ground
+ammo       rifle 10                    # fills the rifle reserve pool by 10 rounds

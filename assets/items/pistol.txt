@@ -9,6 +9,11 @@
 # frame -- grip below is therefore 0 0 0. Kept-mesh bounds are 0.032 x 0.130 x 0.222 m
 # (X x Y=up x Z=aim); a real service pistol is ~0.21 m, this scan measures 0.222 m, close enough
 # that scale stays at 1.0. half below is half of those bounds, same convention as every other item.
+# muzzle and eject were added later, read off the exported glb with the same kind of vertex-bounds
+# scan the rifle used: muzzle is the centre of the bore ring at the barrel's crown (on-centre, 0.079
+# m above the grip); eject is an estimate at the slide-top ejection port -- a gap in the slide's own
+# geometry just behind the rear sight -- offset to the right (+X) by the same right-handed-gun
+# convention the rifle's eject uses.
 model      models/polyhaven/service_pistol/service_pistol.glb
 display    Pistol, Safety Allegedly On
 weapon     gun
@@ -26,3 +31,9 @@ grip       0 -0.02 0   -6 0 0          # lowers it a touch and swings the muzzle
 two_handed no
 scale      1.0                         # the scan is already real-world size
 tint       1.0 1.0 1.0                 # the scan carries its own (photoreal) paint
+reserve    96                          # rounds carried beyond the load
+ammo_type  pistol                      # draws on the pistol reserve pool
+muzzle     0.000 0.079 0.198           # bore centre at the crown, on-centre and 0.079 m above the grip
+eject      0.010 0.083 0.150           # slide-top ejection port, right side (+X)
+projectile 420 1.4 0 1.2 34 0 - -      # a pistol round is a lit streak: no sound, no model
+proj_scale 1.0

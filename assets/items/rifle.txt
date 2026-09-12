@@ -1,0 +1,52 @@
+# rifle.txt -- bolt-action found wherever this game's armory keeps its long guns; loud, slow, and
+# you work the bolt yourself between shots.
+# Poly Haven photoscan "Bolt-Action Rifle 7.62" (CC0, was assets/models/polyhaven/
+# bolt_action_rifle_7_62/bolt_action_rifle_7_62_1k.gltf), processed with tools/blender/
+# weapon_prep.py into bolt_action_rifle.glb. The source file is one rifle built from seven separate
+# objects, not two guns side by side like the pistol's scan: the stock/receiver/barrel body, a
+# scope mounted on its own rail, a trigger, a leather wrap on the wrist, two alternate bolt-handle
+# poses (_bolt_a lifted up to cycle, _bolt_b turned down and closed) and a loose 54mm cartridge.
+# Kept the body, scope, trigger, wrap and the closed bolt (_bolt_b -- the pose a carried rifle
+# actually rests in); dropped _bolt_a (the open pose occupies the same space as _bolt_b and only
+# one can be shown) and the loose cartridge (bullet_54mm, the same call the pistol's loose round
+# got). The scope sits square on the receiver bridge on its own rail rather than floating or
+# clipping through anything, so it stayed: 17459 tris kept in total. Reoriented so the muzzle
+# points glTF +Z and up is glTF +Y (the barrel was already +X in the raw scan, up was +Z). Origin
+# moved to the wrist of the stock, just behind the trigger guard (raw x=-0.37, z=-0.004, the
+# model's own frame before reorientation) -- found by rendering the stock in profile over a 0.05 m
+# grid and a vertex-bounds scan along the stock's length, and reading off the narrowest point of
+# the neck: clear of the trigger guard's bow ahead of it and the flare of the grip behind it, right
+# where a hand actually closes. The model is already in the hand's frame -- grip below is therefore
+# 0 0 0. Kept-mesh bounds are 0.048 x 0.205 x 1.231 m (X x Y=up x Z=aim); a 7.62 bolt-action is
+# about 1.10-1.25 m, this scan measures 1.231 m, inside that range, so scale stays at 1.0. half
+# below is half of those bounds, same convention as every other item. muzzle and eject were read
+# off the same grid renders and a vertex-bounds scan of the barrel and receiver: muzzle is the
+# centre of the bore ring at the barrel's crown, which sits dead on the model's own X centreline (a
+# straight, uncanted barrel, as it should be) and 0.055 m above the grip. eject sits at the bolt
+# raceway on the receiver's right side (+X) -- this scan has no reversed parts anywhere on it, and
+# a right-handed bolt action throws its fired cases up and to the right as the bolt draws back, so
+# that is where the port was placed.
+model      models/polyhaven/bolt_action_rifle/bolt_action_rifle.glb
+display    Rifle, Previous Owner Unclear
+weapon     gun
+damage     72                          # of a 100-point wind pool
+rate       1.1                         # shots per second
+range      60                          # metres; hitscan
+ammo       5                           # rounds in a full load
+reserve    40                          # rounds carried beyond the load
+ammo_type  rifle                       # draws on the rifle reserve pool
+knock      6.0                         # m/s shove on whatever it hits
+fire_sound boom                        # firing sound
+mass       4.2                         # kg
+half       0.024 0.102 0.616           # half the model's own bounds (0.048 x 0.205 x 1.231 m)
+fragile    0                           # unbreakable
+value      0                           # dollars; not evidence of anything
+grip       0 0 0   0 0 0               # leave at zero for now; I will tune the framing myself
+muzzle     0.000 0.055 0.966           # bore centre at the crown, on-centre and 0.055 m above the grip
+eject      0.016 0.055 0.200           # bolt raceway, right side (+X) of the receiver
+two_handed no
+scale      1.0                         # the scan is already real-world size
+tint       1.0 1.0 1.0                 # the scan carries its own (photoreal) paint
+projectile 340 2.6 0 2.0 72 0 shot models/shapes/sphere.obj
+proj_scale 0.012
+proj_drag  0.05

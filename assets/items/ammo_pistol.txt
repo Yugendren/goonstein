@@ -1,0 +1,19 @@
+# ammo_pistol.txt -- a box of pistol rounds, small enough to carry without noticing.
+# Poly Haven photoscan "Ammo Box" (CC0, was assets/models/polyhaven/ammo_box/ammo_box_1k.gltf),
+# processed with tools/blender/weapon_prep.py into ammo_box.glb. Not a weapon, so it did not need
+# the muzzle/up weapon frame -- just an upright orientation and an origin at the centre of its
+# base. Kept all five source meshes (body, handle, both handle-ring pivots, latch; 4382 tris); the
+# raw scan was already sitting Z-up with the base at z=0 and x/y centred on 0, so --origin 0 0 0
+# left it alone and --aim/--up only had to pick an arbitrary in-plane pair (+Y/+Z) to satisfy the
+# tool, since a box has no "muzzle" to aim. Bounds are 0.087 x 0.178 x 0.258 m (X x Y=up x Z), half
+# below is half of that. Tinted rust red so it reads apart from ammo_rifle.txt's blue-grey box on
+# the ground; same model file, different paint.
+model      models/polyhaven/ammo_box/ammo_box.glb
+display    Ammo Box, Small Bullets Presumably
+mass       3.0                         # kg; a hand-carriable box, not a full case
+half       0.043 0.089 0.129           # half the model's own bounds (0.087 x 0.178 x 0.258 m)
+fragile    0                           # unbreakable
+value      0                           # dollars; not evidence of anything
+scale      1.0
+tint       0.75 0.20 0.15              # rust red, to tell it apart from ammo_rifle.txt on the ground
+ammo       pistol 24                   # fills the pistol reserve pool by 24 rounds

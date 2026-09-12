@@ -3,8 +3,8 @@ model models/quaternius/ranger_male.glb
 scale 1.00
 texture_size 512
 yaw_offset 0
-# lands with the wrench in the weapon hand (assets/items/wrench.txt)
-spawn wrench
+# every goon lands with the pistol (assets/items/pistol.txt); the rifle is a pickup
+spawn pistol
 # voice chat: faintly robotic: a bigger tract and a 55 Hz ring modulator
 voice 1.00 0.90 ring
 recolor 45 72 27  140 35 120
@@ -28,3 +28,8 @@ anim block      Push_Loop loop
 anim hurt_head  Hit_Head
 anim hurt_heavy Hit_Knockback
 anim attack_run OverhandThrow contact 0.35
+anim gun_idle   Pistol_Idle_Loop loop
+anim gun_fire   Pistol_Shoot
+anim gun_reload Pistol_Reload
+anim melee_idle Idle_Loop loop
+anim melee_swing Melee_Hook contact 0.45
