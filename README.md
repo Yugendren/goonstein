@@ -55,11 +55,12 @@ and what is verified versus untested.
 |---------------|---------------------------|------------------|
 | Move          | WASD                      | Left stick       |
 | Camera        | Mouse                     | Right stick      |
-| Jump          | Space                     | --               |
-| Crouch        | Ctrl (hold)               | --               |
+| Jump / wall run | Space (hold it for the wall run) | --      |
+| Crouch / slide | Ctrl (hold; at a sprint it is a slide) | --  |
 | Attack        | Left mouse (or J)         | RB               |
 | Deflect / block | Right mouse tap / hold (or K) | LB           |
 | Step dodge / sprint | Shift tap / hold          | B          |
+| Mantle / vault | (none: run or jump into a ledge)  | --       |
 | Lock-on       | Middle mouse, Q or Tab    | R3               |
 | Interact / pick a mate up | E (hold to pick up) | A            |
 | Fire / swing  | Left mouse                | RB               |
