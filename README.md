@@ -671,32 +671,103 @@ counted in ticks, so play is identical everywhere). Rendering runs at the displa
 characters, items and the camera between the last two ticks, so 90, 120, 144 or 240 Hz screens show
 motion every frame.
 
-What is interpolated and what is not matters. Positions -- players, the boss, every item's body --
-are lerped by the frame's alpha (the fraction of a tick left in the accumulator, always in [0, 1),
-and monotonic even when one frame swallows two ticks). The first-person eye is *not*: it is rebuilt
-every frame from the interpolated feet plus the current view angles, because the view has already
-turned this frame and lerping the last two ticks' eye positions would drag it back a whole tick.
-Cameras nobody is driving -- a cutscene, the fixed overworld view -- are still interpolated.
-Measured walking a straight line at 144 Hz, the rendered eye's ground speed varies by 0.03% of its
-mean across frames; what is left of the frame-to-frame *distance* variation is the frame pacing
-itself, not the camera.
+**The cap must be a whole divisor of the refresh.** This is the single most visible smoothness bug
+a game can ship and it is invisible to every meter inside the process. A played session reported
+"still a lot of texture stuttering" while its own log said 11.11 ms a frame, sd 0.00, no late
+frames, for ninety seconds. Both were true: the panel is 144 Hz and `fps 90` was set in the
+settings menu, which is 1.60 refreshes a frame. The display cannot hold a frame for 1.6 refreshes,
+so it holds them for two, two, one, two, two, one -- the world beats at 28.8 Hz while the frame
+time stays perfectly flat, because the stutter happens after the last thing the CPU measures. So
+the display's rate is read at startup and logged (`display: 144 Hz`), a cap that is not a divisor
+is snapped to the nearest one with a warning that says why, and the settings menu and the F1
+overlay offer *that display's* divisors instead of a fixed 30/60/90/120/144/240 list. On a 144 Hz
+panel the choices are DISPLAY, 144, 72, 48 and 36; `fps 90` becomes 72. `vsync 0` opts out --
+without vsync there is no cadence to beat against, so the cap is left exactly as asked for.
 
-Parry presses are dated to the moment of the press, not to the tick that saw them, so the rhythm
-judgement is exact at any frame rate. The debugger
-(`\`) has a FRAME RATE row: display, 30, 60, 90, 120, 144, 240 and a vsync toggle, saved to
-`assets/settings.txt` (`fps N`, `vsync 0|1`; `HOLLOW_FPS=N`, `HOLLOW_NOVSYNC=1` override). The
-`FRAME CAP` and `VSYNC` rows of the settings menu are the same two settings without the debugger.
+The cap paces to an absolute deadline, sleeping to a millisecond short of it and spinning onto it;
+one millisecond of spin at 144 fps is 14% of a core and buys a frame period that does not wander.
+When vsync is genuinely doing the pacing (the cap equals the refresh, the present mode really is
+VSYNC, and frames really are being presented) the cap stands down entirely rather than having two
+pacers fight over the same deadline.
+
+What is interpolated and what is not matters. Remote players, the boss and every item's body are
+lerped by the frame's alpha (the fraction of a tick left in the accumulator, always in [0, 1), and
+monotonic even when one frame swallows two ticks). The local player is *not*: it is carried forward
+from the tick's own position and velocity by that same alpha, through `level_move` so a wall stops
+the picture where it will stop the simulation, and only vertically while airborne. Interpolation
+draws tick n-1 to n, which is a whole tick behind the clock -- correct for everything this machine
+does not own, and 16.7 ms of lag between the mouse and the world for the body under your own hands.
+Nothing is written back, so prediction and reconciliation are untouched. The first-person eye is
+then rebuilt every frame from those feet plus the current view angles, because the view has already
+turned this frame. Cameras nobody is driving -- a cutscene, the fixed overworld view -- are still
+interpolated. `HOLLOW_NOAHEAD=1` goes back to interpolating the local player;
 `HOLLOW_NOINTERP=1` draws the raw tick state.
 
-Three hooks measure this without a hand on the keyboard. `HOLLOW_TRACE=FILE` writes one CSV line
-per rendered frame (time, alpha, eye, view angles, feet, speed, grounded) and dumps it at exit;
+**Measuring it.** The once-a-second `smooth:` line in `hollow.log` quotes two spreads and they mean
+different things:
+
+    smooth: eye 59.46 mm/frame sd 5.8% peak 72.93 mm | flat 53.36 mm sd 0.06% | traverse 0 frames
+            peak 0.00 mm | frame 11.11 ms sd 0.01 ms worst 11.1 ms late 0 | 90 fps
+            | 144 Hz panel 1.60 refresh/frame BEAT
+
+`eye` is the whole per-frame movement of the eye and it *includes the head bob*, which is two
+designed dips a stride and puts 4-8% of spread on its own at any frame rate above the tick rate.
+Chasing that number is chasing the bob. `flat` is the horizontal component, which has no designed
+wobble in it at all: walking a straight line, every frame should cover exactly the same ground, so
+its spread is judder and nothing else. Measured on the island with `HOLLOW_AUTOWALK`:
+
+| cap | `flat` spread, steady walk | frame time sd |
+|---|---|---|
+| 60 fps | 0.07 - 0.26 % | 0.01 ms |
+| 90 fps | 0.05 - 0.16 % | 0.00 ms |
+| 120 fps | 0.00 - 0.18 % | 0.00 ms |
+| 144 fps | 0.00 - 0.68 % | 0.00 ms |
+
+The last field is the one that catches what no CPU-side number can: the panel's refreshes per
+frame, and the word `BEAT` when that is not a whole number. If a player says it stutters and every
+other number is clean, read that field first.
+
+Parry presses are dated to the moment of the press, not to the tick that saw them, so the rhythm
+judgement is exact at any frame rate.
+
+**Where a frame went.** The `prof:` block and the `hitch:` lines break the input phase into
+`in_pump` (SDL_PumpEvents -- the operating system's own event loop, Cocoa's on a Mac),
+`in_events` (draining what it produced), `in_state` (keyboard, pad, the derived axes) and `in_look`
+(mouse look, bob, FOV, the crouch ease, all at frame rate). This exists because a played session's
+log had mid-play hitches of 25-360 ms attributed only to "input", which names nothing. Headless,
+`in_pump` costs 0.009 ms median and spikes exactly once per process, 35-45 ms, a fraction of a
+second after the first frame; that is the operating system and the warm-up draws before the loading
+screen comes down are what move it out of play. `HOLLOW_NOPAD=1` and `HOLLOW_NORELMOUSE=1` are
+bisect switches for when it is something else -- they answer "is SDL walking the HID bus" and "is
+it the relative-mouse warp" in one run each instead of in an argument.
+
+The debug log is buffered. It used to `fflush` every line, and `dbg_log` is called from inside the
+SDL event drain -- one `write(2)` per keystroke, to a file on a machine that is also running
+Spotlight, inside the input phase. It now flushes four times a second, and immediately for anything
+that could be the last line before a crash (a warning, a `hitch:`, a `stall:`), and reports its own
+worst flush at exit as `log: N flushes, M over 2 ms, worst X ms`.
+
+Three hooks measure all of this without a hand on the keyboard. `HOLLOW_TRACE=FILE` writes one CSV
+line per rendered frame (time, alpha, eye, view angles, feet, speed, grounded) and dumps it at exit;
 `HOLLOW_AUTOWALK=DEGREES` holds W with the view aimed along that compass yaw, and
-`HOLLOW_AUTOINPUT=sprint|crouch|jump` holds those with it; `HOLLOW_AUTOLOOK=PIXELS_PER_SECOND`
+`HOLLOW_AUTOINPUT=sprint|crouch|jump|slide` holds those with it; `HOLLOW_AUTOLOOK=PIXELS_PER_SECOND`
 injects a steady pan where a real mouse's motion arrives. `HOLLOW_SPRINT_TEST=1` rides on
 `HOLLOW_AUTOWALK`: it walks for a second and a half, presses Shift, and writes the speed every tick
 until the run tops out -- which is where the sprint timings in [Movement](#movement) come from --
-then deliberately drops the input for one tick in twenty to prove the run does not flicker. A shake is a sign-alternating delta in
-that file. `assets/levels/feel.txt` is the bench they run on: flat ground, four 0.25 m steps, a deck
+then deliberately drops the input for one tick in twenty to prove the run does not flicker.
+`HOLLOW_INPUT_SCRIPT=FILE` is the one that can do a technique: one line per moment,
+
+    # tick  keys                      mouse_dx  mouse_dy
+    0       -                         0 0
+    60      w+sprint                  0 0
+    180     w+a+sprint+jump           -6 0
+    186     w+a+sprint+jumphold       -6 0
+
+held until the next line, replayed off the sim tick so the same file produces the same speed on
+every machine and at every frame rate. Air strafing is a mouse turn and a strafe key in time with
+each other and a hop chain is a jump pressed on the tick the feet land; no bot does that
+repeatably and no hand does it twice the same way. A shake is a sign-alternating delta in the trace
+file. `assets/levels/feel.txt` is the bench they run on: flat ground, four 0.25 m steps, a deck
 with an edge to walk off and a 2 m ledge to fall from.
 
     HOLLOW_SILENT=1 HOLLOW_FPS=144 HOLLOW_NOVSYNC=1 HOLLOW_AUTOWALK=90 HOLLOW_TRACE=/tmp/walk.csv \
