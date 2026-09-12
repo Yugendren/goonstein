@@ -127,77 +127,91 @@ the thing you are going over.
 **The numbers, and where they come from.** These were set against the games that got them right
 rather than by feel, and every one of them lives in `assets/player.txt` with its source in the
 comment beside it. Source engine units are inches (a player is 72 units = 1.83 m tall), so
-190 u/s is 4.83 m/s.
+190 u/s is 4.83 m/s. Everything in the right-hand column of the table below was measured on the
+real binary, headless, with `HOLLOW_SPRINT_TEST=1` or a `HOLLOW_INPUT_SCRIPT` -- not estimated.
 
 | | ours | the reference it came from |
 |---|---|---|
-| walk | **4.8 m/s** | Half-Life 2 / Source default run, `cl_forwardspeed` 190 u/s = 4.83 m/s |
-| sprint | **7.5 m/s**, reached **0.35 s** after Shift | HL2 `+speed` sprint is 320 u/s = 8.13 m/s; Mirror's Edge is at full speed in well under a second |
-| long run | climbs to **8.5 m/s** over another ~3.4 s | Mirror's Edge tops Faith out around 8-9 m/s |
-| crouch | **2.0 m/s** (`crouch_mult 0.42`) | HL2 crouch-walk 75 u/s = 1.9 m/s |
-| ceiling | `speed_cap` **9.5 m/s** | Quake's `sv_maxspeed 320` = 8.13 m/s, plus headroom for a chain of hops |
+| walk | **5.5 m/s** | a notch over Half-Life 2's 190 u/s = 4.83 m/s; Quake and Titanfall's base walk is brisk, not a stroll |
+| sprint | **8.5 m/s**, reached **0.15 s** after Shift (7.5 at 0.10) | HL2 `+speed` is 320 u/s = 8.13 m/s, Quake's `sv_maxspeed` the same; Titanfall's sprint is immediate |
+| ceiling | `speed_cap` **12.0 m/s**, and holding W can never reach it | Quake's strafe-jumping: the cap exists to be a skill, not a stat |
+| crouch | **2.0 m/s** (`crouch_mult 0.36`) | HL2 crouch-walk 75 u/s = 1.9 m/s |
 | ground accel | `accel 12` | Source `sv_accelerate 10` -- the same Quake-shaped coefficient, a touch higher |
-| friction | `friction 5` | Source `sv_friction 4`, CS:GO's 5.2 |
+| friction | `friction 7.5` | Source `sv_friction 4` was too slippery for a 8.5 m/s sprint; measured, 8.5 m/s to under 1 m/s in **0.33 s**, to a standstill in 0.48 |
 | stop speed | `stop_speed 2.5` | Source `sv_stopspeed` 100 u/s = 2.54 m/s |
-| air control | `air_accel 12`, wish speed capped at `air_wish 1.6` | Quake's air accel; Titanfall/Apex keep the same shape -- a small wish cap is what makes air control steerable without being flight |
+| air control | `air_accel 6.0`, wish speed capped at `air_wish 1.6` | Quake's air accel with a low wish cap; the product of the two is what a clean strafe-jump earns per hop |
+| gravity | **32 m/s^2**, `jump_height 1.1` m -> **0.52 s** airtime | 1.6x the 20 that Quake, Half-Life and Counter-Strike all use |
 | for scale | -- | Counter-Strike runs at 250 u/s = 6.35 m/s, between our walk and our sprint |
 
-**Momentum.** The run is built, not switched on, but building it is now fast enough to feel like a
-key rather than a wait. Shift engages on the tick it is seen -- there is no arming delay -- and
-ramps the wish speed from the `speed 4.8` walk to `speed * sprint_mult` = 7.5 m/s over
-`sprint_ramp 0.35` seconds (measured, with `HOLLOW_SPRINT_TEST=1`: 5.57 m/s at 0.1 s, 6.34 at 0.2,
-7.11 at 0.3, 7.5 at 0.350). `sprint_surge 1.0` is a second, slower ramp on top of that -- `surge_ramp
-2.5` seconds of unbroken running for one more metre per second, reaching 8.5 m/s 3.7 s in -- so a
-long run keeps paying out and a short one does not. The build is *kept* while the feet are off the
-ground and spent by stopping, so a hop costs you nothing and a stop costs you the run-up.
+**The ceiling is a skill.** The ground wish speed a held Shift can ask for tops out at 8.5 m/s, full
+stop. `speed_cap 12.0` is above it and nothing on the stick reaches it: the four metres a second
+between them are bought with technique and lost the moment you stop, because ground friction bleeds
+anything above 8.5 straight back down to it. Measured, on `feel`, with input scripts:
 
-Three things used to be wrong with that and are worth writing down, because each was worth more to
-how Shift feels than any of the numbers. **One:** sprint did not start until Shift had been held for
-a quarter of a second, so the first thing Shift did was nothing. **Two:** the sprint state was a
-raw per-tick expression, `in->sprint && sprint_t > 0.25 && mlen > 0.05`, and *any* single tick where
-the stick read zero -- turning a corner, swapping strafe keys, a key transition -- reset the arming
-timer, which meant a quarter second of walking before the run came back while the momentum bled
-away at 2/s. That is the stutter. It is now a latch with `sprint_grace 0.25` seconds of slack: a gap
-that short in the input does not end the run at all, and only a real stop spends `sprint_decay 0.6`
-seconds bleeding it away. Measured with a deliberate one-tick input gap every twenty ticks, the run
-holds 8.500 m/s with momentum and surge both pinned at 1.00. **Three:** Shift also fired the Sekiro
-step -- a 0.42 s, 3.2 m lunge -- on every press, in the middle of the overworld. The step is a
-combat move now: outside a fight, Shift is sprint and nothing else.
+| technique | measured |
+|---|---|
+| plain hop chain, no strafing, six hops | **8.500 - 8.501 m/s**, flat -- a hop costs nothing and earns nothing |
+| strafe-jump chain (strafe key held, mouse turning into it) | **+0.38 to +0.46 m/s a hop**, 8.5 -> **12.00 m/s** over about a dozen hops |
+| slide jumped out of at 8.5 | out at **9.48 m/s** (the slide's own speed plus `SLIDE_JUMP_BOOST 1.2`) |
+| wall jump, straight into a wall at 8.5 | out at **5.1 m/s** away from the face, **+1.07 m** of height |
+| mantle at speed | **8.500 -> 8.500** -- the climb keeps the run now, where it used to cut it to 55% |
+
+The same strafe-jump script run at `HOLLOW_FPS=60` and `HOLLOW_FPS=144` produces identical
+`traverse:` lines -- every term in the accel step is multiplied by `dt`, and the simulation ticks at
+a fixed rate whatever the display does, so the old Quake bug where more frames a second meant more
+speed cannot happen here. That also means the whole thing is a pure function of the inputs, which is
+what lets the host replay a client's moves bit-identically (see [Networking](#networking)).
+
+**No new keys.** Space, Shift, Ctrl, and nothing else. Air strafing is a strafe key and the mouse.
+A hop chain is Space pressed as the feet land (`jump_buffer 0.15` s remembers the press, and the
+friction is skipped on the tick a jump fires, so a landing costs nothing). A wall jump is Space
+while airborne and touching any vertical face -- no wall run required, no markup on the wall, one
+push per face per airtime, and touching the ground opens it again, so two facing walls are a ladder
+and one wall is not. A crouch jump is Ctrl in the air: the collision body shrinks to 62% of standing
+height while it is held and only grows back once there is headroom, which is the reach that clears a
+ledge you would otherwise clip.
+
+**Momentum.** Shift engages on the tick it is seen -- no arming delay -- and `sprint_ramp 0.15`
+seconds later you are at 8.5. What survives from the older, slower build is the part that matters:
+the sprint is a *latch* with `sprint_grace 0.25` seconds of slack, so a gap in the input that short
+(a stick reading zero for a tick while turning, a strafe-key swap, Shift lifting between presses)
+does not end the run. That is what killed the stutter -- the old code read every one of those as
+letting go and spent a quarter of a second walking before the run came back. Only a real stop spends
+`sprint_decay 0.6` seconds bleeding it away, and the build is kept while the feet are off the ground.
+`sprint_surge` and `surge_ramp` are held at 0: the machinery stays so a future slower sprint has
+somewhere to earn a long-run bonus, but nothing can push the ground speed past 8.5 today.
 
 `sprint hold|toggle` in `assets/settings.txt` picks how Shift behaves. `hold` is the default.
 `toggle` flips the run on with a press and off with the next one, and switches itself off when you
-stop moving, so it never survives a stop.
+stop moving, so it never survives a stop. Shift is sprint and nothing else outside a fight -- the
+Sekiro step is a combat move, not a run key.
 
-Underneath it is still Quake. Two rules make hopping worth doing and keep it finite: the friction is
-skipped on the tick a jump fires -- one 60 Hz bite out of 7.5 m/s is most of a metre per second,
-which is the difference between a chain of hops and a series of stops -- and `speed_cap 9.5` is a
-ceiling nothing gets past. Gravity is 20 m/s^2 and `jump_height 1.05` metres is what Space buys; the
-impulse is derived from the height, so changing one number changes the jump. A jump is forgiven for
-`coyote 0.12` seconds past an edge and remembered for `jump_buffer 0.15` seconds before the feet
-land.
+A jump is forgiven for `coyote 0.12` seconds past an edge and remembered for `jump_buffer 0.15`
+seconds before the feet land.
 
 **Mantle and vault.** Run or jump into anything between `mantle_min 0.55` and `mantle_max 2.2`
 metres with room to stand on top and you go up it. The probe is three columns in front of the feet
 -- the ledge, half a metre past it (a ledge, or the bottom of a taller wall?), and the face in
 between -- asked of block tops, prop colliders, boat decks and the terrain alike, so a quay, a
 veranda rail and a compound wall are all just ledges. Below `vault_max 1.2` metres at more than
-`vault_speed 5.5` m/s it is vaulted instead: the path bulges over the top and the speed is kept
-whole. That threshold and `wallrun_speed 6.0` both moved up with the walk -- at a 4.8 m/s walk the
-old 4.2 and 4.6 would have fired on an ordinary stroll, and a move that happens when you did not
-ask for it is worse than one that does not happen. A climb
-takes 0.35 s on a knee-high ledge and 0.6 s on a head-high one and costs you most of the run-up
-(you come out at 55% of what you went in with, capped at 3.6 m/s); both halves of it -- up, then
+`vault_speed 6.0` m/s it is vaulted instead: the path bulges over the top and the speed is kept
+whole. `vault_speed` and `slide_enter` both moved up again with the 5.5 m/s walk -- a threshold
+below the walk fires on an ordinary stroll, and a move that happens when you did not ask for it is
+worse than one that does not happen. A climb
+takes 0.35 s on a knee-high ledge and 0.6 s on a head-high one and keeps the run whole -- you come
+out at the speed you went in with, where it used to cost you 45% of it; both halves of it -- up, then
 over -- are smoothsteps, so the eye leaves and arrives with no vertical speed. The speed the move
 reads is the speed you were doing a fifth of a second ago, not this instant: running into a wall
 zeroes your velocity inside one tick, and "how fast were you going when you hit it" is the question
 a vault has to answer.
 
-**Slide.** Ctrl above `slide_enter 6.0` m/s is a `slide_time 0.85` second slide that bleeds
+**Slide.** Ctrl above `slide_enter 7.0` m/s is a `slide_time 0.85` second slide that bleeds
 `slide_decel 2.2` m/s per second, drops the eye 0.95 m (a crouch drops it 0.5) and shrinks the body
 to 55% of its height, so a gap a metre high is something you go through. Let go of Ctrl under a
 roof and the slide holds itself there until there is headroom -- a culvert is a thing you pass
-through, not a thing you get stuck in. Space out of a slide is the long hop: the slide's speed plus
-a tenth, and a jump 6% higher.
+through, not a thing you get stuck in. Space out of a slide is the long hop: the slide's own
+speed plus a flat 1.2 m/s, capped by `speed_cap`, and a jump 6% higher -- 8.5 m/s into the slide
+comes out at 9.48.
 
 **Landing.** Under `roll_fall 4.0` metres of drop the landing keeps every bit of your momentum and
 only the knees give (the eye dips about 0.1 m per metre-per-second of impact and springs back
@@ -1407,6 +1421,16 @@ over the movement bench, 24 mantles and 3 vaults between them, 125 corrections w
 applied to a curve, average correction 0.14 to 0.22 m and no hard snap after the join; over the
 island, 6 mantles, average 0.13 m and the same. The only hard snaps in either run are at ticks 4 to
 22, the moment a client is seated and has not had a snapshot yet, and they predate all of this.
+
+Re-run on the lantern level after the movement and frame-pacing work, three clients for 35 s each:
+
+    net client slot 2 peers 1 | in 30 pkt 4380 B | out 60 pkt 1560 B | rtt 16.7 ms |
+      snap age 17 ms | corr 0 avg 0.000 max 0.000 m snaps 0 | dropped 0
+
+-- zero corrections, zero snaps, nothing dropped, on all three. Drawing the local player ahead of
+the tick (see [Frame rate](#frame-rate)) cannot show up here and does not: it is applied inside
+`game_render`, to a copy, and put back before the frame ends. The simulation the prediction runs on
+never sees it.
 
 ### Packet layout
 

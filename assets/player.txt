@@ -1,58 +1,76 @@
 # Player tuning. Times in seconds (60 Hz sim: 0.15 s = 9 frames).
 hp 100
-speed 4.8              # HL2 190 u/s = 4.83 m/s (1 Source unit = 1 inch = 0.0254 m)
-sprint_mult 1.5625     # 4.8 * 1.5625 = 7.5 m/s, the speed Shift reaches in sprint_ramp
+speed 5.5               # a notch above HL2's 190 u/s (4.83 m/s): Quake/Titanfall's base walk is brisk,
+                         # not a stroll -- everything past this is Shift and technique, not the stick
+sprint_mult 1.5455      # 5.5 * 1.5455 = 8.5 m/s, the speed Shift reaches in sprint_ramp -- and the
+                         # hard ceiling on what holding W can ever ask for; see speed_cap below
 turn_speed 16
 
-# Ground movement (Half-Life/Quake shaped): walk 4.8 -> sprint 7.5 (speed * sprint_mult), climbing
-# on to 8.5 through sprint_surge below. For scale: Source sprint is 320 u/s = 8.13 m/s, Quake's
-# sv_maxspeed 320 is the same number, Counter-Strike run is 250 u/s = 6.35 m/s, and Mirror's Edge
-# tops Faith out around 8-9 m/s. accel/air_accel/friction are Quake's sv_accelerate/sv_friction-
+# Ground movement (Half-Life/Quake shaped): walk 5.5 -> sprint 8.5 (speed * sprint_mult), reached in
+# sprint_ramp seconds of holding Shift, full stop. For scale: Source sprint is 320 u/s = 8.13 m/s,
+# Quake's sv_maxspeed 320 is the same number, Counter-Strike run is 250 u/s = 6.35 m/s, and Mirror's
+# Edge tops Faith out around 8-9 m/s. accel/air_accel/friction are Quake's sv_accelerate/sv_friction-
 # shaped coefficients, not m/s^2 -- see the friction/accel math in player_update (combat.c).
 # jump_height is metres, converted to a launch vy against game.c's gravity. crouch_mult only
 # scales speed here; the eye height and stance drop are game.c's job.
-accel 12               # Source sv_accelerate 10, a touch higher: full wish speed inside 2-3 ticks
-air_accel 12
-friction 5              # Source sv_friction 4 / CS:GO 5.2
-stop_speed 2.5          # Source sv_stopspeed 100 u/s = 2.54 m/s
-jump_height 1.05
-crouch_mult 0.42        # 4.8 * 0.42 = 2.0 m/s, HL2 crouch 75 u/s = 1.9
+accel 12                # Source sv_accelerate 10, a touch higher: full wish speed inside 1/accel ~ 5 ticks
+air_accel 6.0            # low on purpose: this is what makes air control a strafe-jump technique
+                         # instead of a second accel step. See air_wish below -- the two multiply
+                         # together into the m/s a clean strafe-jump earns per hop.
+friction 7.5             # measured: releasing every key at 8.5 m/s stops in ~0.3 s (was Source's 4)
+stop_speed 2.5           # Source sv_stopspeed 100 u/s = 2.54 m/s
+jump_height 1.1          # -> vy ~8.4 m/s against game.c's 32 m/s^2 gravity, ~0.52 s airtime (measured)
+crouch_mult 0.36         # 5.5 * 0.36 = 1.98 m/s, HL2 crouch 75 u/s = 1.9
 
-# Traversal (src/combat.c, the "traversal" section). The top speed is not reached by holding Shift,
-# it is BUILT: sprint_ramp seconds of running to reach speed * sprint_mult, then surge_ramp seconds
-# more of unbroken running earns sprint_surge on top of that -- Mirror's Edge getting to full speed
-# in well under a second, then still climbing on a long run. Both are kept through a hop, and
-# through a gap in the input of up to sprint_grace seconds: a stick reading zero for a tick while
-# turning, a strafe-key swap, Shift lifting between presses. That is what kills the stutter -- none
-# of those should read as letting go of Shift. Only a real stop spends sprint_decay seconds bleeding
-# the built-up speed away. speed_cap is the ceiling nothing gets past, which is what keeps bunny
-# hopping fun and finite. air_wish is the m/s the mid-air accel step chases: 0.9 is Quake's "steer a
-# little", 1.6 is enough to pick which side of a gap you land on -- Titanfall/Apex-shaped, a small
-# wish-speed cap is what makes air control steerable without being flight.
-sprint_ramp 0.35    # seconds from walk to the 7.5 m/s sprint (was 1.05)
-sprint_surge 1.0    # extra m/s a long sprint earns on top of 7.5 -> 8.5 (Mirror's Edge)
-surge_ramp 2.5      # seconds of unbroken sprinting to earn all of sprint_surge
+# Traversal (src/combat.c, the "traversal" section). Sprint itself is no longer something you build:
+# sprint_ramp seconds of holding Shift is essentially instant (a third of what it used to take) and
+# that is the whole way to 8.5 -- the ground wishspeed a held Shift can ever ask for tops out there
+# (top_speed in player_update), full stop. Above that is a momentum ceiling, speed_cap, that nothing
+# but technique reaches: a chain of air-strafed hops, a slide jumped out of, a wall kicked off. Ground
+# friction bleeds any of that back toward 8.5 the moment you stop chaining, which is what makes the
+# ceiling a skill instead of a stat. sprint_surge/surge_ramp are the same latch stretched further,
+# kept at 0 m/s now that sprint_ramp alone reaches the top -- the machinery (and the sprint_grace/
+# sprint_decay gap-tolerance below) stays so a future slower sprint has somewhere to earn a long-run
+# bonus without touching this file's shape. sprint_grace is how long the sprint survives a gap in the
+# input (a stick reading zero for a tick while turning, a strafe-key swap, Shift lifting between
+# presses) before it actually lets go -- that is what kills the stutter, none of those should read as
+# letting go of Shift. Only a real stop spends sprint_decay seconds bleeding the built-up speed away.
+# air_wish is the m/s the mid-air accel step chases and air_accel is deliberately low: their product
+# is roughly the m/s per second a perfect strafe-jump earns, so a clean chain gains 0.3-0.6 m/s a hop
+# (measured) instead of the old single air_accel doing the whole job and turning every jump into free
+# speed. Both are dt-scaled in the accel step itself, so the gain is the same at 60 Hz and 144 Hz of
+# real time -- the sim always ticks at a fixed rate regardless of the display (main.c's TICK_DT); a
+# higher frame rate only samples the mouse more often between ticks, it does not add extra ticks.
+sprint_ramp 0.15    # seconds from walk to the 8.5 m/s sprint (was 0.35, and 1.05 before that)
+sprint_surge 0      # extra m/s a long sprint earns on top of 8.5 -- 0 now that sprint_ramp reaches
+                     # the top on its own; see the block comment above
+surge_ramp 2.5      # seconds of unbroken sprinting to earn all of sprint_surge (inert while it is 0)
 sprint_grace 0.25   # seconds the sprint survives letting go of the stick / a turn
 sprint_decay 0.6    # seconds for the built sprint to bleed away once it really stops
-speed_cap 9.5       # ceiling nothing gets past
+speed_cap 12.0      # the momentum ceiling: unreachable by holding W (top_speed above tops out at
+                     # 8.5), only by technique -- air strafing, a slide jump, a wall jump
 coyote 0.12        # seconds past the edge a jump still counts
 jump_buffer 0.15   # seconds a jump press waits for the feet to land
-air_wish 1.6
+air_wish 1.6       # m/s of wishspeed the air accel step chases; see air_accel above -- together they
+                   # are what makes a strafe-jump earn 0.3-0.6 m/s instead of either flying or doing nothing
 
 # Slide: Ctrl at a sprint. It bleeds slide_decel m/s every second and ends at slide_exit, or when
 # the 0.85 s is up, or when Ctrl comes off -- unless there is a roof, in which case it holds until
 # there is headroom, which is what makes a culvert something you go through rather than get stuck in.
+# Jumping out keeps the slide's speed and adds SLIDE_JUMP_BOOST (combat.c) on top, capped by speed_cap.
 slide_time 0.85
 slide_decel 2.2
-slide_enter 6.0    # only out of a sprint now that a walk alone is 4.8 (was 4.6)
+slide_enter 7.0    # only out of a real sprint now that a walk alone is 5.5 (was 4.6, then 6.0)
 slide_exit 3.0
 
 # Mantle and vault: no level markup, any block top or deck between these heights with room to stand
-# on. Under vault_max at vault_speed it is gone over instead of climbed, and the speed is kept.
+# on. Under vault_max at vault_speed it is gone over instead of climbed; both a vault and a mantle
+# now keep the speed they were entered with (see traverse_update's TM_MANTLE/TM_VAULT exit).
 mantle_min 0.55    # below this the feet just step up (LEVEL_STEP_UP)
 mantle_max 2.2
 vault_max 1.2
-vault_speed 5.5    # the run needed to go OVER a low obstacle instead of climbing it (was hardcoded 4.2)
+vault_speed 6.0    # the run needed to go OVER a low obstacle instead of climbing it -- above the 5.5
+                   # walk now, so a plain walk into a crate still climbs it rather than hopping it
 roll_fall 4.0      # metres of drop that lands as a roll instead of a stop
 wallrun_time 1.2   # seconds a wall run can hold; 0 turns wall running off
 wallrun_speed 6.0  # the run needed to start a wall run (was a hardcoded 4.6)

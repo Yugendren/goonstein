@@ -187,6 +187,10 @@ typedef struct Player {
     float trav_speed;                // horizontal speed carried in, handed back on the way out
     float trav_arc;                  // metres the path bulges above the straight line: a vault goes OVER the thing
     Vec3  wall_normal; float wall_side;   // wall run: the face and which shoulder it is on (-1 left, +1 right)
+    // --- traversal --- a plain airborne wall jump, no run required: one push per face per airtime,
+    // so a corridor with a wall on each side is a ladder and not a free climb straight up. Cleared
+    // the moment the feet touch ground (see air_t's reset) so the next fall opens it again.
+    bool  wall_jumped; Vec3 wall_jump_normal;
     float momentum;                  // 0..1 sprint build-up, sprint_ramp seconds to the top
     float surge;                     // 0..1 second, slower build on top of momentum: surge_ramp seconds
                                       // of unbroken running at full momentum earns sprint_surge more m/s

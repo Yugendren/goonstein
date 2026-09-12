@@ -143,14 +143,15 @@ bool player_def_load(PlayerDef *d, const char *path) {
     size_t n; char *text = SDL_LoadFile(path, &n);
     if (!text) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "player def missing: %s", path); return false; }
     // These are the fallbacks for a missing assets/player.txt, so they are the same numbers the
-    // file carries rather than an older tuning nobody plays: walk 4.8 (Half-Life 2's 190 u/s),
-    // sprint 7.5 in a third of a second, 8.5 on a long run. See assets/player.txt for the sources.
-    PlayerDef o = { .hp = 100, .speed = 4.8f, .sprint_mult = 1.5625f, .turn_speed = 16,
-                    .accel = 12, .air_accel = 12, .friction = 5, .stop_speed = 2.5f, .jump_height = 1.05f, .crouch_mult = 0.42f,
-                    .sprint_ramp = 0.35f, .speed_cap = 9.5f, .coyote = 0.12f, .jump_buffer = 0.15f, .air_wish = 1.6f,
-                    .sprint_surge = 1.0f, .surge_ramp = 2.5f, .sprint_grace = 0.25f, .sprint_decay = 0.6f,
-                    .slide_time = 0.85f, .slide_decel = 2.2f, .slide_enter = 6.0f, .slide_exit = 3.0f,
-                    .mantle_min = 0.55f, .mantle_max = 2.2f, .vault_max = 1.2f, .vault_speed = 5.5f,
+    // file carries rather than an older tuning nobody plays: walk 5.5, sprint 8.5 reached in well
+    // under a fifth of a second, a technique ceiling (speed_cap) above that. See assets/player.txt
+    // for the sources and the reasoning.
+    PlayerDef o = { .hp = 100, .speed = 5.5f, .sprint_mult = 1.5455f, .turn_speed = 16,
+                    .accel = 12, .air_accel = 1.6f, .friction = 7.5f, .stop_speed = 2.5f, .jump_height = 1.1f, .crouch_mult = 0.36f,
+                    .sprint_ramp = 0.15f, .speed_cap = 12.0f, .coyote = 0.12f, .jump_buffer = 0.15f, .air_wish = 1.6f,
+                    .sprint_surge = 0.0f, .surge_ramp = 2.5f, .sprint_grace = 0.25f, .sprint_decay = 0.6f,
+                    .slide_time = 0.85f, .slide_decel = 2.2f, .slide_enter = 7.0f, .slide_exit = 3.0f,
+                    .mantle_min = 0.55f, .mantle_max = 2.2f, .vault_max = 1.2f, .vault_speed = 6.0f,
                     .roll_fall = 4.0f, .wallrun_time = 1.2f, .wallrun_speed = 6.0f,
                     .attack_windup = 0.18f, .attack_active = 0.12f,
                     .attack_recovery = 0.35f, .attack_damage = 8, .attack_range = 1.9f, .attack_posture = 6,
@@ -216,6 +217,7 @@ void player_reset(Player *p, Vec3 pos, float yaw) {
     p->buf_attack = p->buf_parry = p->buf_dodge = 0; p->regen_delay = 0; p->iframes = 0; p->knock = v3(0, 0, 0);
     // --- traversal --- a reset lands you standing still on the ground with no run built up
     p->trav = TM_NONE; p->trav_t = p->trav_dur = 0; p->trav_speed = 0; p->trav_arc = 0; p->wall_side = 0;
+    p->wall_jumped = false; p->wall_jump_normal = v3(0, 0, 0);
     p->momentum = 0; p->surge = 0; p->run_speed = 0; p->air_t = 0; p->buf_jump = 0; p->slide_cd = 0; p->last_vy = 0;
     c->hvel = v3(0, 0, 0); c->vy = 0; c->traversing = false; c->body_height = c->height;
     c->land_impact = c->land_drop = 0; c->fall_from = pos.y;
@@ -296,15 +298,24 @@ const char *trav_name(TravMode m) {
 
 #define SLIDE_HEIGHT   0.55f    // fraction of standing height a slide fits through: a low gap is the point of it
 #define SLIDE_STEER    1.1f     // m/s of wish speed left for aiming the slide; more and it is a run on your back
-#define SLIDE_JUMP_KEEP 1.10f   // a slide jumped out of leaves with a tenth more speed than it had: the long hop
+#define SLIDE_JUMP_BOOST 1.2f   // a slide jumped out of leaves with 1.2 m/s more than it had, capped by speed_cap:
+                                // Titanfall's slide-hop, the difference between a slide and a long jump off one
 #define ROLL_TIME      0.55f
 #define ROLL_KEEP      0.78f    // a hard landing costs a fifth of the run, not all of it
 #define WALL_GRAVITY   0.22f    // fraction of gravity a wall run leaves you: it sags, it does not float
 #define MANTLE_LIFT    0.62f    // fraction of the move spent going up before the forward half finishes
+#define WALL_JUMP_PUSH 3.4f     // m/s shoved off the wall's normal, on top of whatever hvel already had -- the
+                                // same number a wall run leaves with when you jump out of it, so a run and a
+                                // bare touch-and-jump off the same wall feel like the same move
+#define WALL_JUMP_TURN_COS 0.7071f  // cos(45 deg): how different the next wall's face has to be before a second
+                                    // air jump off it is allowed without a ground contact in between
+#define AIR_CROUCH_HEIGHT 0.62f // fraction of standing height the collision box shrinks to while airborne with
+                                // crouch held -- Half-Life's crouch-jump, raising the feet enough that a jump
+                                // which would clip the underside of a ledge clears it instead
 // Gravity and the ground contact are game.c's (game_ground_character runs right after
 // player_update), so all a jump does here is hand back an upward vy sized to clear jump_height.
 // This must match GAME_GRAVITY in game.c: jump_height is what is authored, the impulse is derived.
-#define PLAYER_JUMP_GRAVITY 20.0f
+#define PLAYER_JUMP_GRAVITY 32.0f
 
 float world_top(const World *w, float x, float z, float ceiling) {
     float best = -1e9f;
@@ -469,9 +480,10 @@ static void traverse_update(Player *p, const Input *in, Vec3 move_dir, float mle
         c->pos.y = lerpf(p->trav_from.y, p->trav_to.y, ky) + p->trav_arc * 0.5f * (1.0f - cosf(2.0f * PI * k));
         c->speed = p->trav_speed;
         if (k >= 1.0f) {
-            // A climb costs you the run-up; a vault is the whole point of not stopping.
-            float out = p->trav == TM_VAULT ? p->trav_speed : fminf(p->trav_speed * 0.55f, 3.6f);
-            c->hvel = v3_scale(p->trav_dir, out);
+            // Neither costs you the run-up any more: a vault always kept its speed, and a mantle at
+            // speed is climbing without breaking stride, not stopping to haul yourself up -- the
+            // whole point of chaining a mantle into the sprint that was already carrying you.
+            c->hvel = v3_scale(p->trav_dir, p->trav_speed);
             c->traversing = false; c->grounded = true; c->vy = 0;
             p->trav = TM_NONE; p->slide_cd = fmaxf(p->slide_cd, 0.1f);
         }
@@ -497,11 +509,11 @@ static void traverse_update(Player *p, const Input *in, Vec3 move_dir, float mle
         c->speed = sp;
         c->walk_phase += v3_len(v3_sub(c->pos, prev)) * 2.0f;
         if (mlen > 0.05f) c->yaw = angle_damp(c->yaw, atan2f(p->trav_dir.x, p->trav_dir.z), d->turn_speed * 0.5f, dt);
-        // Jumping out of a slide is the long hop: the slide's speed, plus a tenth, plus the jump.
+        // Jumping out of a slide is the long hop: the slide's speed, plus a flat boost, plus the jump.
         bool jumped = p->buf_jump > 0 && c->grounded;
         bool over = (p->trav_t >= p->trav_dur) || sp <= d->slide_exit || (!in->crouch && !roof);
         if (jumped || (over && !roof)) {
-            float out = jumped ? fminf(sp * SLIDE_JUMP_KEEP, d->speed_cap) : sp;
+            float out = jumped ? fminf(sp + SLIDE_JUMP_BOOST, d->speed_cap) : sp;
             c->hvel = v3_scale(p->trav_dir, out);
             if (jumped) { c->vy = sqrtf(2.0f * PLAYER_JUMP_GRAVITY * d->jump_height) * 1.06f; c->grounded = false; p->buf_jump = 0; p->n_jump++; }
             p->trav = TM_NONE; p->slide_cd = 0.45f;
@@ -537,9 +549,10 @@ static void traverse_update(Player *p, const Input *in, Vec3 move_dir, float mle
                      && v3_dot(n, p->wall_normal) > 0.7f;
         bool jumped = p->buf_jump > 0;
         if (jumped) {
-            c->hvel = v3_add(v3_scale(p->trav_dir, p->trav_speed * 0.9f), v3_scale(p->wall_normal, 3.4f));
+            c->hvel = v3_add(v3_scale(p->trav_dir, p->trav_speed * 0.9f), v3_scale(p->wall_normal, WALL_JUMP_PUSH));
             c->vy = sqrtf(2.0f * PLAYER_JUMP_GRAVITY * d->jump_height) * 1.05f;
             p->buf_jump = 0; p->n_jump++; ev->wall_jump = true;
+            p->wall_jumped = true; p->wall_jump_normal = p->wall_normal;   // counts against the bare-touch wall jump too: same face, same push
         }
         if (jumped || !still || !in->jump_held || p->trav_t >= p->trav_dur) {
             p->trav = TM_NONE; p->wall_side = 0; c->traversing = false;
@@ -582,7 +595,9 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const World *w, Bo
     p->buf_jump = fmaxf(0, p->buf_jump - dt);
     if (in->jump) p->buf_jump = d->jump_buffer > 0 ? d->jump_buffer : 0.15f;
     if (p->slide_cd > 0) p->slide_cd = fmaxf(0, p->slide_cd - dt);
-    if (c->grounded) p->air_t = 0; else p->air_t += dt;
+    // --- traversal --- Touching ground at all re-opens the wall jump, same as it re-opens coyote
+    // time: a hop between two facing walls is a ladder, not one push repeated forever on one face.
+    if (c->grounded) { p->air_t = 0; p->wall_jumped = false; } else p->air_t += dt;
 
     // Posture regen: standing free or holding guard, and only once the last hit has stopped ringing.
     if (p->regen_delay > 0) p->regen_delay -= dt;
@@ -604,19 +619,33 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const World *w, Bo
     p->sprint_hold_t = sprint_engaged ? 0.0f : p->sprint_hold_t + dt;
     bool sprinting = p->sprint_hold_t <= d->sprint_grace;
     // --- traversal --- Momentum builds rather than switches on: sprint_ramp seconds of holding
-    // Shift to reach sprint_mult, and it is kept while the feet are off the ground, so a hop costs
-    // you nothing and a stop costs you the run-up. This ramp, not the accel coefficient, is
-    // what you feel -- Quake's accel reaches any wish speed inside a couple of ticks. surge is a
-    // second, slower ramp on top: only while momentum is already maxed, grounded and actually
-    // moving does a long sprint keep earning sprint_surge more m/s (Mirror's Edge). Both bleed off
-    // together, over sprint_decay seconds, once the latch above lets go.
+    // Shift to reach sprint_mult (now most of a second's worth of Titanfall-fast, not Mirror's
+    // Edge's build), and it is kept while the feet are off the ground, so a hop costs you nothing
+    // and a stop costs you the run-up. This ramp, not the accel coefficient, is what you feel --
+    // Quake's accel reaches any wish speed inside a couple of ticks. surge is the same latch stretched
+    // over a second ramp of its own; sprint_surge is 0 by default now that sprint_ramp alone reaches
+    // the sprint top speed, so it costs nothing left running but the ground wishspeed a held Shift can
+    // reach never climbs past sprint_mult -- the technique ceiling above it (speed_cap) is earned in
+    // the air or on a slide, never by holding W. Both bleed off together, over sprint_decay seconds,
+    // once the latch above lets go.
     if (sprinting && p->trav != TM_SLIDE) p->momentum = fminf(1.0f, p->momentum + dt / fmaxf(d->sprint_ramp, 0.05f));
     else if (!sprinting && c->grounded && p->trav == TM_NONE) p->momentum = fmaxf(0.0f, p->momentum - dt / fmaxf(d->sprint_decay, 0.05f));
     bool surging = sprinting && p->trav != TM_SLIDE && p->momentum >= 0.999f && c->grounded
                    && hypotf(c->hvel.x, c->hvel.z) > 0.5f;
     if (surging) p->surge = fminf(1.0f, p->surge + dt / fmaxf(d->surge_ramp, 0.05f));
     else if (!sprinting && c->grounded && p->trav == TM_NONE) p->surge = fmaxf(0.0f, p->surge - dt / fmaxf(d->sprint_decay, 0.05f));
-    c->body_height = p->trav == TM_SLIDE ? c->height * SLIDE_HEIGHT : c->height;
+    // c->body_height: the ground crouch's stance drop is game.c's job (not this), but the air one is
+    // ours -- holding crouch in the air shrinks the box to AIR_CROUCH_HEIGHT (Half-Life's crouch-jump,
+    // raising the feet enough to clear a ledge a standing jump would have clipped), and it only grows
+    // back once there is headroom for the full height, or un-crouching mid-air would poke your head
+    // through the thing the crouch just got you past.
+    if (p->trav == TM_SLIDE) c->body_height = c->height * SLIDE_HEIGHT;
+    else if (!c->grounded && in->crouch) c->body_height = c->height * AIR_CROUCH_HEIGHT;
+    else if (!c->grounded && c->body_height < c->height - 0.01f) {
+        bool room = world_clear(w, c->pos.x, c->pos.z, c->radius * 0.9f,
+                                 c->pos.y + c->height * AIR_CROUCH_HEIGHT, c->pos.y + c->height);
+        c->body_height = room ? c->height : c->height * AIR_CROUCH_HEIGHT;
+    } else c->body_height = c->height;
     // Running into a wall zeroes hvel inside one tick (level_move gives back what actually
     // happened), so by the time anything notices you are blocked the speed you arrived at is gone.
     // This remembers it, bleeding off at 6 m/s per second -- a fifth of a second of memory, which is
@@ -716,6 +745,28 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const World *w, Bo
             c->vy = sqrtf(2.0f * PLAYER_JUMP_GRAVITY * d->jump_height);
             c->grounded = false; p->buf_jump = 0; p->air_t = d->coyote; p->n_jump++;
             character_set_anim(c, ANIM_JUMP);
+        }
+        // A wall jump needs no run-up and no wall run: any face touched while airborne is a push,
+        // which is what makes a corridor with a wall on each side climbable and a single wall next to
+        // a pit a save. It reuses wall run's own probe (a face within reach, chest to head high) so
+        // the two moves agree on what counts as a wall. One push per face per airtime -- the normal
+        // has to turn more than 45 degrees or the feet have to find ground again before it re-arms;
+        // otherwise repeatedly tapping jump against one flat face would be a free climb straight up.
+        if (!jump_now && p->buf_jump > 0 && !c->grounded && p->trav == TM_NONE) {
+            Vec3 n;
+            float y0 = c->pos.y + 0.35f, y1 = c->pos.y + c->height * 0.9f;
+            if (level_wall_near(w->lv, c->pos.x, c->pos.z, c->radius + 0.35f, y0, y1, &n, NULL)
+                && (!p->wall_jumped || v3_dot(n, p->wall_jump_normal) < WALL_JUMP_TURN_COS)) {
+                c->hvel = v3_add(c->hvel, v3_scale(n, WALL_JUMP_PUSH));
+                if (d->speed_cap > 0.5f) {
+                    float sp = hypotf(c->hvel.x, c->hvel.z);
+                    if (sp > d->speed_cap) c->hvel = v3_scale(c->hvel, d->speed_cap / sp);
+                }
+                c->vy = sqrtf(2.0f * PLAYER_JUMP_GRAVITY * d->jump_height) * 1.05f;
+                p->wall_jumped = true; p->wall_jump_normal = n;
+                p->buf_jump = 0; p->n_jump++; ev->wall_jump = true;
+                character_set_anim(c, ANIM_JUMP);
+            }
         }
         // Last: what the world offers. A slide, a ledge or a wall, decided from the speed and the
         // blocks, never from a key of its own.
