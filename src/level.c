@@ -830,6 +830,63 @@ Vec3 level_move(const Level *lv, Vec3 pos, float radius, float height, Vec3 delt
     return v3(x, pos.y + delta.y, z);
 }
 
+// --- traversal --- see level.h. level_ground stops at a step because that is what walking is;
+// these three are what climbing needs, and they deliberately ask about one column at a time so the
+// mantle probe can sample the ledge, the ground beyond it and the face in between with the same call.
+float level_top_at(const Level *lv, float x, float z, float ceiling, int *block) {
+    float best = -1e9f; int bi = -1;
+    for (int i = 0; i < lv->nblocks; i++) {
+        const Block *b = &lv->blocks[i];
+        if (!b->solid && !b->platform) continue;
+        float top = b->center.y + b->size.y * 0.5f;
+        if (top > ceiling || top <= best) continue;
+        if (fabsf(x - b->center.x) > b->size.x * 0.5f) continue;
+        if (fabsf(z - b->center.z) > b->size.z * 0.5f) continue;
+        best = top; bi = i;
+    }
+    if (block) *block = bi;
+    return best;
+}
+
+bool level_clear(const Level *lv, float x, float z, float radius, float y0, float y1) {
+    if (y1 <= y0) return true;
+    for (int i = 0; i < lv->nblocks; i++) {
+        const Block *b = &lv->blocks[i];
+        if (!b->solid) continue;
+        if (b->center.y - b->size.y * 0.5f >= y1 || b->center.y + b->size.y * 0.5f <= y0) continue;
+        float dx = fabsf(x - b->center.x) - b->size.x * 0.5f;
+        float dz = fabsf(z - b->center.z) - b->size.z * 0.5f;
+        if (dx < 0) dx = 0;
+        if (dz < 0) dz = 0;
+        if (dx * dx + dz * dz < radius * radius) return false;
+    }
+    return true;
+}
+
+bool level_wall_near(const Level *lv, float x, float z, float radius, float y0, float y1, Vec3 *normal, float *gap) {
+    float best = radius; bool found = false;
+    for (int i = 0; i < lv->nblocks; i++) {
+        const Block *b = &lv->blocks[i];
+        if (!b->solid) continue;
+        if (b->center.y - b->size.y * 0.5f >= y1 || b->center.y + b->size.y * 0.5f <= y0) continue;
+        float hx = b->size.x * 0.5f, hz = b->size.z * 0.5f;
+        float dx = x - b->center.x, dz = z - b->center.z;
+        float ox = fabsf(dx) - hx, oz = fabsf(dz) - hz;
+        // Inside the footprint there is no face to run on, only a block you are standing in.
+        if (ox < 0 && oz < 0) continue;
+        float cx = ox > 0 ? ox : 0, cz = oz > 0 ? oz : 0;
+        float d = sqrtf(cx * cx + cz * cz);
+        if (d >= best) continue;
+        best = d; found = true;
+        // The nearer of the two overhangs is the face you are alongside: a corner gives the axis
+        // you are further outside of, which is the one whose face you would actually touch first.
+        Vec3 n = (ox > oz) ? v3(dx > 0 ? 1.0f : -1.0f, 0, 0) : v3(0, 0, dz > 0 ? 1.0f : -1.0f);
+        if (normal) *normal = n;
+        if (gap) *gap = d;
+    }
+    return found;
+}
+
 static bool point_in_box(Vec3 p, Vec3 vmin, Vec3 vmax) {
     return p.x >= vmin.x && p.x <= vmax.x &&
            p.y >= vmin.y && p.y <= vmax.y &&

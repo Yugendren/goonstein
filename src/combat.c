@@ -1,4 +1,5 @@
 #include "combat.h"
+#include "terrain.h"
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -143,6 +144,9 @@ bool player_def_load(PlayerDef *d, const char *path) {
     if (!text) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "player def missing: %s", path); return false; }
     PlayerDef o = { .hp = 100, .speed = 3.2f, .sprint_mult = 1.6f, .turn_speed = 14,
                     .accel = 10, .air_accel = 10, .friction = 8, .stop_speed = 1.4f, .jump_height = 1.0f, .crouch_mult = 0.5f,
+                    .sprint_ramp = 1.4f, .speed_cap = 8.8f, .coyote = 0.12f, .jump_buffer = 0.15f, .air_wish = 1.6f,
+                    .slide_time = 0.8f, .slide_decel = 1.6f, .slide_enter = 4.6f, .slide_exit = 2.2f,
+                    .mantle_min = 0.55f, .mantle_max = 2.2f, .vault_max = 1.2f, .roll_fall = 4.0f, .wallrun_time = 1.2f,
                     .attack_windup = 0.18f, .attack_active = 0.12f,
                     .attack_recovery = 0.35f, .attack_damage = 8, .attack_range = 1.9f, .attack_posture = 6,
                     .parry_window = 0.15f, .parry_recovery = 0.35f, .parry_hitstop = 0.12f,
@@ -158,6 +162,12 @@ bool player_def_load(PlayerDef *d, const char *path) {
         KEYF("hp", o.hp) KEYF("speed", o.speed) KEYF("sprint_mult", o.sprint_mult) KEYF("turn_speed", o.turn_speed)
         KEYF("accel", o.accel) KEYF("air_accel", o.air_accel) KEYF("friction", o.friction) KEYF("stop_speed", o.stop_speed)
         KEYF("jump_height", o.jump_height) KEYF("crouch_mult", o.crouch_mult)
+        KEYF("sprint_ramp", o.sprint_ramp) KEYF("speed_cap", o.speed_cap)
+        KEYF("coyote", o.coyote) KEYF("jump_buffer", o.jump_buffer) KEYF("air_wish", o.air_wish)
+        KEYF("slide_time", o.slide_time) KEYF("slide_decel", o.slide_decel)
+        KEYF("slide_enter", o.slide_enter) KEYF("slide_exit", o.slide_exit)
+        KEYF("mantle_min", o.mantle_min) KEYF("mantle_max", o.mantle_max) KEYF("vault_max", o.vault_max)
+        KEYF("roll_fall", o.roll_fall) KEYF("wallrun_time", o.wallrun_time)
         KEYF("attack_windup", o.attack_windup) KEYF("attack_active", o.attack_active) KEYF("attack_recovery", o.attack_recovery)
         KEYF("attack_damage", o.attack_damage) KEYF("attack_range", o.attack_range) KEYF("attack_posture", o.attack_posture)
         KEYF("parry_window", o.parry_window) KEYF("parry_recovery", o.parry_recovery) KEYF("parry_hitstop", o.parry_hitstop)
@@ -196,6 +206,11 @@ void player_reset(Player *p, Vec3 pos, float yaw) {
     p->state = PS_FREE; p->t = 0; p->hit_applied = false;
     p->combo = 0; p->sprint_t = 0; p->guarding = false; p->staggered = false;
     p->buf_attack = p->buf_parry = p->buf_dodge = 0; p->regen_delay = 0; p->iframes = 0; p->knock = v3(0, 0, 0);
+    // --- traversal --- a reset lands you standing still on the ground with no run built up
+    p->trav = TM_NONE; p->trav_t = p->trav_dur = 0; p->trav_speed = 0; p->trav_arc = 0; p->wall_side = 0;
+    p->momentum = 0; p->run_speed = 0; p->air_t = 0; p->buf_jump = 0; p->slide_cd = 0; p->last_vy = 0;
+    c->hvel = v3(0, 0, 0); c->vy = 0; c->traversing = false; c->body_height = c->height;
+    c->land_impact = c->land_drop = 0; c->fall_from = pos.y;
     memcpy(p->swing_lead, lead, sizeof lead);
 }
 
@@ -253,11 +268,286 @@ static void player_posture_hit(Player *p, float amount, CombatEvents *ev) {
     ev->hitstop = fmaxf(ev->hitstop, 0.09f); ev->shake = fmaxf(ev->shake, 0.5f);
 }
 
-void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, Boss *boss, float dt, CombatEvents *ev) {
+// ---------------------------------------------------------------- traversal
+//
+// Mirror's Edge on top of the Quake base: momentum that has to be built, a jump that forgives, and
+// three scripted moves the world picks for you rather than a key.
+//
+// The whole section is a pure function of the inputs and the blocks under them. That is not a
+// stylistic preference: it is what lets a client start a mantle on the frame it asks for one and
+// the host replay the same intent against the same level and land on the same ledge, so
+// reconciliation has nothing left to argue about (see netgame.c). Nothing is authored in the level
+// either -- a ledge is any block top, deck or hillside between knee and head height with room to
+// stand on, found by probing three columns in front of the feet.
+
+static const char *TRAV_NAMES[] = { "none", "slide", "mantle", "vault", "roll", "wallrun" };
+const char *trav_name(TravMode m) { return ((int)m >= 0 && (int)m < 6) ? TRAV_NAMES[m] : "?"; }
+
+#define SLIDE_HEIGHT   0.55f    // fraction of standing height a slide fits through: a low gap is the point of it
+#define SLIDE_STEER    1.1f     // m/s of wish speed left for aiming the slide; more and it is a run on your back
+#define SLIDE_JUMP_KEEP 1.10f   // a slide jumped out of leaves with a tenth more speed than it had: the long hop
+#define ROLL_TIME      0.55f
+#define ROLL_KEEP      0.78f    // a hard landing costs a fifth of the run, not all of it
+#define WALL_MIN_SPEED 4.6f
+#define WALL_GRAVITY   0.22f    // fraction of gravity a wall run leaves you: it sags, it does not float
+#define MANTLE_LIFT    0.62f    // fraction of the move spent going up before the forward half finishes
+// Gravity and the ground contact are game.c's (game_ground_character runs right after
+// player_update), so all a jump does here is hand back an upward vy sized to clear jump_height.
+// This must match GAME_GRAVITY in game.c: jump_height is what is authored, the impulse is derived.
+#define PLAYER_JUMP_GRAVITY 20.0f
+
+float world_top(const World *w, float x, float z, float ceiling) {
+    float best = -1e9f;
+    if (w->tr && w->tr->present) { if (terrain_inside(w->tr, x, z)) best = terrain_height(w->tr, x, z); }
+    else best = 0.0f;                   // a level with no terrain has a floor at zero, which is what game.c assumes
+    if (best > ceiling) best = -1e9f;   // a hillside that keeps climbing past the head is a hill, not a ledge
+    float b = level_top_at(w->lv, x, z, ceiling, NULL);
+    return b > best ? b : best;
+}
+
+bool world_clear(const World *w, float x, float z, float radius, float y0, float y1) {
+    if (!level_clear(w->lv, x, z, radius, y0, y1)) return false;
+    // Standing room also means the ground is not already up there: a ledge cut into a hillside has
+    // no block over it and would otherwise read as clear with a metre of dirt in the way.
+    if (w->tr && w->tr->present && terrain_inside(w->tr, x, z) && terrain_height(w->tr, x, z) > y0 + 0.20f) return false;
+    return true;
+}
+
+// What the probe found: the top it would climb to, and for a vault the ground on the far side.
+typedef struct Ledge { float top; Vec3 at; bool vault; Vec3 land; } Ledge;
+
+// Three columns in front of the feet: the ledge itself, half a metre past it (is this a ledge or
+// the bottom of a wall), and the face in between (is there actually something in the way). A fourth
+// is asked only for a vault: somewhere to come down on.
+static bool traverse_probe(const Player *p, const World *w, Vec3 dir, float speed, Ledge *out) {
+    const Character *c = &p->c; const PlayerDef *d = &p->def;
+    float foot = c->pos.y, ceiling = foot + d->mantle_max;
+    float reach = c->radius + 0.45f;
+    Vec3 at = v3_add(c->pos, v3_scale(dir, reach));
+    float top = world_top(w, at.x, at.z, ceiling + 0.02f);
+    float h = top - foot;
+    if (h < d->mantle_min || h > d->mantle_max) return false;
+    if (!world_clear(w, at.x, at.z, c->radius * 0.8f, top + 0.08f, top + c->height * 0.85f)) return false;
+    Vec3 past = v3_add(c->pos, v3_scale(dir, reach + 0.55f));
+    if (world_top(w, past.x, past.z, top + 0.6f) > top + 0.30f) return false;   // it keeps going up: a wall
+    Vec3 face = v3_add(c->pos, v3_scale(dir, c->radius + 0.12f));
+    if (world_top(w, face.x, face.z, ceiling + 0.02f) < foot + d->mantle_min * 0.5f) return false;   // nothing in the way
+    out->top = top; out->at = v3(at.x, top, at.z); out->vault = false; out->land = out->at;
+    // Low and fast is gone over, not climbed onto -- but only if there is somewhere to land, or a
+    // vault over a parapet drops you off the roof.
+    if (h <= d->vault_max && speed >= 4.2f) {
+        Vec3 land = v3_add(c->pos, v3_scale(dir, reach + 1.05f));
+        float lt = world_top(w, land.x, land.z, top + 0.05f);
+        if (lt > -1e8f && lt < top - 0.20f
+            && world_clear(w, land.x, land.z, c->radius * 0.8f, lt + 0.08f, lt + c->height * 0.85f)) {
+            out->vault = true; out->land = v3(land.x, lt, land.z);
+        }
+    }
+    return true;
+}
+
+static void traverse_enter(Player *p, TravMode m, float dur, Vec3 to, Vec3 dir, float speed) {
+    p->trav = m; p->trav_t = 0; p->trav_dur = dur;
+    p->trav_from = p->c.pos; p->trav_to = to; p->trav_dir = dir; p->trav_speed = speed; p->trav_arc = 0;
+    p->c.traversing = (m == TM_MANTLE || m == TM_VAULT || m == TM_WALLRUN);   // these three own pos.y themselves
+    p->c.vy = 0;
+}
+
+// A correction from the host landed mid-climb: carry the path with it. Moving the body instead
+// would be undone by the next tick of the lerp, and the eye would ring at the snapshot rate.
+void player_traverse_shift(Player *p, Vec3 delta) {
+    if (p->trav != TM_MANTLE && p->trav != TM_VAULT) return;
+    p->trav_from = v3_add(p->trav_from, delta);
+    p->trav_to = v3_add(p->trav_to, delta);
+}
+
+// Everything that can start a traversal, in the order they beat each other: a slide is a decision
+// you made, a mantle is one the wall made for you, a wall run is what is left.
+static void traverse_try(Player *p, const Input *in, Vec3 move_dir, float mlen, const World *w,
+                         bool blocked, CombatEvents *ev) {
+    Character *c = &p->c; const PlayerDef *d = &p->def;
+    float speed = hypotf(c->hvel.x, c->hvel.z), carried = fmaxf(speed, p->run_speed);
+    Vec3 dir = speed > 1.0f ? v3(c->hvel.x / speed, 0, c->hvel.z / speed)
+                            : (mlen > 0.05f ? move_dir : v3(sinf(c->yaw), 0, cosf(c->yaw)));
+
+    // Crouch at a sprint is a slide. The cooldown is what stops a held Ctrl from chaining slides
+    // forever off the speed each one leaves behind.
+    // `carried`, not the speed this instant: pressing Ctrl already halved the wish speed and took a
+    // tick of friction, so the speed you asked to slide at is gone by the time this looks at it.
+    if (c->grounded && in->crouch && p->slide_cd <= 0 && carried >= d->slide_enter && d->slide_time > 0) {
+        traverse_enter(p, TM_SLIDE, d->slide_time, c->pos, dir, carried);
+        p->n_slide++; ev->slide_start = true;
+        character_set_anim(c, ANIM_SLIDE);
+        return;
+    }
+
+    // A ledge: walked into while grounded, or jumped at. Standing still against a wall does nothing
+    // -- the move belongs to the run, not to the wall.
+    bool reaching = blocked || (!c->grounded && speed > 1.2f);
+    if (reaching && (carried > 1.2f || mlen > 0.3f)) {
+        Ledge l;
+        if (traverse_probe(p, w, dir, carried, &l)) {
+            if (l.vault) {
+                traverse_enter(p, TM_VAULT, 0.28f + 0.08f * clampf((l.top - c->pos.y) / d->vault_max, 0, 1),
+                               l.land, dir, carried);
+                // Over the obstacle, not through it: the straight line from here to the far side
+                // runs inside the thing being vaulted, so the path is bulged clear of its top.
+                p->trav_arc = (l.top - fmaxf(c->pos.y, l.land.y)) + 0.18f;
+                p->n_vault++; ev->vault = true;
+                character_set_anim(c, ANIM_VAULT);
+            } else {
+                float k = clampf((l.top - c->pos.y - d->mantle_min) / fmaxf(d->mantle_max - d->mantle_min, 0.01f), 0, 1);
+                Vec3 to = v3_add(v3(l.at.x, l.top, l.at.z), v3_scale(dir, 0.18f));
+                traverse_enter(p, TM_MANTLE, lerpf(0.35f, 0.60f, k), to, dir, carried);
+                p->n_mantle++; ev->mantle = true;
+                character_set_anim(c, ANIM_MANTLE);
+            }
+            c->hvel = v3(0, 0, 0);
+            return;
+        }
+    }
+
+    // A wall run is the last thing tried and the first thing to give up: airborne, quick, jump still
+    // held, a face alongside and nothing under the feet. Anything less and it fires on every corner.
+    if (d->wallrun_time > 0 && !c->grounded && in->jump_held && carried >= WALL_MIN_SPEED && c->vy < 2.0f) {
+        Vec3 n; float gap;
+        float y0 = c->pos.y + 0.4f, y1 = c->pos.y + c->height * 0.9f;
+        if (level_wall_near(w->lv, c->pos.x, c->pos.z, c->radius + 0.30f, y0, y1, &n, &gap)
+            && world_top(w, c->pos.x, c->pos.z, c->pos.y - 0.6f) < c->pos.y - 1.2f) {
+            Vec3 along = v3(-n.z, 0, n.x);
+            float s = v3_dot(v3(c->hvel.x, 0, c->hvel.z), along);
+            if (fabsf(s) >= WALL_MIN_SPEED * 0.8f) {
+                if (s < 0) { along = v3_scale(along, -1); s = -s; }
+                p->wall_normal = n;
+                p->wall_side = v3_dot(v3_cross(v3(0, 1, 0), along), n) > 0 ? 1.0f : -1.0f;
+                traverse_enter(p, TM_WALLRUN, d->wallrun_time, c->pos, along, s);
+                p->n_wallrun++;
+                character_set_anim(c, ANIM_WALLRUN);
+            }
+        }
+    }
+}
+
+// A hard landing carried forward instead of stopped dead.
+static void traverse_roll(Player *p, Vec3 dir, float speed, CombatEvents *ev) {
+    traverse_enter(p, TM_ROLL, ROLL_TIME, p->c.pos, dir, fmaxf(speed, 3.0f));
+    p->c.traversing = false;          // a roll is on the ground: gravity and the floor still apply
+    p->n_roll++; ev->roll = true;
+    character_set_anim(&p->c, ANIM_ROLL);
+}
+
+// One tick of whatever is already running. Returns with p->trav cleared when the move is over.
+static void traverse_update(Player *p, const Input *in, Vec3 move_dir, float mlen, const World *w,
+                            float dt, CombatEvents *ev) {
+    Character *c = &p->c; const PlayerDef *d = &p->def;
+    p->trav_t += dt;
+    float k = clampf(p->trav_t / fmaxf(p->trav_dur, 1e-4f), 0, 1);
+
+    switch (p->trav) {
+    case TM_MANTLE: case TM_VAULT: {
+        // Up first, then over. Both halves are smoothsteps, so the climb starts and ends with zero
+        // vertical speed -- the eye rides pos.y straight out of here and a corner in this curve is
+        // a corner you would see.
+        float lift = p->trav == TM_MANTLE ? MANTLE_LIFT : 0.75f;
+        float ky = smoothstep(clampf(k / lift, 0, 1));
+        float kx = smoothstep(clampf((k - (1.0f - lift)) / lift, 0, 1));
+        c->pos.x = lerpf(p->trav_from.x, p->trav_to.x, kx);
+        c->pos.z = lerpf(p->trav_from.z, p->trav_to.z, kx);
+        // (1 - cos) rather than a sine: it leaves and arrives with zero vertical speed, and a kink
+        // in the eye's path at the moment a vault starts is exactly what a vault must not have.
+        c->pos.y = lerpf(p->trav_from.y, p->trav_to.y, ky) + p->trav_arc * 0.5f * (1.0f - cosf(2.0f * PI * k));
+        c->speed = p->trav_speed;
+        if (k >= 1.0f) {
+            // A climb costs you the run-up; a vault is the whole point of not stopping.
+            float out = p->trav == TM_VAULT ? p->trav_speed : fminf(p->trav_speed * 0.55f, 3.6f);
+            c->hvel = v3_scale(p->trav_dir, out);
+            c->traversing = false; c->grounded = true; c->vy = 0;
+            p->trav = TM_NONE; p->slide_cd = fmaxf(p->slide_cd, 0.1f);
+        }
+    } break;
+
+    case TM_SLIDE: {
+        float sp = fmaxf(0.0f, p->trav_speed - d->slide_decel * p->trav_t);
+        // Steering, not driving: enough to aim at a gap, never enough to keep the slide alive.
+        if (mlen > 0.05f) {
+            Vec3 want = v3_scale(move_dir, SLIDE_STEER);
+            Vec3 v = v3_add(v3_scale(p->trav_dir, sp), v3_scale(want, dt * 2.0f));
+            float l = hypotf(v.x, v.z);
+            if (l > 0.01f) p->trav_dir = v3(v.x / l, 0, v.z / l);
+        }
+        c->hvel = v3_scale(p->trav_dir, sp);
+        Vec3 prev = c->pos;
+        c->pos = level_move(w->lv, c->pos, c->radius, c->height * SLIDE_HEIGHT, v3_scale(c->hvel, dt));
+        if (dt > 1e-5f) { c->hvel.x = (c->pos.x - prev.x) / dt; c->hvel.z = (c->pos.z - prev.z) / dt; }
+        c->speed = sp;
+        c->walk_phase += v3_len(v3_sub(c->pos, prev)) * 2.0f;
+        if (mlen > 0.05f) c->yaw = angle_damp(c->yaw, atan2f(p->trav_dir.x, p->trav_dir.z), d->turn_speed * 0.5f, dt);
+        // Jumping out of a slide is the long hop: the slide's speed, plus a tenth, plus the jump.
+        bool jumped = p->buf_jump > 0 && c->grounded;
+        // Ctrl let go under a low gap is a wish, not an order: the slide holds until there is
+        // headroom, which is what makes a culvert passable rather than a place you get stuck.
+        bool roof = !world_clear(w, c->pos.x, c->pos.z, c->radius * 0.9f, c->pos.y + 0.2f, c->pos.y + c->height * 0.95f);
+        bool over = (p->trav_t >= p->trav_dur) || sp <= d->slide_exit || (!in->crouch && !roof);
+        if (jumped || (over && !roof)) {
+            float out = jumped ? fminf(sp * SLIDE_JUMP_KEEP, d->speed_cap) : sp;
+            c->hvel = v3_scale(p->trav_dir, out);
+            if (jumped) { c->vy = sqrtf(2.0f * PLAYER_JUMP_GRAVITY * d->jump_height) * 1.06f; c->grounded = false; p->buf_jump = 0; p->n_jump++; }
+            p->trav = TM_NONE; p->slide_cd = 0.45f;
+            character_set_anim(c, ANIM_IDLE);
+        }
+    } break;
+
+    case TM_ROLL: {
+        float sp = lerpf(p->trav_speed, p->trav_speed * ROLL_KEEP, smoothstep(k));
+        c->hvel = v3_scale(p->trav_dir, sp);
+        Vec3 prev = c->pos;
+        c->pos = level_move(w->lv, c->pos, c->radius, c->height * 0.7f, v3_scale(c->hvel, dt));
+        if (dt > 1e-5f) { c->hvel.x = (c->pos.x - prev.x) / dt; c->hvel.z = (c->pos.z - prev.z) / dt; }
+        c->speed = sp;
+        if (k >= 1.0f) { p->trav = TM_NONE; character_set_anim(c, ANIM_IDLE); }
+    } break;
+
+    case TM_WALLRUN: {
+        // The wall holds you up and takes what it likes in return: a fraction of gravity, and the
+        // run ends the moment the face does.
+        c->vy -= PLAYER_JUMP_GRAVITY * WALL_GRAVITY * dt;
+        c->hvel = v3_scale(p->trav_dir, p->trav_speed);
+        Vec3 push = v3_scale(p->wall_normal, -0.6f);   // lean into it so a gap in the wall ends the run
+        Vec3 prev = c->pos;
+        c->pos = level_move(w->lv, c->pos, c->radius, c->height,
+                            v3_add(v3_scale(c->hvel, dt), v3_scale(push, dt)));
+        c->pos.y += c->vy * dt;
+        if (dt > 1e-5f) { c->hvel.x = (c->pos.x - prev.x) / dt; c->hvel.z = (c->pos.z - prev.z) / dt; }
+        c->speed = p->trav_speed;
+        Vec3 n; float gap;
+        bool still = level_wall_near(w->lv, c->pos.x, c->pos.z, c->radius + 0.42f,
+                                     c->pos.y + 0.4f, c->pos.y + c->height * 0.9f, &n, &gap)
+                     && v3_dot(n, p->wall_normal) > 0.7f;
+        bool jumped = p->buf_jump > 0;
+        if (jumped) {
+            c->hvel = v3_add(v3_scale(p->trav_dir, p->trav_speed * 0.9f), v3_scale(p->wall_normal, 3.4f));
+            c->vy = sqrtf(2.0f * PLAYER_JUMP_GRAVITY * d->jump_height) * 1.05f;
+            p->buf_jump = 0; p->n_jump++; ev->wall_jump = true;
+        }
+        if (jumped || !still || !in->jump_held || p->trav_t >= p->trav_dur) {
+            p->trav = TM_NONE; p->wall_side = 0; c->traversing = false;
+            character_set_anim(c, ANIM_FALL);
+        }
+    } break;
+
+    default: p->trav = TM_NONE; c->traversing = false; break;
+    }
+}
+
+void player_update(Player *p, const Input *in, Vec3 move_dir, const World *w, Boss *boss, float dt, CombatEvents *ev) {
     Character *c = &p->c; const PlayerDef *d = &p->def;
     if (p->state != PS_FREE) c->hvel = v3(0, 0, 0);   // another state's root motion owns c->pos this tick; do not fight it with stale ground velocity, and land back in PS_FREE from a stand
     c->anim_t += dt; p->t += dt;
     if (c->flash > 0) c->flash = fmaxf(0, c->flash - dt * 6);
+
+    // --- traversal --- A landing that happened while you were busy being hit is a landing that
+    // already cost you; it must not still be waiting to turn into a roll when the state clears.
+    if (p->state != PS_FREE) { c->land_impact = 0; c->land_drop = 0; }
 
     if (p->state == PS_SCRIPTED) { character_script_update(c, dt); c->speed = damp(c->speed, 0, 10, dt); return; }
     if (p->state == PS_DEAD) { c->speed = 0; return; }
@@ -275,6 +565,13 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, B
     if (in->dodge)  p->buf_dodge = INPUT_BUFFER;
     p->sprint_t = in->sprint ? p->sprint_t + dt : 0;
     if (p->iframes > 0) p->iframes = fmaxf(0, p->iframes - dt);
+    // --- traversal --- The jump is buffered like every other press and forgiven for a moment past
+    // the edge, because the frame you left the deck on and the frame you meant to jump on are two
+    // different frames about a third of the time.
+    p->buf_jump = fmaxf(0, p->buf_jump - dt);
+    if (in->jump) p->buf_jump = d->jump_buffer > 0 ? d->jump_buffer : 0.15f;
+    if (p->slide_cd > 0) p->slide_cd = fmaxf(0, p->slide_cd - dt);
+    if (c->grounded) p->air_t = 0; else p->air_t += dt;
 
     // Posture regen: standing free or holding guard, and only once the last hit has stopped ringing.
     if (p->regen_delay > 0) p->regen_delay -= dt;
@@ -283,15 +580,45 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, B
 
     // Knockback carries through whatever state you are in.
     if (v3_len(p->knock) > 0.02f) {
-        c->pos = level_move(lv, c->pos, c->radius, c->height, v3_scale(p->knock, dt));
+        c->pos = level_move(w->lv, c->pos, c->radius, c->height, v3_scale(p->knock, dt));
         p->knock = v3_scale(p->knock, expf(-9.0f * dt));
     } else p->knock = v3(0, 0, 0);
 
     bool sprinting = in->sprint && p->sprint_t > 0.25f && mlen > 0.05f;   // hold to sprint; a tap already dodged
+    // --- traversal --- Momentum builds rather than switches on: sprint_ramp seconds of holding
+    // Shift to reach the top speed, and it is kept while the feet are off the ground, so a hop
+    // costs you nothing and a stop costs you the run-up. This ramp, not the accel coefficient, is
+    // what you feel -- Quake's accel reaches any wish speed inside a couple of ticks.
+    if (sprinting && p->trav != TM_SLIDE) p->momentum = fminf(1.0f, p->momentum + dt / fmaxf(d->sprint_ramp, 0.05f));
+    else if (c->grounded && p->trav == TM_NONE) p->momentum = fmaxf(0.0f, p->momentum - dt / 0.5f);
+    c->body_height = p->trav == TM_SLIDE ? c->height * SLIDE_HEIGHT : c->height;
+    // Running into a wall zeroes hvel inside one tick (level_move gives back what actually
+    // happened), so by the time anything notices you are blocked the speed you arrived at is gone.
+    // This remembers it, bleeding off at 6 m/s per second -- a fifth of a second of memory, which is
+    // the difference between vaulting a crate and climbing it.
+    p->run_speed = fmaxf(hypotf(c->hvel.x, c->hvel.z), p->run_speed - 6.0f * dt);
     float want_speed = 0;
 
     switch (p->state) {
     case PS_FREE: {
+        // --- traversal --- A scripted move owns the tick: a mantle is not a moment to swing, and
+        // the moves that DO belong to it (jumping out of a slide, off a wall) are handled inside.
+        if (p->trav != TM_NONE) { traverse_update(p, in, move_dir, mlen, w, dt, ev); want_speed = c->speed; break; }
+
+        // A landing is decided here and reported by game.c's grounding, because only the grounding
+        // knows it happened and only the movement knows what to do about it. Anything under
+        // roll_fall keeps its momentum: that is the whole difference between this and a shooter.
+        if (c->land_impact > 0.0f) {
+            float drop = c->land_drop, sp0 = hypotf(c->hvel.x, c->hvel.z);
+            ev->landed = c->land_impact;
+            c->land_impact = 0; c->land_drop = 0;
+            if (drop > d->roll_fall && sp0 > 2.0f) {
+                Vec3 rd = v3(c->hvel.x / sp0, 0, c->hvel.z / sp0);
+                traverse_roll(p, rd, sp0, ev);
+                want_speed = c->speed; break;
+            }
+        }
+
         if (p->buf_parry > 0) { player_guard(p, in->parry ? in->parry_age : 0, dt); break; }
         if (p->buf_attack > 0) { player_swing(p, sprinting ? 3 : 0, boss, mlen, ev); break; }
         if (p->buf_dodge > 0) { player_dodge(p, move_dir, mlen); break; }
@@ -302,8 +629,13 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, B
         // wishdir/wishspeed gets accelerated toward. accel/air_accel are Quake's sv_accelerate-shaped
         // coefficients, not m/s^2 -- what actually limits air control is AIR_WISH capping the
         // wishspeed the accel step chases while airborne.
-        float wishspeed = d->speed * mlen * (sprinting ? d->sprint_mult : 1.0f) * (in->crouch ? d->crouch_mult : 1.0f);
-        if (c->grounded) {
+        float top_speed = d->speed * (1.0f + (d->sprint_mult - 1.0f) * p->momentum);
+        float wishspeed = top_speed * mlen * (in->crouch ? d->crouch_mult : 1.0f);
+        // A jump this tick skips the friction: one 60 Hz bite out of 7 m/s is most of a metre per
+        // second, and paying it on every landing is the difference between a chain of hops and a
+        // series of stops. The speed cap is what keeps that from becoming a bunny-hop exploit.
+        bool jump_now = p->buf_jump > 0 && (c->grounded || p->air_t < d->coyote) && c->vy <= 0.01f;
+        if (c->grounded && !jump_now) {
             float speed = v3_len(c->hvel);
             if (speed > 0.01f) {
                 float control = fmaxf(speed, d->stop_speed);
@@ -312,33 +644,53 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, B
             } else c->hvel = v3(0, 0, 0);
         }
         float accel_used = c->grounded ? d->accel : d->air_accel;
-        float wishspeed_used = c->grounded ? wishspeed : fminf(wishspeed, AIR_WISH);
+        float air_wish = d->air_wish > 0 ? d->air_wish : AIR_WISH;
+        float wishspeed_used = c->grounded ? wishspeed : fminf(wishspeed, air_wish);
         float cur = v3_dot(c->hvel, move_dir);
         float add = wishspeed_used - cur;
         if (add > 0) {
             float accelspeed = fminf(accel_used * wishspeed_used * dt, add);
             c->hvel = v3_add(c->hvel, v3_scale(move_dir, accelspeed));
         }
+        if (d->speed_cap > 0.5f) {
+            float sp = hypotf(c->hvel.x, c->hvel.z);
+            if (sp > d->speed_cap) c->hvel = v3_scale(c->hvel, d->speed_cap / sp);
+        }
 
         // Move, then take the velocity back off what actually happened: walking into a wall must
         // not build up a charge that fires the player sideways the moment the wall ends.
         Vec3 prev = c->pos;
-        c->pos = level_move(lv, c->pos, c->radius, c->height, v3_scale(c->hvel, dt));
+        Vec3 asked = v3_scale(c->hvel, dt);
+        c->pos = level_move(w->lv, c->pos, c->radius, c->body_height, asked);
         if (dt > 1e-5f) { c->hvel.x = (c->pos.x - prev.x) / dt; c->hvel.z = (c->pos.z - prev.z) / dt; }
         float moved = v3_len(v3_sub(c->pos, prev));
+        // Walking into something: the move asked for real distance and got almost none of it. That
+        // is the signal the mantle probe runs on, so a wall never has to be marked up as climbable.
+        float asked_len = hypotf(asked.x, asked.z);
+        bool blocked = asked_len > 0.004f && hypotf(c->pos.x - prev.x, c->pos.z - prev.z) < asked_len * 0.45f;
         c->walk_phase += moved * 5.0f;
         p->step_timer += moved;
-        if (p->step_timer > (sprinting ? 1.1f : 0.85f)) { p->step_timer = 0; ev->footstep = true; }
         want_speed = hypotf(c->hvel.x, c->hvel.z);   // horizontal speed actually achieved, not the input
+        // Cadence follows speed because the stride does: a sprint covers more ground per footfall
+        // than a walk, so the steps come faster without anything counting time.
+        float stride = clampf(0.80f + want_speed * 0.085f, 0.80f, 1.45f);
+        if (c->grounded && p->step_timer > stride) { p->step_timer = 0; ev->footstep = true; }
 
         if (mlen > 0.05f) c->yaw = angle_damp(c->yaw, atan2f(move_dir.x, move_dir.z), d->turn_speed, dt);
-        if (want_speed > 0.2f) character_set_anim(c, sprinting ? ANIM_RUN : ANIM_WALK);
+        if (!c->grounded) character_set_anim(c, c->vy > 1.0f ? ANIM_JUMP : ANIM_FALL);
+        else if (want_speed > 0.2f) character_set_anim(c, sprinting ? ANIM_RUN : ANIM_WALK);
         else { character_set_anim(c, ANIM_IDLE); p->step_timer = 0.5f; }
 
-        // Jump: gravity and ground contact are game.c's (game_ground_character runs right after
-        // player_update), so all this does is hand back an upward vy sized to clear jump_height.
-        #define PLAYER_JUMP_GRAVITY 20.0f   // must match GAME_GRAVITY in game.c -- jump_height is what's authored, this impulse is derived from it
-        if (in->jump && c->grounded) { c->vy = sqrtf(2.0f * PLAYER_JUMP_GRAVITY * d->jump_height); c->grounded = false; }
+        // The jump itself: gravity and ground contact are game.c's, so all this hands back is an
+        // upward vy sized to clear jump_height. Coyote time and the buffer are in jump_now above.
+        if (jump_now) {
+            c->vy = sqrtf(2.0f * PLAYER_JUMP_GRAVITY * d->jump_height);
+            c->grounded = false; p->buf_jump = 0; p->air_t = d->coyote; p->n_jump++;
+            character_set_anim(c, ANIM_JUMP);
+        }
+        // Last: what the world offers. A slide, a ledge or a wall, decided from the speed and the
+        // blocks, never from a key of its own.
+        traverse_try(p, in, move_dir, mlen, w, blocked, ev);
     } break;
 
     case PS_ATTACK: {
@@ -365,7 +717,7 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, B
         if (boss && boss->state != BS_DEAD) room = v3_len(v3_sub(boss->c.pos, c->pos)) - boss->c.radius - c->radius;
         if (t < lead + act && room > 0.35f) {
             float sp = p->atk_step * (t < lead ? 0.55f : 1.0f) * clampf(room, 0, 1);
-            c->pos = level_move(lv, c->pos, c->radius, c->height, v3_scale(forward(c->yaw), sp * dt));
+            c->pos = level_move(w->lv, c->pos, c->radius, c->height, v3_scale(forward(c->yaw), sp * dt));
             want_speed = sp * 0.5f;
         }
         // Cancels open on the contact frame: deflect and dodge immediately, the next swing once the
@@ -396,7 +748,7 @@ void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, B
     case PS_DODGE: {
         float k = p->t / d->dodge_time;
         float sp = (1.0f - k) * 2.0f * d->dodge_dist / d->dodge_time;  // decelerating
-        c->pos = level_move(lv, c->pos, c->radius, c->height, v3_scale(p->dodge_dir, sp * dt));
+        c->pos = level_move(w->lv, c->pos, c->radius, c->height, v3_scale(p->dodge_dir, sp * dt));
         want_speed = sp * 0.4f;
         if (p->t > d->dodge_time * 0.6f && p->buf_attack > 0) { player_swing(p, 0, boss, mlen, ev); break; }
         if (p->t >= d->dodge_time) player_enter(p, PS_FREE, ANIM_IDLE);

@@ -20,6 +20,7 @@ typedef struct Input {
     // Actions, edge-triggered this frame
     bool attack, parry, dodge, interact, lockon;
     bool jump;     // edge: Space. The dodge stayed on Shift; a co-op game needs the jump more.
+    bool jump_held;// held: the same key. A wall run lasts as long as you keep asking for it.
     bool sprint;   // held
     bool crouch;   // held: Ctrl. Lowers the eye and halves the speed.
     // --- voice --- push to talk: V on the keyboard, left bumper on a pad. Held, not edge

@@ -21,6 +21,16 @@ typedef enum Anim {
     ANIM_GUN_RELOAD,
     ANIM_MELEE_IDLE,                 // a bat over the shoulder
     ANIM_MELEE_SWING,
+    // --- traversal --- the parkour set. Character files may name these like any other clip; when
+    // they do not, charmodel binds them by the names every Quaternius body ships with, and falls
+    // back to an ordinary clip when the body has none (see charmodel.c's TRAVERSE_CLIPS).
+    ANIM_JUMP,                       // the push-off
+    ANIM_FALL,                       // airborne, looping
+    ANIM_ROLL,                       // a hard landing carried forward instead of stopped
+    ANIM_SLIDE,                      // crouch at a sprint
+    ANIM_MANTLE,                     // pulling up onto a ledge
+    ANIM_VAULT,                      // over a low obstacle without losing speed
+    ANIM_WALLRUN,
     ANIM_COUNT
 } Anim;
 const char *anim_name(Anim a);
@@ -45,6 +55,14 @@ typedef struct Character {
                                     // render interpolation and the eye's ease both have to know about it
     int   ground_block;             // which level block is holding them up, -1 = the terrain itself
     Vec3  hvel;                     // ground velocity in XZ, m/s (y unused): Quake-style accel/friction now owns this instead of stepping position directly
+    // --- traversal --- The fall the feet have just taken, handed from game.c's grounding to the
+    // next player_update: a landing is decided by the movement code (keep the momentum, or roll)
+    // but only the grounding code knows it happened. land_impact is consumed and cleared there.
+    float fall_from;                // highest y reached since the feet last left the ground
+    float land_impact;              // m/s downward at the moment of the last landing, 0 once used
+    float land_drop;                // metres fallen to get there
+    bool  traversing;               // a scripted traversal owns pos this tick: no gravity, no grounding
+    float body_height;              // collision height right now: c->height, or less while sliding
     // Scripted motion (cutscenes)
     bool  scripted_moving; Vec3 move_from, move_to; float move_t, move_dur;
 } Character;
@@ -81,6 +99,18 @@ typedef struct PlayerDef {
     float accel, air_accel, friction, stop_speed;
     float jump_height;               // metres, converted to a launch vy against PLAYER_JUMP_GRAVITY
     float crouch_mult;                // speed multiplier while crouch is held
+    // --- traversal --- Mirror's Edge on top of the Quake base: momentum that builds, a jump that
+    // forgives, and three scripted moves the world decides for you.
+    float sprint_ramp;               // seconds of sprinting to reach the top speed
+    float speed_cap;                 // hard ceiling on horizontal speed: bunny hopping stays capped
+    float coyote;                    // seconds past the edge a jump still counts
+    float jump_buffer;               // seconds a jump press stays queued before the feet land
+    float air_wish;                  // m/s the mid-air accel step chases: how much steering a jump has
+    float slide_time, slide_decel, slide_enter, slide_exit;   // seconds, m/s^2, and the speeds that open and close it
+    float mantle_min, mantle_max;    // the band of ledge heights that can be climbed
+    float vault_max;                 // below this, at speed, it is vaulted instead of climbed
+    float roll_fall;                 // metres of drop that turns a landing into a roll
+    float wallrun_time;              // seconds a wall run can hold, 0 = no wall running
     float attack_windup, attack_active, attack_recovery, attack_damage, attack_range, attack_posture;
     float parry_window, parry_recovery, parry_hitstop;
     float dodge_time, dodge_iframes, dodge_dist;
@@ -97,6 +127,23 @@ typedef struct PlayerDef {
 // PS_PARRY covers the whole guard: the deflect window first, then a held block if the button is
 // still down. PS_HURT covers both a hit reaction and a posture break (p->staggered).
 typedef enum PState { PS_FREE, PS_ATTACK, PS_PARRY, PS_DODGE, PS_HURT, PS_DEAD, PS_SCRIPTED } PState;
+
+// --- traversal --- What a FREE player is doing with the ground. This is deliberately not a PState:
+// the fight's state machine is untouched by it, and a slide or a mantle is something that happens
+// *inside* PS_FREE, decided by the world rather than by a button of its own.
+typedef enum TravMode { TM_NONE, TM_SLIDE, TM_MANTLE, TM_VAULT, TM_ROLL, TM_WALLRUN } TravMode;
+const char *trav_name(TravMode m);
+
+// The world a player moves through: the level's blocks and the terrain under them. A ledge is
+// either, so the traversal probe needs both, and passing them together stops player_update growing
+// an argument every time it learns to climb something new.
+struct Terrain;
+typedef struct World { const Level *lv; const struct Terrain *tr; } World;
+// Highest walkable surface in this column at or below `ceiling`, terrain and blocks alike; -1e9f
+// for a column with nothing in it (outside the terrain grid, no block).
+float world_top(const World *w, float x, float z, float ceiling);
+// Room for a body of `radius` standing at (x, z) with its feet at y0 and its head at y1.
+bool  world_clear(const World *w, float x, float z, float radius, float y0, float y1);
 typedef enum BState { BS_IDLE, BS_APPROACH, BS_WINDUP, BS_ACTIVE, BS_RECOVER, BS_STAGGER, BS_DEAD, BS_SCRIPTED } BState;
 
 #define PLAYER_SWINGS 4              // three-hit chain plus the sprint attack
@@ -121,6 +168,23 @@ typedef struct Player {
     float regen_delay;               // no posture regen while > 0
     float iframes;                   // invulnerable for this many more seconds (dodge)
     Vec3  knock;                     // knockback velocity, decays
+    // --- traversal --- All of this is a function of the inputs and the world, so a client predicts
+    // it and the host replays it to the same answer; see the traversal section of combat.c.
+    TravMode trav; float trav_t, trav_dur;
+    Vec3  trav_from, trav_to;        // the scripted path of a mantle or a vault
+    Vec3  trav_dir;                  // the heading the move was entered on
+    float trav_speed;                // horizontal speed carried in, handed back on the way out
+    float trav_arc;                  // metres the path bulges above the straight line: a vault goes OVER the thing
+    Vec3  wall_normal; float wall_side;   // wall run: the face and which shoulder it is on (-1 left, +1 right)
+    float momentum;                  // 0..1 sprint build-up, sprint_ramp seconds to the top
+    float run_speed;                 // the speed you were doing a moment ago: hvel collapses the tick you
+                                      // hit a wall, and "how fast were you going when you hit it" is the
+                                      // question a vault and a mantle both have to answer
+    float air_t;                     // seconds since the feet last left the ground (coyote time)
+    float buf_jump;                  // a jump press still queued (jump_buffer)
+    float slide_cd;                  // seconds before crouch can open another slide
+    float last_vy;                   // vy at the end of the last tick, for the landing that follows
+    unsigned n_mantle, n_vault, n_slide, n_jump, n_roll, n_wallrun;   // what the traversal log counts
 } Player;
 
 typedef struct Boss {
@@ -141,6 +205,9 @@ typedef struct CombatEvents {
     bool player_blocked, player_staggered;              // guard held the hit / the player's posture broke
     Vec3 contact;                                        // where the last hit or parry happened
     bool player_swing, boss_swing, footstep, boss_footstep, phase2;
+    // --- traversal --- what the feet and the hands just did, for sound and the viewmodel
+    bool  mantle, vault, slide_start, roll, wall_jump;
+    float landed;                    // m/s of impact on the tick the feet touched down, 0 otherwise
     float hitstop, shake;
 } CombatEvents;
 
@@ -154,7 +221,10 @@ void boss_reset(Boss *b, Vec3 pos, float yaw);
 
 // move_dir: desired world-space XZ movement (already camera-relative), length 0..1.
 // boss may be NULL outside fights.
-void player_update(Player *p, const Input *in, Vec3 move_dir, const Level *lv, Boss *boss, float dt, CombatEvents *ev);
+void player_update(Player *p, const Input *in, Vec3 move_dir, const World *w, Boss *boss, float dt, CombatEvents *ev);
+// --- traversal --- A correction from the host landed mid-mantle: move the scripted path with it
+// rather than the body, so the climb finishes where the host says without a step in the eye.
+void player_traverse_shift(Player *p, Vec3 delta);
 void boss_update(Boss *b, Player *p, const Level *lv, float dt, CombatEvents *ev);
 
 // Scripted motion (cutscenes): walk to a point over dur seconds, then idle.

@@ -157,6 +157,21 @@ float level_ground(const Level *lv, Vec3 pos, float base, int *block);
 // Move a capsule-ish character (xz circle of radius r, y extent 0..height above pos.y)
 // by delta, sliding along solid blocks. Returns the new position. Y is passed through.
 Vec3 level_move(const Level *lv, Vec3 pos, float radius, float height, Vec3 delta);
+
+// --- traversal --- level_ground answers "what am I standing on", which is a question about a step.
+// Climbing something is a different question: what is the top of the thing in my way, is there room
+// to stand on it, and which way does its face point. These three answer that, and no level markup
+// is involved -- a ledge is any block top, deck or hillside of the right height.
+//
+// Highest solid or platform top in this column at or below `ceiling`; -1e9f when the column is
+// empty. Unlike level_ground there is no step limit: that is the caller's decision to make.
+float level_top_at(const Level *lv, float x, float z, float ceiling, int *block);
+// Is there room for a circle of `radius` at (x, z) spanning y0..y1? Decks never block anything, so
+// only `solid` blocks count -- the same rule move_axis plays by, minus its step-up exemption.
+bool  level_clear(const Level *lv, float x, float z, float radius, float y0, float y1);
+// The horizontal normal of the nearest solid face within `radius` of (x, z) over y0..y1, pointing
+// away from the wall, with the gap to it. False when there is no wall in reach.
+bool  level_wall_near(const Level *lv, float x, float z, float radius, float y0, float y1, Vec3 *normal, float *gap);
 // First camera volume containing p, or NULL.
 const CamVolume *level_camera_at(const Level *lv, Vec3 p);
 // First trigger containing p that has not fired; marks it fired if once. NULL if none.

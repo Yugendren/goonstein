@@ -238,6 +238,7 @@ bool platform_poll(Platform *pf) {
     // Held movement: keyboard, overridden by stick if it's deflected.
     const bool *keys = SDL_GetKeyboardState(NULL);
     in->sprint = keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT];
+    in->jump_held = (pf->tool_focus || pf->text_input) ? false : keys[SDL_SCANCODE_SPACE];
     for (int i = 0; i < 512; i++) in->key_held[i] = keys[i];
     in->ctrl = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL] || keys[SDL_SCANCODE_LGUI] || keys[SDL_SCANCODE_RGUI];
     // Crouch is Ctrl alone: the tool shortcuts all take Ctrl WITH a letter, and Command is left out
