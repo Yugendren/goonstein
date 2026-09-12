@@ -26,6 +26,13 @@ typedef struct Camera {
     float step_off;                    // metres: held offset from a step, eased to 0 by camera_view_advance
     float dip, dip_v;                  // metres, m/s: landing dip spring (critically damped, omega 22)
     float bob_phase, bob_gain;         // radians, 0..1: walk-bob phase accumulator and its live gain
+    // --- traversal --- The speed the view is carrying, in the three places it shows: the lens
+    // opens up, the horizon leans into a strafe, and a scripted move (a mantle, a roll) tips the
+    // head. All three are advanced per FRAME by camera_view_advance, like the bob and the dip.
+    float speed_fov;                   // degrees added to the first-person FOV by speed
+    float lean;                        // radians of strafe roll, eased
+    float tilt_pitch, tilt_roll;       // radians a traversal is adding right now
+    float tilt_goal_pitch, tilt_goal_roll;   // what the tick asked for; the frame chases it
     // Scene
     Vec3 goal_eye, goal_target; float goal_fov;
     float shake, shake_t;
@@ -81,9 +88,20 @@ void  camera_view_step(Camera *c, float dy);
 // Landed at this speed (m/s, positive): kick the landing dip. Speeds under 2.5 m/s are ignored, so
 // stepping off a kerb doesn't dip the view.
 void  camera_view_land(Camera *c, float fall_speed);
-// Advance the step ease, landing dip and walk bob by one rendered frame. speed is the player's
-// planar speed in m/s; bob_amount is the level's bob knob (0 off, 1 the default amount).
-void  camera_view_advance(Camera *c, float speed, float bob_amount, float dt);
+// Advance the step ease, landing dip, walk bob, speed FOV and strafe lean by one rendered frame.
+// speed is the player's planar speed in m/s, lateral its sideways component (signed, +right),
+// top_speed what counts as flat out, bob_amount the level's bob knob (0 off, 1 the default).
+void  camera_view_advance(Camera *c, float speed, float lateral, float top_speed, float bob_amount, float dt);
+// --- traversal --- A scripted move tips the head: degrees of pitch (+ down) and roll, on top of
+// the strafe lean. This is a GOAL set by the 60 Hz tick; the frame chases it, because a tilt that
+// stepped at the tick rate would be the same 60 Hz staircase the mouse look was rebuilt to avoid.
+// Set it every tick, zero included.
+void  camera_view_tilt(Camera *c, float pitch_deg, float roll_deg);
+// Radians of roll the view is carrying right now: the strafe lean plus whatever a traversal is
+// adding. game.c adds this to any roll the game has of its own (a goon knocked flat).
+float camera_view_roll(const Camera *c);
+// Radians of extra look-down a traversal is adding, for the same reason.
+float camera_view_pitch(const Camera *c);
 // Metres to add to the eye height right now (step ease + landing dip).
 float camera_view_offset(const Camera *c);
 // Radians; one full cycle per stride. Shared with the viewmodel so it bobs in step with the camera.

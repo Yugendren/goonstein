@@ -65,6 +65,7 @@ typedef struct Game {
     bool     paused, step_once;
     bool     look_capture;   // the game window owns the mouse: the frame-rate view may turn
     float    crouch_k;       // 0..1 eased crouch, which is an eye height rather than a body height
+    float    slide_k;        // --- traversal --- 0..1 of the way from a crouched eye to a sliding one
     char     msg[128]; float msg_t;
     // stats
     float    fps; unsigned frames, frames_total; double fps_t; float frame_ms;
@@ -129,3 +130,8 @@ bool game_shot_moment(Game *g, const char *when);
 // Open the sprite editor on a character (creates it if missing).
 // Switch the tool window: 0 closes, 1 debugger, 2 world editor (terrain, place, look), 4 character builder.
 void game_set_tool(Game *g, int mode);
+
+// --- traversal --- src/travbot.c: a bot that runs the parkour course so a headless capture and the
+// log show sprinting, mantling and sliding with nobody at the keyboard. HOLLOW_BOT=traverse.
+bool traverse_bot_input(struct Game *g, struct Input *in);
+void traverse_bot_log(struct Game *g, float dt);

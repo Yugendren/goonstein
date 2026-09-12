@@ -9,6 +9,15 @@
 #define FP_PITCH  PITCH_MAX     // first person looks as far up as the orbit camera looks down
 #define FP_LOOK   6.0f          // how far ahead the look-at point sits
 #define FP_FOV    70.0f         // wider than the orbit camera's 55: first person needs the peripheral read
+// --- traversal --- Speed you can see: the lens opens eight degrees between a walk and a flat-out
+// sprint. It is the oldest trick in first-person running and the cheapest -- nothing in the world
+// moves, the edges of it just start arriving faster.
+#define FP_FOV_SPRINT 8.0f
+#define FP_FOV_RATE   4.0f      // per second: slow enough that a stutter in speed is not a zoom
+// Strafe lean. Two degrees is under what anyone would call a tilt and over what nobody would
+// notice, which is exactly the size a running game wants it.
+#define LEAN_MAX   (2.0f * DEG2RAD)
+#define LEAN_RATE   7.0f
 #define CAM_STICK_RATE 2.6f     // radians/second at full stick deflection (camera_look)
 #define BOB_STRIDE 2.2f         // metres per full walk-bob cycle (camera_view_advance)
 
@@ -139,19 +148,25 @@ void camera_first(Camera *c, Vec3 player_pos, float eye_height, float bob, float
     float gain = c->bob_gain;
     float by = sinf(c->bob_phase * 2.0f) * 0.018f * gain * bob;
     float bx = sinf(c->bob_phase) * 0.014f * gain * bob;
-    Vec3 fwd = look_dir(c->yaw, c->pitch);
+    // --- traversal --- A mantle or a roll tips the head down and over. It is added to the look
+    // pitch rather than to the eye so the whole view turns with it, which is what a roll is.
+    Vec3 fwd = look_dir(c->yaw, clampf(c->pitch + c->tilt_pitch, -FP_PITCH - 0.6f, FP_PITCH + 0.6f));
     Vec3 right = v3_norm(v3_cross(fwd, v3(0, 1, 0)));
     // No damping here: the eye must track the player exactly so game.c's frame-rate interpolation
     // (which lerps eye/target between ticks) doesn't double-smooth.
     float h = eye_height + camera_view_offset(c) + by;
     c->eye = v3_add(v3(player_pos.x, player_pos.y + h, player_pos.z), v3_scale(right, bx));
     c->target = v3_add(c->eye, v3_scale(fwd, FP_LOOK));
-    c->fov = entering ? FP_FOV : damp(c->fov, FP_FOV, 6, dt);
+    // The FOV is advanced once a rendered frame by camera_view_advance, which is where the speed
+    // is known; this only has to catch the moment the view becomes first person at all.
+    if (entering) c->fov = FP_FOV + c->speed_fov;
+    (void)dt;
 }
 
 void camera_snap_first(Camera *c, Vec3 player_pos, float eye_height, float yaw) {
     c->mode = CAM_FIRST; c->yaw = yaw; c->pitch = 0; c->dist = c->cur_dist = 0; c->fov = FP_FOV;
     c->step_off = 0; c->dip = 0; c->dip_v = 0; c->bob_phase = 0; c->bob_gain = 0;
+    c->speed_fov = 0; c->lean = 0; c->tilt_pitch = 0; c->tilt_roll = 0; c->tilt_goal_pitch = 0; c->tilt_goal_roll = 0;
     Vec3 fwd = look_dir(c->yaw, c->pitch);
     c->eye = v3(player_pos.x, player_pos.y + eye_height, player_pos.z);
     c->target = v3_add(c->eye, v3_scale(fwd, FP_LOOK));
@@ -170,7 +185,14 @@ void camera_view_land(Camera *c, float fall_speed) {
     c->dip_v -= clampf(fall_speed, 0, 12.0f) * 0.55f;
 }
 
-void camera_view_advance(Camera *c, float speed, float bob_amount, float dt) {
+void camera_view_tilt(Camera *c, float pitch_deg, float roll_deg) {
+    c->tilt_goal_pitch = pitch_deg * DEG2RAD;
+    c->tilt_goal_roll = roll_deg * DEG2RAD;
+}
+float camera_view_roll(const Camera *c)  { return c->lean + c->tilt_roll; }
+float camera_view_pitch(const Camera *c) { return c->tilt_pitch; }
+
+void camera_view_advance(Camera *c, float speed, float lateral, float top_speed, float bob_amount, float dt) {
     // Step ease: chase zero at a rate proportional to how far off we are (fast for a big step,
     // floored so a tiny step doesn't linger), clamped so it can never overshoot past zero.
     float rate = fmaxf(fabsf(c->step_off) * 18.0f, 0.35f) * dt;
@@ -193,6 +215,18 @@ void camera_view_advance(Camera *c, float speed, float bob_amount, float dt) {
     } else {
         c->bob_phase = fmodf(c->bob_phase + 2 * PI * speed / BOB_STRIDE * dt, 2 * PI);
     }
+
+    // --- traversal --- Speed FOV and strafe lean. Both are measured against the walk, not against
+    // zero: standing still and walking look the same through the lens, and only the run opens it.
+    float walk = fmaxf(top_speed * 0.45f, 0.1f);
+    float k = clampf((speed - walk) / fmaxf(top_speed - walk, 0.1f), 0, 1);
+    c->speed_fov = damp(c->speed_fov, FP_FOV_SPRINT * k, FP_FOV_RATE, dt);
+    if (c->mode == CAM_FIRST) c->fov = damp(c->fov, FP_FOV + c->speed_fov, 6, dt);
+    c->lean = damp(c->lean, -LEAN_MAX * clampf(lateral / fmaxf(top_speed * 0.7f, 0.1f), -1, 1), LEAN_RATE, dt);
+    // 50 ms behind the tick's goal: long enough to smooth a 60 Hz staircase into a curve, short
+    // enough that a 350 ms mantle still reads as the shape the mantle asked for.
+    c->tilt_pitch = damp(c->tilt_pitch, c->tilt_goal_pitch, 20, dt);
+    c->tilt_roll = damp(c->tilt_roll, c->tilt_goal_roll, 20, dt);
 }
 
 float camera_view_offset(const Camera *c) { return c->step_off + c->dip; }

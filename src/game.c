@@ -181,11 +181,41 @@ static const char *slot_character(const Game *g, int slot, bool *tinted) {
 // First person sits the eye just under the top of the head, so the view is the character's own and
 // the model's neck never crosses the near plane.
 #define GAME_CROUCH_DROP 0.5f   // metres the eye loses when you crouch (combat.c halves the speed)
-static float eye_height(const Game *g) { return fmaxf(0.6f, PLAYER(g).c.height * 0.92f) - GAME_CROUCH_DROP * g->crouch_k; }
+// --- traversal --- A slide is lower than a crouch: the shoulder is nearly on the floor, which is
+// what makes the gap you are going under read as a gap rather than a doorway.
+#define GAME_SLIDE_DROP  0.95f
+static float eye_height(const Game *g) {
+    float stand = fmaxf(0.6f, PLAYER(g).c.height * 0.92f);
+    float drop = lerpf(GAME_CROUCH_DROP, GAME_SLIDE_DROP, g->slide_k);
+    return stand - drop * g->crouch_k;
+}
 // Head bob amount: the level's `view first BOB` (1 = the default subtle bob, 0 = off), env-overridable.
 static float bob_amount(const Game *g) {
     const char *e = SDL_getenv("HOLLOW_BOB");
     return e ? (float)atof(e) : g->level.view_bob;
+}
+
+// --- traversal --- What a scripted move does to the head, decided once a tick and chased by the
+// frame (camera_view_tilt). Each curve is a sine over the move's own progress, so it starts and
+// ends at zero with zero slope and the view never snaps back level at the end of a climb.
+static void traverse_view_tilt(Game *g) {
+    const Player *p = &PLAYER(g);
+    float k = p->trav_dur > 1e-4f ? clampf(p->trav_t / p->trav_dur, 0, 1) : 0.0f;
+    float arc = sinf(k * PI), pitch = 0, roll = 0;
+    switch (p->trav) {
+    case TM_MANTLE:  pitch = 8.0f * arc;  roll =  4.0f * arc; break;   // you look at the ledge you are pulling onto
+    case TM_VAULT:   pitch = 5.0f * arc;  roll = -3.0f * arc; break;
+    case TM_SLIDE:   pitch = -3.0f * clampf(k * 5.0f, 0, 1) * clampf((1.0f - k) * 5.0f, 0, 1); roll = 2.5f * arc; break;
+    case TM_ROLL:    pitch = 34.0f * arc; roll =  8.0f * arc; break;   // the forward roll, seen from inside it
+    case TM_WALLRUN: roll = 14.0f * p->wall_side; break;
+    default: break;
+    }
+    camera_view_tilt(&g->cam, pitch, roll);
+}
+// The view's total roll: whatever the game is doing to it (a goon knocked flat) plus the lean and
+// tilt the camera carries of its own at the frame rate.
+static void apply_view_roll(Game *g, float down_roll_deg) {
+    g->cam.roll = down_roll_deg * DEG2RAD + camera_view_roll(&g->cam);
 }
 
 // ---------------------------------------------------------------- the view, once per frame
@@ -203,10 +233,23 @@ void game_view_look(Game *g, Platform *pf, float dt) {
     bool look = g->look_capture && (g->cam.mode == CAM_FIRST || g->cam.mode == CAM_ORBIT);
     if (look) camera_look(&g->cam, in->look_x, in->look_y, in->look_stick_x, in->look_stick_y, dt);
     const Character *lc = &PLAYER(g).c;
-    camera_view_advance(&g->cam, (look && !g->paused) ? lc->speed : 0.0f,
+    // The head moves whenever the body is being played, which is not the same thing as the mouse
+    // owning the cursor: a bot run has no cursor and still has a run to show.
+    bool live = !g->paused && (g->cam.mode == CAM_FIRST || g->cam.mode == CAM_ORBIT)
+                && (g->state == GS_EXPLORE || g->state == GS_FIGHT);
+    // --- traversal --- The lens and the horizon both answer to the run: how fast, and how much of
+    // it is sideways. Both are measured against the player's own top speed so a level that retunes
+    // player.txt retunes the feel with it.
+    float top = PLAYER(g).def.speed * PLAYER(g).def.sprint_mult;
+    Vec3 vright = v3(cosf(g->cam.yaw), 0, -sinf(g->cam.yaw));   // +X of the view basis (see camera_move_dir)
+    float lateral = live ? lc->hvel.x * vright.x + lc->hvel.z * vright.z : 0.0f;
+    camera_view_advance(&g->cam, live ? lc->speed : 0.0f, lateral, top,
                         g->cam.mode == CAM_FIRST ? bob_amount(g) : 0.0f, dt);
     // Crouching drops the eye rather than the body: half a metre, eased, so it reads as ducking.
-    g->crouch_k = damp(g->crouch_k, (look && in->crouch) ? 1.0f : 0.0f, 14, dt);
+    // A slide holds it down whether or not Ctrl is still there to hold it.
+    bool low = PLAYER(g).trav == TM_SLIDE || PLAYER(g).trav == TM_ROLL;
+    g->crouch_k = damp(g->crouch_k, ((live && in->crouch) || low) ? 1.0f : 0.0f, 14, dt);
+    g->slide_k = damp(g->slide_k, low ? 1.0f : 0.0f, 10, dt);
 }
 
 // The local player's character file and its model reload when they change on disk (checked once a second).
@@ -280,8 +323,13 @@ void game_ground_character(Game *g, Character *c, float dt) {
         else { c->grounded = false; c->ground_block = -1; }
         return;
     }
+    // --- traversal --- A mantle, a vault or a wall run is driving pos.y along a curve of its own.
+    // Gravity would fight it and the step ease would smear it; both stay out of the way until it is
+    // done, which is also why the eye comes out of a mantle without a step in it.
+    if (c->traversing) { c->step_dy = 0; c->grounded = false; c->ground_block = -1; c->fall_from = c->pos.y; return; }
     if (dt <= 0) {   // a spawn, a teleport or a level load: put them down now
         c->pos.y = ground; c->vy = 0; c->grounded = true; c->ground_block = block;
+        c->fall_from = c->pos.y; c->land_impact = c->land_drop = 0;
         return;
     }
     c->step_dy = 0;
@@ -292,12 +340,19 @@ void game_ground_character(Game *g, Character *c, float dt) {
         slope_slide(g, c, terrain, block, dt);
         return;
     }
+    bool was_up = c->grounded;
     c->grounded = false; c->ground_block = -1;
+    if (was_up) c->fall_from = c->pos.y;                     // the height the fall started from
+    c->fall_from = fmaxf(c->fall_from, c->pos.y);
     c->vy = fmaxf(c->vy - GAME_GRAVITY * dt, -GAME_FALL_MAX);
     c->pos.y += c->vy * dt;
     if (c->vy <= 0.0f && c->pos.y <= ground) {
         float fall = -c->vy;
         c->pos.y = ground; c->vy = 0; c->grounded = true; c->ground_block = block;
+        // --- traversal --- The movement code decides what a landing means (keep the momentum, or
+        // roll out of it); only this knows one happened, so it says so and leaves it at that.
+        c->land_impact = fall; c->land_drop = fmaxf(0.0f, c->fall_from - c->pos.y);
+        c->fall_from = c->pos.y;
         if (c == &PLAYER(g).c) camera_view_land(&g->cam, fall);   // the knees give a little when you land
     }
 }
@@ -609,6 +664,7 @@ void game_start_at(Game *g, const char *where) {
 static void bot_input(Game *g, Input *in) {
     // M2: in the overworld the bot's whole job is the loot run. It falls through to the old wander
     // (and to the fight bot) whenever there is nothing left to carry.
+    if (g->state == GS_EXPLORE && traverse_bot_input(g, in)) return;  // --- traversal --- HOLLOW_BOT=traverse
     if (g->state == GS_EXPLORE && weapons_bot_input(g, in)) return;   // --- weapons --- HOLLOW_BOT=shoot
     if (g->state == GS_EXPLORE && items_bot_input(g, in)) return;
     if (netgame_on(&g->net) || g->cam.mode == CAM_FIRST) { netgame_bot_wander(g, in); return; }
@@ -691,6 +747,14 @@ static void apply_events(Game *g, const CombatEvents *ev) {
         if (ev->player_died) SDL_Log("t=%.2f player died", g->time);
     }
     if (ev->footstep) audio_play(SND_FOOTSTEP, 0.5f, 0.95f + 0.1f * (float)(g->tick % 3));
+    // --- traversal --- Hands, feet and the ground. The landing crunch is sized by the fall, which
+    // is the only cue that tells you a drop was a big one before your knees do.
+    if (ev->landed > 3.0f) audio_play(SND_THUD, clampf(ev->landed / 14.0f, 0.25f, 1.0f), 1.35f - clampf(ev->landed / 30.0f, 0, 0.35f));
+    if (ev->mantle) audio_play(SND_GRAB, 0.7f, 0.85f);
+    if (ev->vault) audio_play(SND_GRAB, 0.55f, 1.25f);
+    if (ev->slide_start) audio_play(SND_WHIFF, 0.55f, 0.6f);
+    if (ev->roll) { audio_play(SND_THUD, 0.8f, 0.8f); camera_add_shake(&g->cam, 0.18f); }
+    if (ev->wall_jump) audio_play(SND_FOOTSTEP, 0.8f, 0.7f);
     if (ev->boss_footstep) { audio_play(SND_FOOTSTEP, 0.9f, 0.5f); camera_add_shake(&g->cam, 0.08f); }
     if (ev->player_swing) audio_play(SND_SWING, 0.6f, 1.1f);
     if (ev->boss_swing) audio_play(SND_SWING, 0.9f, 0.6f);
@@ -799,13 +863,15 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     // --- weapons --- Flat on your back is flat on your back: the look still works, nothing else does.
     if (weapons_frozen(g, g->local)) { dir = v3(0, 0, 0); carried_in.sprint = false;
         carried_in.attack = carried_in.parry = carried_in.dodge = carried_in.interact = false; }
-    player_update(&PLAYER(g), &carried_in, dir, &g->level, NULL, dt, &ev);
+    World world = { &g->level, &g->terrain };
+    player_update(&PLAYER(g), &carried_in, dir, &world, NULL, dt, &ev);
     resolve_ground(g, dt);
     apply_events(g, &ev);
     { const Look *ck = &g->level.look; camera_iso_set(ck->cam_pitch, ck->cam_dist, ck->cam_fov, ck->cam_yaw); if (SDL_getenv("HOLLOW_CAM")) { float a = ck->cam_pitch, b = ck->cam_dist, c = ck->cam_fov, d = ck->cam_yaw; char w[16] = ""; sscanf(SDL_getenv("HOLLOW_CAM"), "%f %f %f %f %15s", &a, &b, &c, &d, w); camera_iso_set(a, b, c, d); camera_orbit_pin(a, b, c, d, strcmp(w, "free") != 0); } }
     // HOLLOW_CAM="PITCH DIST FOV YAW [free]" also frames the third-person orbit, which is what
     // makes two captures of one view under two looks comparable; the trailing `free` leaves the
     // yaw to the game, for a capture where something still has to walk somewhere.
+    traverse_view_tilt(g);   // --- traversal --- the tick's goal for the head; the frame chases it
     if (g->level.view == VIEW_FIRST) {
         // view first: the eye rides the head and the body turns with the view, so the next tick's
         // movement is relative to where you are looking. The eye follows the networked view position
@@ -816,8 +882,10 @@ static void tick_explore(Game *g, const Input *in, float dt) {
         float down_roll = 0, eye_h = eye_height(g);
         bool down = weapons_camera(g, &down_roll, &eye_h);
         camera_first(&g->cam, netgame_view_pos(&g->net, g->local, lc->pos), eye_h, down ? 0 : bob_amount(g), dt);
-        g->cam.roll = down_roll * DEG2RAD;
-        if (!down) PLAYER(g).c.yaw = g->cam.yaw;
+        apply_view_roll(g, down_roll);
+        // A scripted traversal steers the body: turning to face the mouse mid-vault would walk you
+        // off the side of the obstacle you are going over.
+        if (!down && PLAYER(g).trav == TM_NONE) PLAYER(g).c.yaw = g->cam.yaw;
     } else if (g->level.view == VIEW_THIRD) { camera_orbit(&g->cam, PLAYER(g).c.pos, false, v3(0, 0, 0), &g->level, dt); camera_above_terrain(g); }   // view third: behind the hero, mouse look
     else camera_iso(&g->cam, PLAYER(g).c.pos, &g->level, dt);
     Trigger *t = level_trigger_at(&g->level, PLAYER(g).c.pos);   // marks the trigger fired even when scenes are skipped
@@ -842,6 +910,7 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     if (g->talk_npc >= 0 && in->interact && g->state == GS_EXPLORE && !g->no_scenes
         && g->items.carry[g->local].item < 0 && g->items.look_at < 0 && !g->weapons.prompt[0])
         { const Npc *np = &g->level.npcs[g->talk_npc]; dbg_log("talk to %s", np->name); play_scene(g, np->scene, GS_EXPLORE); }
+    traverse_bot_log(g, dt);   // --- traversal --- one line a second: speed, airtime, what was climbed
     audio_set_drone(0.45f);
     audio_set_fight(0.0f);
 }
@@ -897,7 +966,8 @@ static void tick_fight(Game *g, const Input *in, float dt) {
     { static const Anim SWINGS[PLAYER_SWINGS] = { ANIM_ATTACK, ANIM_ATTACK2, ANIM_ATTACK3, ANIM_ATTACK_RUN };
       for (int i = 0; i < PLAYER_SWINGS; i++) { float contact; if (charmodel_clip_timing(&PLAYER_MODEL(g), SWINGS[i], &contact, NULL)) PLAYER(g).swing_lead[i] = contact; } }
     Vec3 dir = netgame_local_input(g, camera_move_dir(&g->cam, in->move_x, in->move_y), in);
-    player_update(&PLAYER(g), in, dir, &g->level, &g->boss, dt, &ev);
+    World world = { &g->level, &g->terrain };
+    player_update(&PLAYER(g), in, dir, &world, &g->boss, dt, &ev);
     boss_update(&g->boss, &PLAYER(g), &g->level, dt, &ev);
     if (g->boss.state != BS_DEAD) character_separate(&PLAYER(g).c, &g->boss.c, &g->level);
     resolve_ground(g, dt);
@@ -989,7 +1059,16 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
         const char *ai = SDL_getenv("HOLLOW_AUTOINPUT");
         if (ai) { if (strstr(ai, "sprint")) bot_in.sprint = true;
                   if (strstr(ai, "crouch")) bot_in.crouch = true;
-                  if (strstr(ai, "jump") && g->tick % 60 == 0) bot_in.jump = true; }
+                  if (strstr(ai, "jump") && g->tick % 60 == 0) bot_in.jump = true;
+                  // --- traversal --- `slide` is not a key, it is crouch pressed at the right speed,
+                  // which is a thing no fixed input pattern can do: hold it once the run is fast
+                  // enough and keep holding it while the slide lasts.
+                  // --- traversal --- one slide every three seconds once the run is fully built,
+                  // which is the only way a fixed input pattern gets a slide at all: press Ctrl
+                  // early and the crouch speed cap means the run never reaches slide_enter.
+                  if (strstr(ai, "slide"))
+                      bot_in.crouch = (PLAYER(g).momentum > 0.95f && g->tick % 180 < 54)
+                                      || PLAYER(g).trav == TM_SLIDE; }
     }
     // A bot writes its look into its own copy of the input, which the frame-rate view update never
     // sees. Apply it here instead, at the tick rate: a bot has no hand and no monitor.
@@ -1492,20 +1571,26 @@ static void trace_dump(void) {
 // shake, and a flat spread with a jumpy frame time is the renderer missing frames, not the camera.
 static void smooth_meter(const Game *g) {
     static Vec3 last_eye; static bool have; static double t0;
-    static float sum, sum2, ft, ft2; static int n;
+    static float sum, sum2, ft, ft2, peak, tpeak; static int n, tn;
     Vec3 e = g->cam.eye; double now = g->frame_wall;
     if (!have) { have = true; last_eye = e; t0 = now; return; }
     float d = v3_len(v3_sub(e, last_eye)); last_eye = e;
     float dt = (float)(now - t0 > 0 ? g->render_frame_dt : 0);
     sum += d; sum2 += d * d; ft += dt; ft2 += dt * dt; n++;
+    if (d > peak) peak = d;
+    // --- traversal --- A mantle is the one thing in the game that moves the eye on a curve of its
+    // own, so it gets its own column: the frames spent climbing and the biggest single step any of
+    // them took. A pop in a mantle is a peak here well above the mean, and nowhere else.
+    if (PLAYER(g).trav != TM_NONE) { tn++; if (d > tpeak) tpeak = d; }
     if (now - t0 < 1.0 || n < 30) return;
     float m = sum / (float)n, v = sum2 / (float)n - m * m;
     float fm = ft / (float)n, fv = ft2 / (float)n - fm * fm;
     if (m > 0.001f)   // standing still has no smoothness to report
-        dbg_log("smooth: eye %.2f mm/frame sd %.1f%% | frame %.2f ms sd %.2f ms | %.0f fps",
-                (double)(m * 1000), (double)(100.0f * sqrtf(fmaxf(v, 0)) / m),
+        dbg_log("smooth: eye %.2f mm/frame sd %.1f%% peak %.2f mm | traverse %d frames peak %.2f mm | frame %.2f ms sd %.2f ms | %.0f fps",
+                (double)(m * 1000), (double)(100.0f * sqrtf(fmaxf(v, 0)) / m), (double)(peak * 1000),
+                tn, (double)(tpeak * 1000),
                 (double)(fm * 1000), (double)(sqrtf(fmaxf(fv, 0)) * 1000), (double)(n / (now - t0)));
-    sum = sum2 = ft = ft2 = 0; n = 0; t0 = now;
+    sum = sum2 = ft = ft2 = 0; n = 0; t0 = now; peak = 0; tpeak = 0; tn = 0;
 }
 
 static void trace_frame(const Game *g, float alpha) {
@@ -1582,6 +1667,7 @@ void game_render(Game *g, Platform *pf, float alpha) {
         float down_roll = 0, eye_h = eye_height(g);
         bool down = weapons_camera(g, &down_roll, &eye_h);
         camera_first(&g->cam, netgame_view_pos(&g->net, g->local, PLAYER(g).c.pos), eye_h, down ? 0 : bob_amount(g), 0);
+        apply_view_roll(g, down_roll);   // the lean and the tilt moved this frame, so the roll has to as well
     } else if (g->cam.mode == CAM_ORBIT) {
         camera_orbit(&g->cam, PLAYER(g).c.pos, g->cam.has_lock, g->cam.lock_pos, &g->level, 0);
         camera_above_terrain(g);

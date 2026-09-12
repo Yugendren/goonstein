@@ -272,6 +272,16 @@ static const struct { Anim a; const char *clips[3]; float contact; bool loop, ho
     { ANIM_GUN_RELOAD,  { "Pistol_Reload", NULL, NULL },            -1,    false, false, ANIM_IDLE },
     { ANIM_MELEE_IDLE,  { "Sword_Idle", NULL, NULL },               -1,    true,  false, ANIM_IDLE },
     { ANIM_MELEE_SWING, { "Sword_Attack", NULL, NULL },             -1,    false, false, ANIM_ATTACK },
+    // --- traversal --- The parkour set. No character file names these: every body in the
+    // Quaternius library ships them under the same names, so they bind themselves, and a body that
+    // has not got them falls back to something it does have rather than freezing mid-pose.
+    { ANIM_JUMP,        { "Jump_Start", "NinjaJump_Start", NULL },  -1,    false, true,  ANIM_RUN },
+    { ANIM_FALL,        { "Jump_Loop", "NinjaJump_Idle_Loop", NULL }, -1,  true,  false, ANIM_RUN },
+    { ANIM_ROLL,        { "Roll", "Dodge_Forward", NULL },          -1,    false, false, ANIM_DODGE },
+    { ANIM_SLIDE,       { "Slide_Loop", "Slide_Start", "Crouch_Fwd_Loop" }, -1, true, false, ANIM_DODGE },
+    { ANIM_MANTLE,      { "ClimbUp_1m", "Climbing", NULL },         -1,    false, true,  ANIM_JUMP },
+    { ANIM_VAULT,       { "NinjaJump_Start", "Jump_Start", NULL },  -1,    false, true,  ANIM_JUMP },
+    { ANIM_WALLRUN,     { "Running_A", "Jump_Loop", NULL },         -1,    true,  false, ANIM_RUN },
 };
 
 // The binding to actually play for an action: the character file's, else a default clip found by
@@ -388,6 +398,10 @@ void charmodel_drive_player(CharModel *cm, const Player *p, float dt) {
         case ANIM_HURT: case ANIM_HURT_HEAD: play_binding(cm, a, 0, d->hurt_time, 0.0f); break;
         case ANIM_HURT_HEAVY: play_binding(cm, a, 0, d->hurt_time * 1.3f, 0.0f); break;
         case ANIM_STAGGER:   play_binding(cm, ANIM_STAGGER, 0, d->stagger_time, 0.05f); break;
+        // --- traversal --- A mantle is 0.35 s on a knee-high ledge and 0.6 s on a head-high one,
+        // so the clip is stretched over the move rather than played at its own rate and cut off.
+        case ANIM_MANTLE: case ANIM_VAULT: case ANIM_ROLL:
+            play_binding(cm, a, 0, p->trav_dur > 0.01f ? p->trav_dur : 0.4f, 0.05f); break;
         default:             play_binding(cm, a, 0, 0, 0.12f); break;
         }
     }

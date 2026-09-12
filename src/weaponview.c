@@ -27,6 +27,17 @@
 #define VM_SWAY_ROLL_MAX       3.0f
 #define VM_ARM_THICK          0.075f
 
+// --- traversal --- momentum sway: the gun is a mass on the end of an arm, not welded to the eye,
+// so it lags a run, drifts with a strafe, sinks a little at speed, and floats or drops with the
+// feet leaving and finding the ground. Driven by Player.c.hvel/vy, never by camera motion (that is
+// the mouse sway above -- a different signal, already smoothed by VM_SWAY_RATE).
+#define VM_RUN_LAG    0.010f  // metres the gun lags back, per m/s of forward ground speed
+#define VM_RUN_SIDE   0.006f  // metres of lateral drift, per m/s of sideways ground speed
+#define VM_RUN_DROP   0.004f  // metres the gun sinks, per m/s of total ground speed
+#define VM_RUN_ROLL   0.9f    // degrees of roll, per m/s of sideways ground speed
+#define VM_RUN_RATE  12.0f    // frame-rate-independent smoothing rate shared by all of the above
+#define VM_AIR_LIFT   0.006f  // metres the gun floats (jump) or sinks (fall), per m/s of vy, while airborne
+
 // The grip: how a weapon model sits in a hand, and the same numbers serve the viewmodel and the
 // bone attachment. HOLLOW_GRIP="x y z yaw pitch roll scale" overrides it for tuning, and
 // HOLLOW_GRIP_<NAME> (NAME = the item's file name, upper-cased: PISTOL, SHOTGUN, BAT, WRENCH...)
@@ -148,6 +159,16 @@ static void draw_flashes(Gfx *x, const Weapons *ws) {
 
 // ---------------------------------------------------------------- the local viewmodel
 
+// --- traversal --- 0 outside a mantle or a vault; otherwise a curve that rises fast, holds near
+// its peak, and eases back to 0 with zero slope at both ends (k = 0 entering, k = 1 leaving), so
+// the hand-plant below never pops into the move or snaps out of it.
+static float mantle_reach(const Player *p) {
+    if (p->trav != TM_MANTLE && p->trav != TM_VAULT) return 0.0f;
+    float k = clampf(p->trav_t / fmaxf(p->trav_dur, 0.0001f), 0.0f, 1.0f);
+    return sinf(clampf(k / 0.45f, 0.0f, 1.0f) * PI * 0.5f) *
+           (1.0f - smoothstep(clampf((k - 0.55f) / 0.45f, 0.0f, 1.0f)));
+}
+
 static void draw_viewmodel(Game *g) {
     Gfx *x = &g->gfx;
     Weapons *ws = &g->weapons;
@@ -175,6 +196,41 @@ static void draw_viewmodel(Game *g) {
 
     Vec3 extra_pos = v3(0, 0, 0);
     float extra_yaw = 0, extra_pitch = 0, extra_roll = 0;
+
+    // Momentum sway: see the VM_RUN_* comment above. right is already flat (cross(fwd, world-up)
+    // has no y component by construction), so only fwd needs its own y zeroed and renormalised.
+    const Player *p = &g->players[slot];
+    Vec3 fwd_flat = v3_norm(v3(fwd.x, 0, fwd.z));
+    float vf = v3_dot(p->c.hvel, fwd_flat);   // + is running forward
+    float vl = v3_dot(p->c.hvel, right);      // + is strafing right
+    float hspd = hypotf(p->c.hvel.x, p->c.hvel.z);
+    float dt = fmaxf(game_frame_dt(g), 0.0f);
+    float rk = 1.0f - expf(-VM_RUN_RATE * dt);   // 0 when dt <= 0, so a paused frame leaves state untouched
+    static float s_run_lag = 0.0f, s_run_side = 0.0f, s_run_drop = 0.0f, s_run_roll = 0.0f, s_air_lift = 0.0f;
+    // -0.075..0.075 rather than a one-sided clamp: backpedalling flips the sign of vf and the lag
+    // should flip with it, not pin against a wall the forward case never touches.
+    s_run_lag  = lerpf(s_run_lag,  clampf(-VM_RUN_LAG  * vf, -0.075f, 0.075f), rk);
+    s_run_side = lerpf(s_run_side, clampf(-VM_RUN_SIDE * vl, -0.05f, 0.05f), rk);
+    s_run_drop = lerpf(s_run_drop, clampf(-VM_RUN_DROP * hspd, -0.03f, 0.0f), rk);
+    s_run_roll = lerpf(s_run_roll, clampf(VM_RUN_ROLL * vl, -4.0f, 4.0f), rk);
+    // Air lift snaps its target to 0 the instant the feet are down, so landing eases the gun back
+    // to rest at the same smoothed rate it floated up on the way into the jump.
+    float lift_target = p->c.grounded ? 0.0f : clampf(p->c.vy * VM_AIR_LIFT, -0.04f, 0.04f);
+    s_air_lift = lerpf(s_air_lift, lift_target, rk);
+    extra_pos = v3_add(extra_pos, v3_scale(fwd, s_run_lag));
+    extra_pos = v3_add(extra_pos, v3_scale(right, s_run_side));
+    extra_pos = v3_add(extra_pos, v3_scale(up, s_run_drop + s_air_lift));
+    extra_roll += s_run_roll;
+
+    // Hand-plant: a mantle or vault borrows the gun hand to slap the ledge, so the weapon dips out
+    // of frame and rolls with it instead of floating in place while the arms do something else.
+    // Unarmed, draw_mantle_hand below covers the same beat instead of this offset.
+    float reach = mantle_reach(p);
+    if (reach > 0.0f) {
+        extra_pos = v3_add(extra_pos, v3_scale(up, -0.30f * reach));
+        extra_pos = v3_add(extra_pos, v3_scale(right, 0.12f * reach));
+        extra_roll += 35.0f * reach;
+    }
 
     // Recoil: w->kick is already decayed for us. m4_rotate_x's handedness tips +Z toward -Y for a
     // positive angle, so a negative pitch here is what raises the muzzle.
@@ -236,6 +292,29 @@ static void draw_viewmodel(Game *g) {
         Mat4 lm = limb_matrix(lfrom, fore, VM_ARM_THICK);
         gfx_draw(x, &x->cube, &x->white, lm, tint, v4(1, 1, 0, 0));
     }
+}
+
+// --- traversal --- Unarmed, there is no weapon and no arms below to carry the beat of a mantle or
+// a vault, so a bare hand stands in: one forearm swinging up and forward to slap the ledge and
+// back again. Same limb_matrix + untextured-cube draw the arms above use, so it reads as the same
+// body. `reach` is mantle_reach(p) from the caller; the caller has already checked it is > 0.
+static void draw_mantle_hand(Game *g, float reach) {
+    Gfx *x = &g->gfx;
+    int slot = g->local;
+    Vec3 eye = g->cam.eye;
+    Vec3 fwd = v3_norm(v3_sub(g->cam.target, eye));
+    Vec3 right = v3_norm(v3_cross(fwd, v3(0, 1, 0)));
+    if (v3_len(right) < 1e-3f) right = v3(1, 0, 0);
+    Vec3 up = v3_cross(right, fwd);
+
+    // Elbow: the same point the armed right arm starts from. Hand: swings from resting near the
+    // hip up and out to the ledge as reach rises, then eases back as the move finishes.
+    Vec3 elbow = v3_add(eye, v3_add(v3_scale(fwd, 0.10f), v3_add(v3_scale(right, 0.34f), v3_scale(up, -0.55f))));
+    Vec3 hand = v3_add(eye, v3_add(v3_scale(fwd, 0.30f + 0.35f * reach),
+                        v3_add(v3_scale(right, 0.26f - 0.06f * reach), v3_scale(up, -0.42f + 0.62f * reach))));
+    Mat4 hm = limb_matrix(elbow, hand, VM_ARM_THICK);
+    gfx_set_material(x, NULL);
+    gfx_draw(x, &x->cube, &x->white, hm, g->net.slots[slot].tint, v4(1, 1, 0, 0));
 }
 
 // ---------------------------------------------------------------- remote goons
@@ -309,6 +388,15 @@ void weapons_draw(Game *g) {
 
     bool did_viewmodel = false;
     if (g->cam.mode == CAM_FIRST && weapons_drawn(g, g->local)) { draw_viewmodel(g); did_viewmodel = true; }
+
+    // --- traversal --- Unarmed (or between weapons), draw_viewmodel above never ran, so the hand
+    // that would otherwise carry the mantle/vault plant (see draw_viewmodel's own hand-plant block)
+    // gets drawn on its own here instead. A weapon with a model always wins this over the bare hand.
+    if (!did_viewmodel && g->cam.mode == CAM_FIRST) {
+        float mreach = mantle_reach(&g->players[g->local]);
+        const ItemDef *hd = weap_def(g, ws->w[g->local].item);
+        if (mreach > 0.001f && (!hd || !hd->model[0])) draw_mantle_hand(g, mreach);
+    }
 
     for (int i = 0; i < NET_MAX_PLAYERS; i++) {
         if (!g->net.slots[i].active) continue;
