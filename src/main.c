@@ -246,7 +246,10 @@ int main(int argc, char **argv) {
     // audio_init (in game_init), which owns the mixer the voice bus hangs off.
     voice_set_mode_name(voice_mode); voice_set_volume(voice_vol); voice_set_monitor(voice_mon != 0);
     voice_init(&game);
-    pf.fps_cap = fps_cap; if (!vsync) platform_set_vsync(&pf, false); else pf.vsync = true;
+    // vsync first, then the cap: whether a cap needs snapping to a whole divisor of the refresh is
+    // only a question when the display is the thing the frames are handed to (platform_set_fps_cap).
+    if (!vsync) platform_set_vsync(&pf, false); else pf.vsync = true;
+    platform_set_fps_cap(&pf, fps_cap);
     camera_set_mouse_sens(mouse_sens);
     platform_set_sprint_mode(&pf, sprint_toggle);
     if (spawn_set) { PLAYER(&game).c.pos.x = spawn_x; PLAYER(&game).c.pos.z = spawn_z; }
@@ -258,7 +261,7 @@ int main(int argc, char **argv) {
     audio_set_master(volume * 0.8f);
     // --bench: uncapped and unsynced, so a frame time is the renderer's cost and not the display's
     // (see platform_present_mode_name's own comment on what asking for no vsync actually gets you).
-    if (bench_active) { platform_set_vsync(&pf, false); pf.fps_cap = 0; bench_init(&game, &pf, bench_json, bench_shot_dir); }
+    if (bench_active) { platform_set_vsync(&pf, false); platform_set_fps_cap(&pf, 0); bench_init(&game, &pf, bench_json, bench_shot_dir); }
 
     // The quality probe's two-second window has to cover two seconds of PLAY. Starting it back
     // where the tier was guessed put the window inside the level load that follows -- fifteen
@@ -348,7 +351,9 @@ int main(int argc, char **argv) {
         // Mouse look happens HERE: at the frame rate, before the ticks that read the view yaw, so a
         // 144 Hz screen turns 144 times a second and the movement direction the sim uses is the one
         // the mouse asked for this frame rather than up to 16.7 ms ago (Half-Life does the same).
+        prof_begin(PROF_IN_LOOK);
         game_view_look(&game, &pf, (float)frame_dt);
+        prof_end(PROF_IN_LOOK);
         prof_end(PROF_INPUT);
 
         // One stall must not buy a second one. MAX_FRAME_DT already stops the accumulator running

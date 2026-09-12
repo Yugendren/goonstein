@@ -60,6 +60,7 @@ typedef struct Platform {
     int tool_w, tool_h;   // its logical size in points (the UI coordinate space)
     SDL_Rect saved_game_rect; bool game_rect_saved;   // game window placement before the tool window tiled it
     int fps_cap; bool vsync;   // frame cap (0 = display rate) and vsync; platform_end_frame enforces the cap
+    int refresh_hz;            // the display's refresh rate, rounded. 0 when it could not be read (headless)
     SDL_GPUPresentMode present_mode;   // what the swapchain actually got, not what was asked for
     // HOLLOW_NOPRESENT=1: draw the frame but never hand it to the compositor. See platform_begin_frame.
     bool no_present; SDL_GPUFence *inflight[2]; unsigned inflight_i;
@@ -74,6 +75,22 @@ typedef struct Platform {
 // Packaged (HOLLOW_PORTABLE) builds: make the executable's own directory the working directory so
 // the relative "assets" path resolves. No-op in a dev build. platform_init calls it; call it first
 // from main() as well if anything is loaded before the window exists (settings.txt is, today).
+// ---- frame pacing ------------------------------------------------------------------------------
+// A frame cap that is not a whole divisor of the display's refresh is the single most visible
+// smoothness bug a game can ship, and it is invisible to every CPU-side meter: the frame time comes
+// out perfectly flat while the panel holds each frame for a different number of refreshes. 90 fps
+// on a 144 Hz screen is 1.6 refreshes a frame, so the cadence is 2,2,1,2,2,1... -- a beat at 28.8 Hz
+// that reads as the whole world juddering while the textures stay sharp. See platform_set_fps_cap.
+int  platform_refresh_hz(const Platform *pf);
+// The caps worth offering on THIS display: 0 (= the display's own rate) followed by refresh/1,
+// refresh/2, refresh/3, refresh/4, descending. Returns how many were written.
+int  platform_fps_options(const Platform *pf, int *out, int max);
+// The nearest whole divisor of the refresh, or `cap` unchanged when vsync is off, when the refresh
+// is unknown, or when the cap is already a divisor.
+int  platform_snap_fps_cap(const Platform *pf, int cap);
+// Sets the cap, snapping it first, and logs the cadence it produces. Use this instead of writing
+// pf->fps_cap by hand.
+void platform_set_fps_cap(Platform *pf, int cap);
 void platform_use_base_dir(void);
 bool platform_init(Platform *pf, const char *title, int w, int h);
 bool platform_poll(Platform *pf);       // returns false on quit. Edge inputs accumulate until platform_clear_edges.

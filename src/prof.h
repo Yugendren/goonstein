@@ -22,6 +22,9 @@
 typedef enum ProfPhase {
     PROF_FRAME = 0,     // everything, wall clock between one frame's start and the next's
     PROF_INPUT,         // platform_poll + view look
+    PROF_IN_EVENTS,     //   SDL_PollEvent's drain: the window server's queue, and the log lines events write
+    PROF_IN_STATE,      //   keyboard/gamepad state, the derived axes, voice PTT
+    PROF_IN_LOOK,       //   game_view_look: mouse look, bob, FOV, the crouch ease -- all at frame rate
     PROF_TICK,          // the whole fixed-step loop, however many ticks it ran
     PROF_TICK_PHYS,     //   character/prop physics
     PROF_TICK_ITEMS,    //   carried and loose items

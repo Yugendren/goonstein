@@ -283,8 +283,13 @@ static void hero_hot_reload(Game *g) {
 // tick caught the deck again, and the eye rang up and down at the tick rate. Only a drop deeper
 // than a step lets go of the ground. What the feet do instantly, the eye does over about 80 ms
 // (camera_view_step), which is the Quake trick that makes stairs read as stairs and not as pops.
-#define GAME_GRAVITY   20.0f    // m/s^2: heavier than real gravity, which is how a game falls
-#define GAME_FALL_MAX  40.0f    // terminal speed, so a long drop cannot tunnel through the floor
+// 32 m/s^2 is 1.6x the 20 that Quake, Half-Life and Counter-Strike all use (sv_gravity 800 u/s^2),
+// and 3.3x the real thing. A jump here is an arc you steer, not a fall you watch: at 32 a 1.1 m
+// jump is up and down in 0.52 s instead of 0.66, which is what turns a chain of hops into a rhythm
+// instead of a series of hangs. PLAYER_JUMP_GRAVITY in combat.c must match -- what is authored is
+// the jump HEIGHT and the launch speed is derived from the two together.
+#define GAME_GRAVITY   32.0f    // m/s^2: heavier than real gravity, which is how a game falls
+#define GAME_FALL_MAX  55.0f    // terminal speed, so a long drop cannot tunnel through the floor
 #define GAME_STEP_DOWN 0.5f     // how far the feet reach down for ground before they are in the air
 #define GAME_SLOPE_COS 0.64f    // cos 50 degrees: steeper than this is a slide, not a floor
 // Below this a change in ground height is not a step but a hillside, and is left to the ordinary
@@ -1325,10 +1330,12 @@ static void draw_console(Game *g, Platform *pf) {
     if (windowed) {   // frame rate: cap buttons and vsync, saved to settings.txt
         UiInput uin = { .mx = pf->input.tool_mx, .my = pf->input.tool_my, .down = pf->input.tool_down, .pressed = pf->input.tool_pressed, .released = pf->input.tool_released, .wheel = pf->input.tool_wheel };
         ui_begin(&g->ui, x, uin);
-        ctext(x, lx, y, pw - 24, 1.1f, head, "FRAME RATE   cap and vsync, saved to settings.txt; the simulation always runs 60 ticks a second"); y += SH + 8;
-        static const int caps[] = { 0, 30, 60, 90, 120, 144, 240 }; float bw = (pw - 24 - 7 * 6) / 8;
-        for (int i = 0; i < 7; i++) { bool on = pf->fps_cap == caps[i]; char lab[16]; snprintf(lab, sizeof lab, caps[i] ? "%d" : "display", caps[i]);
-            if (ui_toggle(&g->ui, lx + i * (bw + 6), y, bw, 26, lab, &on) && on) { pf->fps_cap = caps[i]; pf->next_frame_ns = 0; char v[16]; snprintf(v, sizeof v, "%d", caps[i]); game_settings_set(g, "fps", v); } }
+        { char hd[192]; snprintf(hd, sizeof hd, "FRAME RATE   this display is %d Hz; only whole divisors of it can be shown evenly, so only those are offered", platform_refresh_hz(pf));
+          ctext(x, lx, y, pw - 24, 1.1f, head, platform_refresh_hz(pf) ? hd : "FRAME RATE   cap and vsync, saved to settings.txt; the simulation always runs 60 ticks a second"); }
+        y += SH + 8;
+        int caps[8]; int ncaps = platform_fps_options(pf, caps, 8); float bw = (pw - 24 - 7 * 6) / 8;
+        for (int i = 0; i < ncaps && i < 7; i++) { bool on = pf->fps_cap == caps[i]; char lab[16]; snprintf(lab, sizeof lab, caps[i] ? "%d" : "display", caps[i]);
+            if (ui_toggle(&g->ui, lx + i * (bw + 6), y, bw, 26, lab, &on) && on) { platform_set_fps_cap(pf, caps[i]); char v[16]; snprintf(v, sizeof v, "%d", pf->fps_cap); game_settings_set(g, "fps", v); } }
         { bool vs = pf->vsync; if (ui_toggle(&g->ui, lx + 7 * (bw + 6), y, bw, 26, "vsync", &vs)) { platform_set_vsync(pf, vs); game_settings_set(g, "vsync", vs ? "1" : "0"); } }
         ui_end(&g->ui);
         y += 34;
@@ -1609,15 +1616,30 @@ static void trace_dump(void) {
 }
 // The same measurement the trace is for, once a second, in hollow.log: how evenly the eye moved
 // from frame to frame while it was moving at all. The spread is quoted against the mean because
-// that is what a shake is -- a delta that is not the one before it. On a steady frame rate the
-// camera's own contribution is under 2%; anything much above that with a flat frame time is a
-// shake, and a flat spread with a jumpy frame time is the renderer missing frames, not the camera.
+// that is what a shake is -- a delta that is not the one before it.
+//
+// `flat` is the number to read, and the reason it exists took a session of chasing the wrong one.
+// The total eye delta includes the head bob, which is DESIGNED vertical motion: two dips a stride,
+// about 6 mm a frame at 90 fps on top of a 53 mm step. That alone puts 4-8% on the total's spread
+// at any frame rate above the tick rate, and none of it is a fault. The horizontal component has no
+// designed wobble in it at all -- walking in a straight line, every frame should cover exactly the
+// same ground -- so its spread is judder and nothing else. Measured on this island the flat spread
+// is 0.03-0.05% at 60, 90, 120 and 144 fps; the total's is 5-15%, all of it bob and hillside.
+//
+// The last field is the one that catches what no CPU-side number can. A frame time can be a
+// perfectly flat 11.11 ms and still judder, because the panel does not show frames, it shows
+// refreshes: 90 fps on a 144 Hz display is 1.6 refreshes a frame, so the cadence on screen is
+// 2,2,1,2,2,1 and the world beats at 28.8 Hz while every meter here reads clean. If that ratio is
+// not a whole number the line says BEAT, and that is the bug.
 static void smooth_meter(const Game *g) {
     static Vec3 last_eye; static bool have; static double t0;
     static float sum, sum2, ft, ft2, peak, tpeak, worst; static int n, tn, late;
+    static float fsum, fsum2;
     Vec3 e = g->cam.eye; double now = g->frame_wall;
     if (!have) { have = true; last_eye = e; t0 = now; return; }
+    float dflat = hypotf(e.x - last_eye.x, e.z - last_eye.z);
     float d = v3_len(v3_sub(e, last_eye)); last_eye = e;
+    fsum += dflat; fsum2 += dflat * dflat;
     // The RAW frame time, not the clamped one the simulation runs on: a 400 ms hitch reported as
     // 250 ms is a meter covering for the thing it is supposed to catch. `worst` and `late` are the
     // numbers a player's complaint is actually about -- the one bad frame and how many there were.
@@ -1633,13 +1655,24 @@ static void smooth_meter(const Game *g) {
     if (now - t0 < 1.0 || n < 30) return;
     float m = sum / (float)n, v = sum2 / (float)n - m * m;
     float fm = ft / (float)n, fv = ft2 / (float)n - fm * fm;
+    float lm = fsum / (float)n, lv = fsum2 / (float)n - lm * lm;
+    char cad[80] = "";
+    // Not in a HOLLOW_NOPRESENT run: the window still sits on a 144 Hz display but no frame of this
+    // run is ever handed to it, so quoting a cadence would be quoting a display nobody is watching.
+    { int hz = g->pf && !g->pf->no_present ? platform_refresh_hz(g->pf) : 0;
+      double fps = (double)n / (now - t0);
+      if (hz > 0 && fps > 1) {
+          double per = hz / fps; double k = per - (int)(per + 0.5);
+          snprintf(cad, sizeof cad, " | %d Hz panel %.2f refresh/frame%s", hz, per, fabs(k) > 0.04 ? " BEAT" : "");
+      } }
     if (m > 0.001f)   // standing still has no smoothness to report
-        dbg_log("smooth: eye %.2f mm/frame sd %.1f%% peak %.2f mm | traverse %d frames peak %.2f mm | frame %.2f ms sd %.2f ms worst %.1f ms late %d | %.0f fps",
+        dbg_log("smooth: eye %.2f mm/frame sd %.1f%% peak %.2f mm | flat %.2f mm sd %.2f%% | traverse %d frames peak %.2f mm | frame %.2f ms sd %.2f ms worst %.1f ms late %d | %.0f fps%s",
                 (double)(m * 1000), (double)(100.0f * sqrtf(fmaxf(v, 0)) / m), (double)(peak * 1000),
+                (double)(lm * 1000), (double)(lm > 1e-6f ? 100.0f * sqrtf(fmaxf(lv, 0)) / lm : 0.0f),
                 tn, (double)(tpeak * 1000),
                 (double)(fm * 1000), (double)(sqrtf(fmaxf(fv, 0)) * 1000), (double)(worst * 1000), late,
-                (double)(n / (now - t0)));
-    sum = sum2 = ft = ft2 = 0; n = 0; t0 = now; peak = 0; tpeak = 0; tn = 0; worst = 0; late = 0;
+                (double)(n / (now - t0)), cad);
+    sum = sum2 = ft = ft2 = fsum = fsum2 = 0; n = 0; t0 = now; peak = 0; tpeak = 0; tn = 0; worst = 0; late = 0;
 }
 
 static void trace_frame(const Game *g, float alpha) {

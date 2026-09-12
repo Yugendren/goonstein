@@ -3,6 +3,7 @@
 #include "prof.h"
 #include <stdio.h>    // sscanf: Apple's headers pull this in for free, glibc does not
 #include <string.h>
+#include <math.h>    // fabs/fabsf: the cap-vs-refresh divisor test
 
 // Packaged builds (-DHOLLOW_PORTABLE=ON) compile HOLLOW_ASSET_DIR as the relative path "assets",
 // so the process has to stand next to it. Dev builds bake in an absolute source path and this is
@@ -67,6 +68,15 @@ bool platform_init(Platform *pf, const char *title, int w, int h) {
     }
 
     SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(pf->gpu));
+    // The refresh rate is not a curiosity, it is the clock every frame is eventually quantised to.
+    // Read it here so the cap can be checked against it before the first frame. A display that
+    // reports 0 (or no display at all, which is every headless run) leaves refresh_hz at 0 and
+    // everything below turns into a no-op.
+    { SDL_DisplayID d = SDL_GetDisplayForWindow(pf->window);
+      const SDL_DisplayMode *m = d ? SDL_GetCurrentDisplayMode(d) : NULL;
+      pf->refresh_hz = m && m->refresh_rate > 1.0f ? (int)(m->refresh_rate + 0.5f) : 0;
+      if (pf->refresh_hz) { SDL_Log("display: %d Hz", pf->refresh_hz); dbg_log("display: %d Hz", pf->refresh_hz); }
+      else { SDL_Log("display: refresh rate unknown"); dbg_log("display: refresh rate unknown"); } }
     SDL_SetWindowRelativeMouseMode(pf->window, true);
 
     // Pick up an already-connected gamepad; hotplug is handled in poll.
@@ -105,6 +115,7 @@ bool platform_poll(Platform *pf) {
     // Edge-triggered actions are NOT cleared here: a press that lands on a frame with no simulation
     // tick (120 Hz display, 60 Hz sim) must survive until the next tick consumes it.
 
+    prof_begin(PROF_IN_EVENTS);
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
@@ -236,6 +247,8 @@ bool platform_poll(Platform *pf) {
         }
     }
 
+    prof_end(PROF_IN_EVENTS);
+    prof_begin(PROF_IN_STATE);
     // How long ago the latest parry / click press happened, so the sim can judge it between ticks.
     { Uint64 now = SDL_GetTicksNS(); in->parry_age = pf->parry_ns && now > pf->parry_ns ? (float)((now - pf->parry_ns) / 1e9) : 0; in->click_age = pf->click_ns && now > pf->click_ns ? (float)((now - pf->click_ns) / 1e9) : 0; }
     // Held movement: keyboard, overridden by stick if it's deflected.
@@ -280,6 +293,7 @@ bool platform_poll(Platform *pf) {
         if (dt > 0.5f) dt = 0;
         in->look_x += (float)SDL_atof(SDL_getenv("HOLLOW_AUTOLOOK")) * dt;
     }
+    prof_end(PROF_IN_STATE);
     return true;
 }
 
@@ -368,6 +382,58 @@ void platform_set_vsync(Platform *pf, bool on) {
     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "present mode: no requested mode accepted (%s); frame times are the display's, not the renderer's", SDL_GetError());
 }
 
+int platform_refresh_hz(const Platform *pf) { return pf->refresh_hz; }
+
+int platform_fps_options(const Platform *pf, int *out, int max) {
+    int n = 0;
+    if (max > 0) out[n++] = 0;   // "display": no cap of our own, vsync does the pacing
+    int r = pf->refresh_hz;
+    if (!r) { const int fallback[] = { 30, 60, 90, 120, 144, 240 };   // no display to ask: the old fixed list
+              for (int i = 0; i < 6 && n < max; i++) out[n++] = fallback[i];
+              return n; }
+    // Divisors only, and only down to a quarter of the refresh: below 30-ish fps the cadence stops
+    // being the problem. Written descending after the 0, so the fastest smooth option is first.
+    for (int k = 1; k <= 4 && n < max; k++) {
+        int cap = (int)((double)r / k + 0.5);
+        if (cap < 24) break;
+        bool dup = false; for (int i = 1; i < n; i++) if (out[i] == cap) dup = true;
+        if (!dup) out[n++] = cap;
+    }
+    return n;
+}
+
+int platform_snap_fps_cap(const Platform *pf, int cap) {
+    // Off the display's clock there is nothing to beat against: an uncapped run, a torn present, or
+    // a headless one. HOLLOW_NOSNAP is for measurement runs that deliberately want an odd cap.
+    if (cap <= 0 || !pf->vsync || !pf->refresh_hz || pf->no_present || SDL_getenv("HOLLOW_NOSNAP")) return cap;
+    double r = pf->refresh_hz;
+    double k = r / cap;
+    int kn = (int)(k + 0.5); if (kn < 1) kn = 1;
+    int snapped = (int)(r / kn + 0.5);
+    // Within half a per cent of a divisor already (144 asked for on a 144.0 Hz panel, 60 on 59.94)
+    // is a divisor; leave the player's number alone so the menu does not appear to edit itself.
+    if (cap > 0 && fabs(k - kn) / kn < 0.005) return cap;
+    return snapped;
+}
+
+void platform_set_fps_cap(Platform *pf, int cap) {
+    int snapped = platform_snap_fps_cap(pf, cap);
+    if (snapped != cap)
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "pace: a %d fps cap on a %d Hz display is %.2f refreshes a frame -- every frame is held for a "
+                    "different number of them and the world judders while the frame time stays flat. Using %d (%d "
+                    "refresh%s a frame) instead; set vsync 0 in settings.txt to keep the odd number.",
+                    cap, pf->refresh_hz, (double)pf->refresh_hz / cap, snapped,
+                    (int)((double)pf->refresh_hz / snapped + 0.5), (int)((double)pf->refresh_hz / snapped + 0.5) == 1 ? "" : "es");
+    else if (cap > 0 && pf->refresh_hz) {
+        SDL_Log("pace: %d fps cap on a %d Hz display, %.2f refreshes a frame", cap, pf->refresh_hz, (double)pf->refresh_hz / cap);
+        dbg_log("pace: %d fps cap on a %d Hz display, %.2f refreshes a frame", cap, pf->refresh_hz, (double)pf->refresh_hz / cap);
+    } else if (cap == 0 && pf->refresh_hz)
+        dbg_log("pace: no cap, %d Hz display%s", pf->refresh_hz, pf->vsync ? " (vsync paces)" : " (no vsync)");
+    pf->fps_cap = snapped;
+    pf->next_frame_ns = 0;
+}
+
 void platform_end_frame(Platform *pf) {
     if (pf->cmd && pf->no_present) {
         pf->inflight[pf->inflight_i % 2] = SDL_SubmitGPUCommandBufferAndAcquireFence(pf->cmd);
@@ -375,13 +441,35 @@ void platform_end_frame(Platform *pf) {
     } else if (pf->cmd) SDL_SubmitGPUCommandBuffer(pf->cmd);
     pf->cmd = NULL;
     pf->swapchain = NULL;
-    if (pf->fps_cap > 0) {   // frame cap: sleep the remainder of the period
+    // The frame cap. Two things matter and neither is the average: the period has to be held to
+    // well inside a millisecond (a cap whose own jitter is 2 ms is a stutter generator), and the
+    // deadline has to be absolute rather than "sleep 11 ms from here", or every frame's sleep
+    // overshoot accumulates into a drifting frame rate.
+    //
+    // A cap that matches the refresh is left to vsync: capping at 144 on a 144 Hz panel means two
+    // pacers fighting, and the one that loses shows up as a dropped frame every few seconds.
+    // "vsync is pacing us" means the frames are really going to a display that really blocks on it:
+    // a HOLLOW_NOPRESENT run has pf->vsync set and no display in the loop at all, and handing it the
+    // pacing means no pacing, which is a 400 fps measurement run that was asked to be a 144 one.
+    bool vsync_paces = pf->vsync && !pf->no_present && pf->present_mode == SDL_GPU_PRESENTMODE_VSYNC
+                       && pf->refresh_hz && pf->fps_cap > 0
+                       && fabsf((float)pf->fps_cap - (float)pf->refresh_hz) < (float)pf->refresh_hz * 0.02f;
+    if (pf->fps_cap > 0 && !vsync_paces) {
         prof_begin(PROF_CAP_SLEEP);
         Uint64 period = SDL_NS_PER_SECOND / (Uint64)pf->fps_cap, now = SDL_GetTicksNS();
         if (pf->next_frame_ns == 0 || now > pf->next_frame_ns + period * 4) pf->next_frame_ns = now;
         pf->next_frame_ns += period;
-        if (pf->next_frame_ns > now) SDL_DelayPrecise(pf->next_frame_ns - now);
+        // Sleep for everything but the last millisecond, then spin. The OS will not wake a thread
+        // to better than a few hundred microseconds and will happily be late by more; the spin is
+        // the only way to land on the deadline. One millisecond of spin at 144 fps is 14% of one
+        // core, which is the price of a frame time that does not wander, and it is only paid when
+        // the cap is doing the pacing rather than the display.
+        const Uint64 SPIN_NS = 1 * SDL_NS_PER_MS;
+        if (pf->next_frame_ns > now + SPIN_NS) SDL_DelayNS(pf->next_frame_ns - now - SPIN_NS);
+        while (SDL_GetTicksNS() < pf->next_frame_ns) { /* spin the last millisecond onto the deadline */ }
         prof_end(PROF_CAP_SLEEP);
+    } else if (pf->fps_cap > 0) {
+        pf->next_frame_ns = 0;   // vsync owns the pacing; do not carry a stale deadline into a cap change
     }
 }
 

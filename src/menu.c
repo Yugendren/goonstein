@@ -325,8 +325,20 @@ static const char *const SET_LABEL[SET_N] = {
 static const char *const SET_KEY[SET_N] = {
     "volume", "voice", "voice_volume", "mouse_sens", "fps", "vsync", "quality", NULL
 };
-static const int SET_FPS_CAPS[] = { 0, 30, 60, 90, 120, 144, 240 };   // 0 = the display's own rate
-#define SET_FPS_N ((int)(sizeof SET_FPS_CAPS / sizeof SET_FPS_CAPS[0]))
+// The frame caps this row offers are not a fixed list any more: they are THIS display's rate and
+// its whole divisors (platform_fps_options). A cap that is not a divisor of the refresh -- 90 on a
+// 144 Hz panel, say -- means the panel holds each frame for a different number of refreshes, and
+// that beat is the judder a player describes as "stuttering" while every frame-time number in the
+// log stays perfectly flat. A menu that cannot offer the wrong number cannot cause it.
+static int SET_FPS_CAPS[8] = { 0, 30, 60, 90, 120, 144, 240 };
+static int SET_FPS_N = 7;
+static void set_fps_caps_init(Game *g) {
+    static bool done = false;
+    if (done || !g || !g->pf) return;
+    done = true;
+    int n = platform_fps_options(g->pf, SET_FPS_CAPS, 8);
+    if (n > 0) SET_FPS_N = n;
+}
 static const char *const SET_VOICE_WORD[3] = { "ptt", "open", "off" };            // voice.c's names
 static const char *const SET_VOICE_TEXT[3] = { "PUSH TO TALK", "OPEN MIC", "OFF" };
 #define SET_PCT_STEP 5    // volume and voice volume move in 5% steps
@@ -341,6 +353,7 @@ static void set_range(int row, int *lo, int *hi, int *step);
 // no-op then, and the mixer's master stays at its initial 1.0), must not put a row past its own
 // last arrow and leave it looking stuck.
 static int set_pos(Game *g, int row) {
+    set_fps_caps_init(g);
     int v = 0;
     switch (row) {
     case SET_VOLUME:    v = (int)lroundf(audio_master() / SET_VOL_HEADROOM * 100.0f); break;
@@ -348,7 +361,7 @@ static int set_pos(Game *g, int row) {
                           for (int i = 0; i < 3; i++) if (!strcmp(w, SET_VOICE_WORD[i])) v = i; break; }
     case SET_VOICE_VOL: v = (int)lroundf(voice_get_volume() * 100.0f); break;
     case SET_SENS:      v = (int)lroundf(camera_mouse_sens_mult() * 10.0f); break;
-    case SET_FPS:       for (int i = 0; i < SET_FPS_N; i++) if (g->pf->fps_cap == SET_FPS_CAPS[i]) v = i; break;
+    case SET_FPS:       for (int i = 0; i < SET_FPS_N; i++) if (g->pf->fps_cap == SET_FPS_CAPS[i]) v = i; break;   // an unlisted cap reads as row 0 (DISPLAY), which is what it will behave as
     case SET_VSYNC:     v = g->pf->vsync ? 1 : 0; break;
     case SET_QUALITY:   v = (int)quality_current(); break;
     default:            break;
@@ -380,7 +393,7 @@ static void set_apply(Game *g, int row, int pos) {
     case SET_VOICE:     voice_set_mode_name(SET_VOICE_WORD[pos]); snprintf(v, sizeof v, "%s", SET_VOICE_WORD[pos]); break;
     case SET_VOICE_VOL: voice_set_volume((float)pos / 100.0f); snprintf(v, sizeof v, "%.2f", (double)pos / 100.0); break;
     case SET_SENS:      camera_set_mouse_sens((float)pos / 10.0f); snprintf(v, sizeof v, "%.1f", (double)pos / 10.0); break;
-    case SET_FPS:       g->pf->fps_cap = SET_FPS_CAPS[pos]; g->pf->next_frame_ns = 0; snprintf(v, sizeof v, "%d", SET_FPS_CAPS[pos]); break;
+    case SET_FPS:       platform_set_fps_cap(g->pf, SET_FPS_CAPS[pos]); snprintf(v, sizeof v, "%d", g->pf->fps_cap); break;
     case SET_VSYNC:     platform_set_vsync(g->pf, pos != 0); snprintf(v, sizeof v, "%d", pos); break;
     // quality_apply moves the render scale and the shadow map right now; the texture cap only
     // bites on the next texture that loads and the HDR format was fixed when the swapchain was
@@ -413,7 +426,12 @@ static void set_text(Game *g, int row, char *out, size_t n) {
     case SET_VOLUME: case SET_VOICE_VOL: snprintf(out, n, "%d %%", pos); break;
     case SET_VOICE:   snprintf(out, n, "%s", SET_VOICE_TEXT[pos >= 0 && pos < 3 ? pos : 2]); break;
     case SET_SENS:    snprintf(out, n, "%.1f", (double)pos / 10.0); break;
-    case SET_FPS:     if (SET_FPS_CAPS[pos] == 0) snprintf(out, n, "DISPLAY"); else snprintf(out, n, "%d", SET_FPS_CAPS[pos]); break;
+    case SET_FPS:     if (SET_FPS_CAPS[pos] == 0) snprintf(out, n, "DISPLAY");
+                      else { int r = platform_refresh_hz(g->pf), k = r ? (int)((double)r / SET_FPS_CAPS[pos] + 0.5) : 0;
+                             if (k == 1) snprintf(out, n, "%d", SET_FPS_CAPS[pos]);
+                             else if (k > 1) snprintf(out, n, "%d  (1 IN %d)", SET_FPS_CAPS[pos], k);
+                             else snprintf(out, n, "%d", SET_FPS_CAPS[pos]); }
+                      break;
     case SET_VSYNC:   snprintf(out, n, "%s", pos ? "ON" : "OFF"); break;
     case SET_QUALITY: { const char *q = quality_name((Quality)pos); size_t i = 0;
                         for (; q[i] && i + 1 < n; i++) out[i] = (char)toupper((unsigned char)q[i]);
@@ -496,7 +514,13 @@ static int set_target(Game *g, int row, const char *w) {
     case SET_VOICE:   for (int i = 0; i < 3; i++) if (!strcmp(w, SET_VOICE_WORD[i])) v = i; break;
     case SET_SENS:    v = (int)lroundf((float)atof(w) * 10.0f); break;
     case SET_FPS:     if (!strcmp(w, "display")) v = 0;
-                      else for (int i = 0; i < SET_FPS_N; i++) if (SET_FPS_CAPS[i] == atoi(w)) v = i;
+                      // The list is the display's divisors now, so a script asking for a round
+                      // number the panel cannot hold gets the nearest one it can rather than a
+                      // failed check: "fps=90" on a 144 Hz screen means 72, and says so.
+                      else { int want = atoi(w), best = -1, bestd = 1 << 30;
+                             for (int i = 1; i < SET_FPS_N; i++) { int d = SET_FPS_CAPS[i] > want ? SET_FPS_CAPS[i] - want : want - SET_FPS_CAPS[i];
+                                                                   if (d < bestd) { bestd = d; best = i; } }
+                             if (best > 0) v = best; }
                       break;
     case SET_VSYNC:   v = (!strcmp(w, "on") || !strcmp(w, "1")) ? 1 : (!strcmp(w, "off") || !strcmp(w, "0")) ? 0 : -1; break;
     case SET_QUALITY: for (int i = 0; i < Q_COUNT; i++) if (!strcmp(w, quality_name((Quality)i))) v = i; break;
