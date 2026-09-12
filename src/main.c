@@ -250,6 +250,7 @@ int main(int argc, char **argv) {
     // only a question when the display is the thing the frames are handed to (platform_set_fps_cap).
     if (!vsync) platform_set_vsync(&pf, false); else pf.vsync = true;
     platform_set_fps_cap(&pf, fps_cap);
+    if (SDL_getenv("HOLLOW_PACE_TEST")) platform_pace_selftest();
     camera_set_mouse_sens(mouse_sens);
     platform_set_sprint_mode(&pf, sprint_toggle);
     if (spawn_set) { PLAYER(&game).c.pos.x = spawn_x; PLAYER(&game).c.pos.z = spawn_z; }

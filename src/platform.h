@@ -91,6 +91,9 @@ int  platform_snap_fps_cap(const Platform *pf, int cap);
 // Sets the cap, snapping it first, and logs the cadence it produces. Use this instead of writing
 // pf->fps_cap by hand.
 void platform_set_fps_cap(Platform *pf, int cap);
+// HOLLOW_PACE_TEST=1: check the divisor snapping against a table and log the result. No display
+// required, which is the point -- the machine this is developed on must not open a window.
+void platform_pace_selftest(void);
 void platform_use_base_dir(void);
 bool platform_init(Platform *pf, const char *title, int w, int h);
 bool platform_poll(Platform *pf);       // returns false on quit. Edge inputs accumulate until platform_clear_edges.

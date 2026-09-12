@@ -37,7 +37,10 @@ bool platform_init(Platform *pf, const char *title, int w, int h) {
 
     SDL_SetAppMetadata(title, "0.0.1", "dev.hollow");
     SDL_SetHint(SDL_HINT_ASSERT, "abort");  // never block on a dialog; log and die
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD)) return false;
+    // HOLLOW_NOPAD=1 leaves the gamepad subsystem out. It is a bisect switch, not a feature: when
+    // the input phase spikes, the first question is whether SDL is walking the HID bus, and this is
+    // how that question gets answered in one run instead of argued about.
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | (SDL_getenv("HOLLOW_NOPAD") ? 0 : SDL_INIT_GAMEPAD))) return false;
 
     pf->window = SDL_CreateWindow(title, w, h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!pf->window) return false;
@@ -77,7 +80,9 @@ bool platform_init(Platform *pf, const char *title, int w, int h) {
       pf->refresh_hz = m && m->refresh_rate > 1.0f ? (int)(m->refresh_rate + 0.5f) : 0;
       if (pf->refresh_hz) { SDL_Log("display: %d Hz", pf->refresh_hz); dbg_log("display: %d Hz", pf->refresh_hz); }
       else { SDL_Log("display: refresh rate unknown"); dbg_log("display: refresh rate unknown"); } }
-    SDL_SetWindowRelativeMouseMode(pf->window, true);
+    // HOLLOW_NORELMOUSE=1: the other half of the same bisect. Relative mouse mode is a warp and a
+    // window-server round trip on some platforms, which is a thing that can block the pump.
+    if (!SDL_getenv("HOLLOW_NORELMOUSE")) SDL_SetWindowRelativeMouseMode(pf->window, true);
 
     // Pick up an already-connected gamepad; hotplug is handled in poll.
     int count = 0;
@@ -115,6 +120,15 @@ bool platform_poll(Platform *pf) {
     // Edge-triggered actions are NOT cleared here: a press that lands on a frame with no simulation
     // tick (120 Hz display, 60 Hz sim) must survive until the next tick consumes it.
 
+    // The pump is drained separately from the events it produces, because they fail differently and
+    // the log has to be able to say which. Draining is ours: a queue walk plus whatever each event
+    // logs. Pumping is the operating system's -- on macOS, Cocoa's own run loop -- and it is not
+    // bounded. Measured headless on this island it costs 0.009 ms median and spikes exactly once
+    // per process, 35-45 ms, a fraction of a second after the first frame; see gfx_warm_up, which
+    // is what moves that spike into the loading screen where nobody is looking at a moving world.
+    prof_begin(PROF_IN_PUMP);
+    SDL_PumpEvents();
+    prof_end(PROF_IN_PUMP);
     prof_begin(PROF_IN_EVENTS);
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -402,18 +416,52 @@ int platform_fps_options(const Platform *pf, int *out, int max) {
     return n;
 }
 
+// The arithmetic on its own, so it can be checked without a display (see platform_pace_selftest).
+static int snap_to_divisor(int refresh, int cap) {
+    if (cap <= 0 || refresh <= 0) return cap;
+    double r = refresh, k = r / cap;
+    int nearest = (int)(k + 0.5); if (nearest < 1) nearest = 1;
+    // Within half a per cent of a divisor already (144 asked for on a 144.0 Hz panel, 60 on 59.94)
+    // is a divisor; leave the player's number alone so the menu does not appear to edit itself.
+    if (fabs(k - nearest) / nearest < 0.005) return cap;
+    // Round the divisor UP, never to the nearest. A cap is a ceiling, and the nearest divisor to
+    // 120 on a 144 Hz panel is 144 -- which would answer "cap me at 120" by uncapping past it, on a
+    // machine that asked for 120 because it cannot hold 144. One refresh in two it is.
+    int kn = (int)ceil(k - 1e-9); if (kn < 1) kn = 1;
+    return (int)(r / kn + 0.5);
+}
+
 int platform_snap_fps_cap(const Platform *pf, int cap) {
     // Off the display's clock there is nothing to beat against: an uncapped run, a torn present, or
     // a headless one. HOLLOW_NOSNAP is for measurement runs that deliberately want an odd cap.
     if (cap <= 0 || !pf->vsync || !pf->refresh_hz || pf->no_present || SDL_getenv("HOLLOW_NOSNAP")) return cap;
-    double r = pf->refresh_hz;
-    double k = r / cap;
-    int kn = (int)(k + 0.5); if (kn < 1) kn = 1;
-    int snapped = (int)(r / kn + 0.5);
-    // Within half a per cent of a divisor already (144 asked for on a 144.0 Hz panel, 60 on 59.94)
-    // is a divisor; leave the player's number alone so the menu does not appear to edit itself.
-    if (cap > 0 && fabs(k - kn) / kn < 0.005) return cap;
-    return snapped;
+    return snap_to_divisor(pf->refresh_hz, cap);
+}
+
+// HOLLOW_PACE_TEST=1: the snapping, checked against a table, on a machine with no display to open.
+// A rule about what the panel can and cannot hold evenly is arithmetic, and arithmetic is testable.
+void platform_pace_selftest(void) {
+    static const struct { int refresh, cap, want; } T[] = {
+        { 144,  90,  72 },   // the bug this exists for: 1.60 refreshes a frame
+        { 144, 120,  72 },   // 1.20 -- a beat too, and rounding UP to 144 would uncap past the ask
+        { 144, 144, 144 }, { 144,  72,  72 }, { 144,  48,  48 }, { 144,  36,  36 },
+        { 144,  60,  48 },   // 2.40 refreshes: 60 is not a divisor of 144, and 72 is above the ask
+        { 120,  90,  60 },   // 1.33
+        { 120,  60,  60 }, { 120, 120, 120 }, { 120,  40,  40 }, { 120,  30,  30 },
+        {  60,  30,  30 }, {  60,  60,  60 }, {  60,  90,  60 },
+        {  59,  60,  59 },   // 59.94 Hz reported as 59: within half a per cent, left alone
+        { 240, 144, 120 }, { 240,  90,  80 },
+        {   0,  90,  90 },   // no display: nothing to snap to
+    };
+    int bad = 0;
+    for (int i = 0; i < (int)(sizeof T / sizeof T[0]); i++) {
+        int got = snap_to_divisor(T[i].refresh, T[i].cap);
+        bool ok = got == T[i].want;
+        if (!ok) bad++;
+        SDL_Log("pace-test: %3d Hz, cap %3d -> %3d (want %3d) %s", T[i].refresh, T[i].cap, got, T[i].want, ok ? "ok" : "FAILED");
+    }
+    SDL_Log("pace-test: %s", bad ? "FAILED" : "all ok");
+    dbg_log("pace-test: %s", bad ? "FAILED" : "all ok");
 }
 
 void platform_set_fps_cap(Platform *pf, int cap) {
