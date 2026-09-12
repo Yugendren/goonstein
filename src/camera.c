@@ -221,7 +221,12 @@ void camera_view_advance(Camera *c, float speed, float lateral, float top_speed,
     float walk = fmaxf(top_speed * 0.45f, 0.1f);
     float k = clampf((speed - walk) / fmaxf(top_speed - walk, 0.1f), 0, 1);
     c->speed_fov = damp(c->speed_fov, FP_FOV_SPRINT * k, FP_FOV_RATE, dt);
-    if (c->mode == CAM_FIRST) c->fov = damp(c->fov, FP_FOV + c->speed_fov, 6, dt);
+    // --- weapons --- HOLLOW_FP_FOV pins the first-person lens, which is the only way to capture
+    // the same shot at the walking 70 and the sprinting 78 without running the bot until it happens
+    // to be at the right speed. It is a capture aid, like HOLLOW_CAM; nothing in the game sets it.
+    const char *fpv = SDL_getenv("HOLLOW_FP_FOV");
+    if (c->mode == CAM_FIRST && fpv) { c->fov = clampf((float)atof(fpv), 20.0f, 140.0f); c->speed_fov = 0; }
+    else if (c->mode == CAM_FIRST) c->fov = damp(c->fov, FP_FOV + c->speed_fov, 6, dt);
     c->lean = damp(c->lean, -LEAN_MAX * clampf(lateral / fmaxf(top_speed * 0.7f, 0.1f), -1, 1), LEAN_RATE, dt);
     // 50 ms behind the tick's goal: long enough to smooth a 60 Hz staircase into a curve, short
     // enough that a 350 ms mantle still reads as the shape the mantle asked for.
@@ -243,13 +248,59 @@ void camera_set_scene(Camera *c, Vec3 eye, Vec3 target, float fov, bool cut) {
 void camera_end_scene(Camera *c) { c->mode = CAM_ORBIT; }
 
 void camera_add_shake(Camera *c, float amount) { c->shake = fmaxf(c->shake, amount); }
+// --- weapons ---
+void camera_add_fov_punch(Camera *c, float degrees) { c->fov_punch = fmaxf(c->fov_punch, degrees); }
 
 void camera_update(Camera *c, float dt) {
     c->shake = fmaxf(0, c->shake - dt * 2.2f);
     c->shake_t += dt;
+    // --- weapons --- 25 per second is a 1/e in 40 ms and effectively nothing left by 120 ms,
+    // which is where a recoil punch has to be gone or it reads as a zoom rather than a kick.
+    c->fov_punch = damp(c->fov_punch, 0.0f, 25.0f, dt);
 }
 
 Mat4 camera_view_proj(const Camera *c, float aspect) { return camera_view_proj_offset(c, aspect, v3(0, 0, 0)); }
+
+// --- weapons --- The same camera through a different lens. A first-person weapon has to be drawn
+// with a field of view of its own -- a gun held at arm's length through the world's 78-degree
+// sprint lens stretches into a plank -- but through exactly the same eye, target, roll, shake and
+// punch, or it would swim against the world instead of sitting in front of it. So: one function
+// for the view, two for the projection. Near and far are the caller's too, because a viewmodel
+// lives between 5 centimetres and a metre and gains nothing from an 80 metre far plane.
+Mat4 camera_view_proj_lens(const Camera *c, float aspect, float fov_deg, float near_z, float far_z) {
+    Vec3 eye, right, up, fwd;
+    camera_view_basis(c, &eye, &right, &up, &fwd);
+    (void)right; (void)fwd;
+    return m4_mul(m4_perspective(fov_deg * DEG2RAD, aspect, near_z, far_z), m4_look_at(eye, c->target, up));
+}
+
+// --- weapons --- The three axes of the picture, and the eye they are measured from -- shake
+// included. Anything that has to sit still on the screen while the world moves (the gun, the
+// hands, a spent case tumbling out of the port) has to be placed against THIS eye rather than
+// against c->eye, or camera shake would rattle the world past a gun welded to nothing.
+void camera_view_basis(const Camera *c, Vec3 *eye_out, Vec3 *right_out, Vec3 *up_out, Vec3 *fwd_out) {
+    Vec3 eye = c->eye;
+    if (c->shake > 0.001f) {
+        float s = c->shake * 0.12f;
+        eye = v3_add(eye, v3(sinf(c->shake_t * 47.0f) * s, cosf(c->shake_t * 61.0f) * s, sinf(c->shake_t * 53.0f) * s * 0.5f));
+    }
+    Vec3 up = v3(0, 1, 0);
+    if (fabsf(c->roll) > 1e-4f) {
+        // Rodrigues, exactly as camera_view_proj_offset does it: the horizon tilts with the camera.
+        Vec3 k = v3_norm(v3_sub(c->target, eye));
+        float ca = cosf(c->roll), sa = sinf(c->roll);
+        up = v3_add(v3_scale(up, ca), v3_add(v3_scale(v3_cross(k, up), sa), v3_scale(k, v3_dot(k, up) * (1 - ca))));
+    }
+    Vec3 fwd = v3_sub(c->target, eye);
+    fwd = v3_len(fwd) > 1e-5f ? v3_norm(fwd) : v3(0, 0, 1);
+    Vec3 right = v3_cross(fwd, up);
+    right = v3_len(right) > 1e-5f ? v3_norm(right) : v3(1, 0, 0);
+    up = v3_cross(right, fwd);
+    if (eye_out) *eye_out = eye;
+    if (right_out) *right_out = right;
+    if (up_out) *up_out = up;
+    if (fwd_out) *fwd_out = fwd;
+}
 
 Mat4 camera_view_proj_offset(const Camera *c, float aspect, Vec3 offset) {
     Vec3 eye = v3_add(c->eye, offset);
@@ -266,7 +317,9 @@ Mat4 camera_view_proj_offset(const Camera *c, float aspect, Vec3 offset) {
         up = v3_add(v3_scale(up, ca), v3_add(v3_scale(v3_cross(k, up), sa), v3_scale(k, v3_dot(k, up) * (1 - ca))));
     }
     Mat4 view = m4_look_at(eye, target, up);
-    Mat4 proj = m4_perspective(c->fov * DEG2RAD, aspect, 0.1f, c->view_far > 1 ? c->view_far : CAMERA_FAR_DEFAULT);
+    // --- weapons --- fov_punch is added here rather than folded into c->fov because the
+    // first-person lens is damped toward FP_FOV every frame and would swallow a 120 ms kick whole.
+    Mat4 proj = m4_perspective((c->fov + c->fov_punch) * DEG2RAD, aspect, 0.1f, c->view_far > 1 ? c->view_far : CAMERA_FAR_DEFAULT);
     return m4_mul(proj, view);
 }
 

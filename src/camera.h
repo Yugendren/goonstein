@@ -36,6 +36,11 @@ typedef struct Camera {
     // Scene
     Vec3 goal_eye, goal_target; float goal_fov;
     float shake, shake_t;
+    // --- weapons --- Recoil's contribution to the lens. A gun going off shoves the field of view
+    // open for about a tenth of a second, which is the oldest trick in the first-person book: the
+    // world lurches outward for a frame or two and the shot reads as force rather than as an
+    // animation. Kept apart from `fov` so the smoothing that chases FP_FOV never eats it.
+    float fov_punch;
 } Camera;
 
 void camera_init(Camera *c);
@@ -112,8 +117,20 @@ float camera_bob_gain(const Camera *c);
 void camera_set_scene(Camera *c, Vec3 eye, Vec3 target, float fov, bool cut);
 void camera_end_scene(Camera *c);
 void camera_add_shake(Camera *c, float amount);
+// --- weapons --- Degrees of field of view a shot adds, decaying to nothing in about 120 ms. Like
+// camera_add_shake this takes the larger of the two rather than summing, so emptying a magazine
+// does not zoom the camera into orbit.
+void camera_add_fov_punch(Camera *c, float degrees);
 void camera_update(Camera *c, float dt);
 Mat4 camera_view_proj(const Camera *c, float aspect);
+// --- weapons --- The same eye, target, roll and shake through a different lens: the first-person
+// viewmodel's own field of view, near and far. See camera.c for why a gun cannot be drawn through
+// the world's projection.
+Mat4 camera_view_proj_lens(const Camera *c, float aspect, float fov_deg, float near_z, float far_z);
+// --- weapons --- The eye (shake included) and the three screen axes the projection above is
+// built from. A viewmodel is placed against these, never against c->eye and a hand-rolled cross
+// product, or it drifts away from the picture the moment the camera rolls or shakes.
+void camera_view_basis(const Camera *c, Vec3 *eye, Vec3 *right, Vec3 *up, Vec3 *fwd);
 // Same camera translated by `offset` (the pixel-art layer snaps the camera to its texel grid).
 Mat4 camera_view_proj_offset(const Camera *c, float aspect, Vec3 offset);
 // Convert stick input to a world XZ direction relative to the camera's facing.
