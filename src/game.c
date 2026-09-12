@@ -402,6 +402,7 @@ static void setup_level_content(Game *g) {
     if (g->force_first) g->level.view = VIEW_FIRST;        // --first / --third override the level's view line
     else if (g->force_third) g->level.view = VIEW_THIRD;
     props_load_level(&g->gfx, &g->props, &g->level);
+    gfx_warm_up_props(&g->gfx, g->pf, &g->props, &g->level);   // pay every prop's LOD swap here, not mid-play
     // terrain follows the level: reload when the level names one, drop it otherwise
     if (g->level.terrain_file[0]) {
         if (!g->terrain.present || strcmp(g->terrain.file, g->level.terrain_file) != 0) {
@@ -613,6 +614,7 @@ bool game_init_gfx(Game *g, Platform *pf) {
     g->pf = pf;
     platform_set_cursor(pf, true);
     if (!gfx_init(&g->gfx, pf, INTERNAL_W, INTERNAL_H)) return false;
+    gfx_warm_up(&g->gfx, pf);   // compile every pipeline offscreen now, not on its first real draw
     if (!load_defs(g)) return false;
     world_textures_create(&g->gfx, &g->wt);   // after load_defs: the level's `look texcap` applies to these too
     g->net.slots[g->local].active = true;   // the local player is always seated; netgame_start seats the rest
@@ -1721,7 +1723,13 @@ static void smooth_meter(const Game *g) {
     float dt = (float)(now - t0 > 0 ? (g->frame_dt_raw > 0 ? g->frame_dt_raw : g->render_frame_dt) : 0);
     sum += d; sum2 += d * d; ft += dt; ft2 += dt * dt; n++;
     if (dt > worst) worst = dt;
-    if (dt > 0.012f) late++;
+    // "Late" has to be measured against the period this run is actually trying to hold, not against
+    // a hardcoded 12 ms: at a 72 fps cap the budget is 13.9 ms and a fixed 12 would call every
+    // single frame late, which is a meter that cries wolf until nobody reads it.
+    { float period = g->pf && g->pf->fps_cap > 0 ? 1.0f / (float)g->pf->fps_cap
+                   : g->pf && platform_refresh_hz(g->pf) > 0 && !g->pf->no_present ? 1.0f / (float)platform_refresh_hz(g->pf)
+                   : 0.0120f;
+      if (dt > period * 1.25f) late++; }
     if (d > peak) peak = d;
     // --- traversal --- A mantle is the one thing in the game that moves the eye on a curve of its
     // own, so it gets its own column: the frames spent climbing and the biggest single step any of
@@ -2067,6 +2075,13 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     prof_begin(PROF_PARTICLES);
     if (!renv()->nopart) particles_draw(&g->particles, x);
     prof_end(PROF_PARTICLES);
+
+    // --- weapons --- The first-person viewmodel goes in LAST, after every other thing the world
+    // draws. It has a lens of its own (a gun must not stretch when the sprint opens the world's
+    // field of view) and a slice of the depth buffer of its own (so a barrel pressed into a wall
+    // stays a barrel), and neither of those is safe unless nothing is drawn over the top of it.
+    // See weapons.h and docs/weapons_feel.md.
+    weapons_draw_viewmodel(g);
 
     if (pf->debug) {
         gfx_draw_box_wire(x, v3(pc->pos.x, pc->pos.y + pc->height * 0.5f, pc->pos.z), v3(pc->radius * 2, pc->height, pc->radius * 2), v4(0.3f, 1, 0.3f, 1));
