@@ -261,10 +261,29 @@ static PropModel *load_one(Gfx *g, PropCache *pc, const char *file) {
     load_into(g, pm, file);
     return pm->ok ? pm : NULL;
 }
+// Hot reload is a convenience for whoever is editing a model, and it used to cost a played frame
+// more than the frame it was in: once a second it stat()ed every model file the level had loaded --
+// on the island that is a hundred and ten of them -- all inside one tick, on the thread that also
+// owns the GPU. A hundred and ten synchronous file lookups is a spike by construction, and it is a
+// spike that lands once a second forever whether or not anybody is editing anything.
+//
+// So the sweep is spread instead of batched: a handful of files per tick from a rolling cursor,
+// which walks the whole list in about a second at 60 Hz and never costs more than a few
+// microseconds in any one tick. The same files get looked at just as often; no tick pays for all
+// of them. HOLLOW_NO_HOTRELOAD=1 turns the polling off outright, for a benchmark or a shipped run
+// that has nobody editing models behind it.
+#define PROPS_POLL_PER_TICK 4
 int props_hot_reload(Gfx *g, PropCache *pc) {
-    static Uint64 last = 0; Uint64 now = SDL_GetTicks(); if (now - last < 1000) return 0; last = now;
+    static int off = -1;   // -1 = not yet asked whether polling is wanted at all
+    if (off < 0) { const char *e = SDL_getenv("HOLLOW_NO_HOTRELOAD"); off = (e && e[0] && e[0] != '0') ? 1 : 0; }
+    if (off) return 0;
+    if (pc->n <= 0) return 0;
+    static int cursor = 0;
     int n = 0;
-    for (int i = 0; i < pc->n; i++) {
+    if (cursor >= pc->n) cursor = 0;
+    int look = pc->n < PROPS_POLL_PER_TICK ? pc->n : PROPS_POLL_PER_TICK;
+    for (int k = 0; k < look; k++) {
+        int i = cursor++; if (cursor >= pc->n) cursor = 0;
         PropModel *pm = &pc->models[i];
         char path[1024]; snprintf(path, sizeof path, "%s/%s", HOLLOW_ASSET_DIR, pm->file);
         long long m = file_mtime(path);
@@ -272,7 +291,7 @@ int props_hot_reload(Gfx *g, PropCache *pc) {
         if (pm->lod_ok) { model_destroy(g, &pm->lod); pm->lod_ok = false; }
         if (pm->ok && pm->part) { free(pm->part); pm->part = NULL; } else if (pm->ok) model_destroy(g, &pm->model);
         pm->ok = false; pm->bsphere = 0; pm->fallback = 0;
-        for (int k = 0; k < pc->n; k++) pc->models[k].piece_cached = false;   // a reloaded file may be a piece of any part
+        for (int j = 0; j < pc->n; j++) pc->models[j].piece_cached = false;   // a reloaded file may be a piece of any part
         pc->by_prop_lv = NULL;
         load_into(g, pm, pm->file);
         SDL_Log("hot reload: %s", pm->file); n++;

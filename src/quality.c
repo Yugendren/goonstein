@@ -150,10 +150,16 @@ bool quality_probe_frame(struct Game *g, struct Platform *pf) {
     // headroom, which is not a problem worth a startup stutter to go fix.
     if (median > budget && (before == Q_NORMAL || before == Q_HIGH)) {
         Quality dropped = before == Q_HIGH ? Q_NORMAL : Q_POTATO;
-        quality_apply(g, dropped);
+        // The verdict is written down; it is NOT applied to the running game. quality_apply
+        // rebuilds the shadow map and every render target, and gfx_set_shadow_size waits for the
+        // GPU to go idle to do it -- a guaranteed stall of hundreds of milliseconds, two seconds
+        // into a session, on exactly the machine that was already struggling. A render target is
+        // rebuilt when the player changes a setting and at no other time. The next run starts at
+        // the tier this one decided on, which costs the player two seconds of their first session
+        // and never costs anybody a hitch mid-play.
         game_settings_set(g, "quality", quality_name(dropped));
         g_source = "probe";
-        SDL_Log("quality: probe median %.2fms at %s (budget %.1fms) -- dropped to %s, wrote settings.txt", (double)median, quality_name(before), (double)budget, quality_name(dropped));
+        SDL_Log("quality: probe median %.2fms at %s (budget %.1fms) -- %s written to settings.txt, in effect next run (never mid-play)", (double)median, quality_name(before), (double)budget, quality_name(dropped));
     } else {
         SDL_Log("quality: probe median %.2fms at %s (budget %.1fms) -- keeping it", (double)median, quality_name(before), (double)budget);
     }
