@@ -14,7 +14,7 @@
 
 // ---------------------------------------------------------------- tuning
 
-// A nail at 60 m/s covers a metre a tick at 60 Hz, which is more than enough to skip clean through a
+// A bullet at 420 m/s covers seven metres a tick at 60 Hz, which is more than enough to skip through a
 // thin wall between two samples. 0.35 m is comfortably thinner than the level's thinnest solid, and
 // 8 substeps caps the cost of a fast, heavy throw (a grenade launched hard downhill) at eight traces
 // a tick rather than an unbounded number.
@@ -23,7 +23,7 @@
 
 #define PROJ_TRAIL_INTERVAL   0.04f  // seconds between smoke puffs while airborne and moving
 #define PROJ_TRAIL_MIN_SPEED  4.0f   // below this the trail stops; a dying throw doesn't smoke
-// A flat (no-gravity), short-fused projectile reads as a nail: its whole flight is a fraction of a
+// A flat, short-fused projectile reads as a bullet: its whole flight is a fraction of a
 // second in a straight line, and a smoke trail on it would be a grey streak nobody asked for rather
 // than the lazy arc a lobbed grenade actually leaves. A def this file cannot resolve (kind unknown on
 // this process) is treated the same way, since there is nothing to say otherwise.
@@ -64,7 +64,7 @@ static Mat4 basis_matrix(Vec3 pos, Vec3 x, Vec3 y, Vec3 z, Vec3 scale) {
 }
 
 // A unit cube stretched and turned to run from `from` to `to`. Copied from weaponview.c's static
-// limb_matrix, which is where the tracer and the viewmodel arms come from -- a flying nail with no
+// limb_matrix, which is where the tracer and the viewmodel arms come from -- a flying round with no
 // model is drawn exactly the same way a tracer is.
 static Mat4 limb_matrix(Vec3 from, Vec3 to, float thick) {
     Vec3 d = v3_sub(to, from);
@@ -85,13 +85,13 @@ static int alloc_slot(Projectiles *ps) {
 
 // ---------------------------------------------------------------- ending a flight
 
-// A non-explosive stop: a nail biting a wall, a goon or a crate. Runs on any machine that ticks
+// A non-explosive stop: a round biting a wall, a goon or a crate. Runs on any machine that ticks
 // this projectile -- host or client, predicted or replicated -- because it is pure cosmetic feedback
 // with no gameplay weight and nothing in the wire format carries it as an event of its own.
 static void quiet_impact(Game *g, Vec3 at, Vec3 normal, const ItemDef *d) {
     particles_burst(&g->particles, PT_SMOKE, at, normal, 4, 0.5f, v3(0.5f, 0.45f, 0.4f), 0.09f, 0.35f);
-    // A small bright fleck for anything that just hit something solid, nail or not -- the brief's
-    // own words for it are "a nail biting metal", and one unconditional burst reads fine for a bat
+    // A small bright fleck for anything that just hit something solid, whatever it was: one
+    // unconditional burst reads as well for a round biting a wall as for one biting a crate
     // hitting wood too, so there is no case analysis on what was hit.
     particles_burst(&g->particles, PT_SPARK, at, normal, 3, 1.8f, v3(1.0f, 0.85f, 0.5f), 0.04f, 0.18f);
     SoundId snd = (d && d->proj_sound >= 0) ? (SoundId)d->proj_sound : SND_HIT;
@@ -287,9 +287,9 @@ void projectiles_tick(Game *g, float dt) {
 
             // FH_WORLD. weapons_trace's normal is the true surface normal off the terrain but only
             // the reverse of the incoming ray off a level block (level_ray_solid does not return
-            // one) -- the same approximation the hitscan lives with, so a nail bouncing off a block
+            // one) -- the same approximation the hitscan lives with, so a projectile bouncing off a block
             // wall mirrors through the ray's own axis rather than the wall's. Good enough for a
-            // comedy nail gun; see this file's closing report for the flag to whoever owns that trace.
+            // bouncing projectile, and the two guns that exist today do not bounce at all.
             if (d && d->proj_bounce > 0.0f) {
                 Vec3 n = wh.normal;
                 float vn = v3_dot(p->vel, n);
@@ -320,7 +320,7 @@ void projectiles_tick(Game *g, float dt) {
             if (d && d->proj_radius > 0.0f) {
                 proj_die(g, i, p->pos, v3(0, 1, 0));
             } else {
-                // A nail that never hit anything just stops existing: no puff, no sound. Its whole
+                // A round that never hit anything just stops existing: no puff, no sound. Its whole
                 // flight was a fraction of a second nobody was meant to notice, and conjuring a burst
                 // of smoke out of thin air where it happened to run out of road would read as a bug,
                 // not an ending -- the quiet option, chosen on purpose.
@@ -343,7 +343,7 @@ void projectiles_tick(Game *g, float dt) {
 // ---------------------------------------------------------------- drawing
 
 void projectiles_draw(Game *g) {
-    // A flying nail casting a sun shadow is the same bug weaponview.c's viewmodel avoids with this
+    // A flying round casting a sun shadow is the same bug weaponview.c's viewmodel avoids with this
     // same early return: a shadow is a silhouette baked once for the whole scene, not a per-frame toy.
     if (g->gfx.in_shadow) return;
     Gfx *x = &g->gfx;

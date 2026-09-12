@@ -217,13 +217,6 @@ static void vm_rest(float *r, float *d, float *f) {
 // clip already points the pistol somewhere sensible, so this is a correction and not a full
 // reorientation -- but it has to exist, because "somewhere sensible for a body standing in a
 // field" and "down the middle of a first-person screen" are not the same direction.
-// The rotation that takes a hand bone's own axes back to the model's, measured once from the first
-// pose the arms ever strike. A rigger's hand bone points wherever the rig wanted it to; a weapon
-// model's +Z is its muzzle, by the convention in ASSETS.md. Cancelling the bone's REST rotation
-// makes a gun leave the hand pointing the way the body faces -- which, for arms hung off the
-// camera, is down the middle of the screen -- while every later frame of the clip still turns it,
-// so the flick of a shot and the roll of a reload survive intact. Measuring it beats a table of
-// per-rig magic numbers: a new character with a differently-built hand needs nothing added here.
 // The arms, turned about the grip point. The gun does not move: only the body hanging off it does.
 // Zero by default -- the arms are the trigger arm alone (tools/blender/make_arms.py --side right),
 // which is where Doom and Quake left theirs, and it needs no correction. The knob stays because the
@@ -233,18 +226,6 @@ static void vm_arms_turn(float *yaw, float *pitch, float *roll) {
     *yaw = 0.0f; *pitch = 0.0f; *roll = 0.0f;
     const char *e = SDL_getenv("HOLLOW_VM_ARMS");
     if (e) sscanf(e, "%f %f %f", yaw, pitch, roll);
-}
-
-static Mat4 vm_rest_fix(Mat4 hb) {
-    Vec3 ax = v3_norm(v3(hb.m[0], hb.m[1], hb.m[2]));
-    Vec3 ay = v3(hb.m[4], hb.m[5], hb.m[6]);
-    ay = v3_norm(v3_sub(ay, v3_scale(ax, v3_dot(ax, ay))));   // Gram-Schmidt, in case the bone is scaled
-    Vec3 az = v3_cross(ax, ay);
-    Mat4 inv = m4_identity();   // the transpose of an orthonormal basis is its inverse
-    inv.m[0] = ax.x; inv.m[4] = ax.y; inv.m[8]  = ax.z;
-    inv.m[1] = ay.x; inv.m[5] = ay.y; inv.m[9]  = ay.z;
-    inv.m[2] = az.x; inv.m[6] = az.y; inv.m[10] = az.z;
-    return inv;
 }
 
 static void vm_hand_fix(float *yaw, float *pitch, float *roll) {
@@ -272,8 +253,7 @@ static float vm_fov(void) {
 static struct {
     CharModel cm;
     char      from[256];        // the character file it was built from; "" = nothing tried yet
-    Vec3      anchor;           // hand_r in the model's own space, taken on the first posed frame
-    Mat4      rest_fix;         // and the rotation that cancels that bone's rest orientation
+    Vec3      anchor;           // hand_r in the model's own space, taken from the settled aim pose
     bool      anchored;
     Character body;             // a goon who does not exist, so the clip player has state to read
 } s_arms;
@@ -613,10 +593,9 @@ void weapons_draw_viewmodel(Game *g) {
             // second on the very first draw and nothing ever again.
             if (!s_arms.anchored && want == ANIM_GUN_IDLE && s_arms.body.anim_t > 0.25f) {
                 s_arms.anchor = v3(hb.m[12], hb.m[13], hb.m[14]);
-                s_arms.rest_fix = vm_rest_fix(hb);
                 s_arms.anchored = true;
             }
-            if (!s_arms.anchored) { s_arms.anchor = v3(hb.m[12], hb.m[13], hb.m[14]); s_arms.rest_fix = vm_rest_fix(hb); }
+            if (!s_arms.anchored) s_arms.anchor = v3(hb.m[12], hb.m[13], hb.m[14]);
             float sc = arms->scale > 0.01f ? arms->scale : 1.0f;
             float ay, ap, ar;
             vm_arms_turn(&ay, &ap, &ar);

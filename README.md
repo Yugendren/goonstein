@@ -396,7 +396,7 @@ logged for the latter). A file with no `model` fails to load and the item never 
 | `range` | `0` | metres a shot carries, capped at 60; a melee swing always reaches 1.6 m |
 | `ammo` | `0` | rounds in a full gun |
 | `knock` | `0` | metres per second of shove given to whatever is hit |
-| `pellets` | `1` (clamped to 1..24) | hitscan rays per shot: one for a pistol, a handful for a shotgun |
+| `pellets` | `1` (clamped to 1..24) | rays, or projectiles, thrown by one pull of the trigger: one for a bullet, several for a spread |
 | `fire_sound` | none | name of the `SoundId` played on firing (`shot`, `boom`, `whoosh`) |
 | `grip` | `0 0 0 0 0 0` | `x y z yaw pitch roll` that turns the model's own rest pose into "grip at the origin, business end down +Z" -- what the viewmodel and the hand attachment both assume. All four weapons are now authored that way (see ASSETS.md, "The weapon frame"), so the line only frames them: it slides the model around in the viewmodel's own right/up/forward axes until the gun reads in the lower right of the screen |
 
@@ -434,51 +434,126 @@ carry spring, no leash and no physics body -- it is a model on the end of an arm
 keeps working exactly as it did, so a pistol in one hand and a painting in the other is legal, and
 a very stupid way to travel.
 
-The island starts with a bat and a wrench by the bunkhouse and a pistol and a shotgun down by the
-boat, and each goon lands holding whatever its character file asks for.
+**The arsenal.** Two guns, `pistol` and `rifle`, and two melee weapons, `bat` and `wrench`. The
+pistol and the rifle are both Poly Haven CC0 photoscans (`service_pistol`, `bolt_action_rifle_7_62`),
+processed through `tools/blender/weapon_prep.py` into the weapon frame `ASSETS.md` defines; the bat
+and the wrench are the same author's `baseball_bat` and `pipe_wrench` scans put to melee use. The
+shotgun is gone -- its item file, its CadQuery model and the tooling that built it have all been
+deleted, and every goon's character file now spawns a pistol instead. `docs/weapons_feel.md` has
+the sourcing story in full, including why no CC0 shotgun exists to replace it with.
 
-**Spawn loadouts.** One line in `assets/characters/NAME.txt` names the weapon that character is
-seated with:
+**Spawn loadouts.** One line in `assets/characters/NAME.txt` names the weapon a character is seated
+with, and today all four say the same thing:
 
-    spawn shotgun
+    spawn pistol
 
-| Slot | Character | `spawn` | Lands with |
-|---|---|---|---|
-| 0 | `goon_a` (Dez)   | `shotgun` | six shells |
-| 1 | `goon_b` (Marko) | `bat`     | a bat |
-| 2 | `goon_c` (Pip)   | `pistol`  | twelve rounds |
-| 3 | `goon_d` (Bunny) | `wrench`  | a pipe wrench |
-
-The name is an item file under `assets/items`; an unknown one is a warning in the log and empty
-hands. The host creates the item the moment a slot is seated -- solo start, host start, or a client
-joining mid-run -- and puts it in the weapon hand through `weapons_equip`, the same call `E` makes,
-with a full magazine. Everyone else therefore learns about it exactly as they learn about a mate
-picking a shotgun up off the sand, and from that moment it is an ordinary item: put it down with
-`G`, throw it, break it, lose it in the sea. Nobody is handed a second one -- there is one loadout
-item per slot per level, and a goon who already has something in the weapon hand keeps it.
+Dez, Marko, Pip and Bunny all land holding a pistol with a full magazine and its own starting
+reserve; the rifle -- heavier, slower, and hitting far harder per round -- is not a loadout at all,
+only something you have to find, one of four scattered around the places a goon is likely to reach
+first. The name is an item file under `assets/items`; an unknown one is a warning in the log and
+empty hands. The host creates the item the moment a slot is seated -- solo start, host start, or a
+client joining mid-run -- and puts it in the weapon hand through `weapons_equip`, the same call `E`
+makes. Everyone else therefore learns about it exactly as they learn about a mate picking a rifle up
+off the sand, and from that moment it is an ordinary item: put it down with `G`, throw it, break it,
+lose it in the sea. Nobody is handed a second one -- there is one loadout item per slot per level,
+and a goon who already has something in the weapon hand keeps it.
 
 Because a loadout item appears *after* the level has loaded, its network id is fixed by the slot
 (`ITEM_LOADOUT_ID` in `src/items.h`) instead of taken from the running counter: a client can only be
 told about item ids it already has, so host and clients each create their own copy when a slot is
 seated and the host alone decides whose hand it is in.
 
-**Controls.** Left mouse fires or swings; hold it for a gun, tap it for a bat. `R` reloads (1.2 s;
-an empty gun clicks at you first). `Q` or the scroll wheel draws and holsters, swapping the left
-mouse between firing and charging a throw -- with a gun drawn you cannot throw the loot, which is
-what `Q` is for. `G` puts the weapon down. Carrying something two-handed forces the weapon onto
-your back and keeps it there until your hands are free. A holstered weapon is drawn on the spine;
-a held one on `hand_r`, through the model's own pistol or sword hold clip.
+**Controls.** Left mouse fires or swings; hold it for a gun, tap it for a bat. `R` reloads (1.2 s,
+every gun) out of that gun's own reserve; an empty magazine with an empty reserve just clicks, same
+as pulling the trigger on an empty gun does. `Q` or the scroll wheel draws and holsters, swapping
+the left mouse between firing and charging a throw -- with a gun drawn you cannot throw the loot,
+which is what `Q` is for. `G` puts the weapon down. Carrying something two-handed forces the weapon
+onto your back and keeps it there until your hands are free. A holstered weapon is drawn on the
+spine; a held one on `hand_r`, through the model's own pistol or sword hold clip.
 
 **Melee.** A swing lasts 0.35 s and lands at 0.45 of the way through it, on the first thing inside
 a 1.6 m arc: an item takes an impulse (and breaks if it is fragile enough to mind), a goon takes
-`damage` off their wind and a shove. The swing is animated by code in the viewmodel and by the
-`Sword_Attack` clip on everyone else's screen.
+`damage` off their wind and a shove. The bat and the wrench differ only in the numbers their item
+files carry -- a bat hits harder and slower, a wrench faster and lighter. The swing is animated by
+code in the viewmodel and by the `Sword_Attack` clip on everyone else's screen.
 
-**Guns.** Hitscan, with a tracer, a muzzle flash light and a puff of smoke, a recoil kick and an
-ammo counter. A shotgun fires its `pellets` on a fixed golden-angle fan rather than a random one,
-so the host and every client draw the same spread. Hits give items an impulse, goons a knockdown,
-and the scenery a small dust puff. There is no blood and no gore anywhere in the effect path; that
-is a hard rule from `DESIGN.md`, not a preference.
+**Guns.** A gun's own `damage`, `rate`, `range`, `ammo` and `knock` lines are unchanged from before,
+and a gun with no `projectile` line is still a straight hitscan: an instant trace, a tracer, a
+muzzle flash light and a puff of smoke. Both the pistol and the rifle now throw something with
+travel time instead (see Projectiles below), so their fired event carries no tracer -- the flying
+object is what a client actually sees. Either way `pellets` spread on a fixed golden-angle fan
+rather than a random one, so the host and every client draw the same pattern; both current guns fire
+one pellet each, so the fan is dormant today, waiting for whatever eventually wants several at once.
+A hit gives an item an impulse, a goon a knockdown and a shove, and the scenery a small dust puff.
+There is no blood and no gore anywhere in the effect path; that is a hard rule from `DESIGN.md`, not
+a preference.
+
+**Projectiles.** A gun's item file can carry one more line:
+
+    projectile SPEED GRAVITY BOUNCE LIFE DAMAGE RADIUS SOUND MODEL
+
+| Field | Meaning |
+|---|---|
+| `SPEED` | m/s the round leaves the muzzle at |
+| `GRAVITY` | m/s² pulling it down; `0` is a flat lit streak, higher is a real arc |
+| `BOUNCE` | restitution off the world; `0` stops it (or sets it off) on the first thing it meets |
+| `LIFE` | seconds before it expires, whatever it has or hasn't hit |
+| `DAMAGE` | wind taken by a direct hit, or by anything inside `RADIUS` |
+| `RADIUS` | metres of blast; `0` is a point hit and no explosion |
+| `SOUND` | played on impact or detonation, or `-` for none |
+| `MODEL` | drawn for the flying thing, or `-` for a lit streak |
+
+`proj_spread` (degrees of half-cone scatter), `proj_drag` (fraction of speed lost per second) and
+`proj_scale` (that model's own scale) are separate lines tuning the same round. The pistol is a fast
+light bullet (420 m/s, next to no drop); the rifle is slower and heavier (340 m/s, real gravity and
+drag), so a shot across the island genuinely has to lead a moving target and account for drop --
+the entire reason a nail gun or a grenade launcher would ever want this line instead of a plain
+hitscan.
+
+A gun with a `projectile` line commits to nothing on the frame the trigger is pulled. It puts one
+object per pellet in the air, on the same golden-angle fan the hitscan spread uses, and finds out
+what it hit later, in `projectiles_tick`, from the host's own copy of the world -- the fired event
+that goes out says "a shot was fired here", not "a shot landed there", because at that instant
+neither side knows yet. The host owns every live projectile the same way it owns every shot; a
+client that pulls its own trigger spawns a *predicted* copy on the very same frame, because a bullet
+that only appears once the host has heard about it leaves the barrel a round trip after the click
+and reads as a broken gun. That predicted copy is a picture of a bullet, not a bullet -- it never
+damages anything and never detonates for real. The host's own copy, with a real network id, arrives
+in the next snapshot, and `projectiles_net_sample` *adopts* the matching predicted one rather than
+drawing a second bullet beside it. A projectile is swept in substeps sized so no single step covers
+more than 0.35 m -- comfortably thinner than the level's thinnest solid, capped at eight substeps a
+tick -- so a fast round cannot cross a wall between two collision samples the way one big step
+would let it; host and every client integrate with the exact same code and the exact same
+`weapons_trace`, so a bullet's flight looks identical wherever it is watched from. Bouncing and a
+blast radius are both fully implemented -- `explode_host` applies a squared falloff so the rim of a
+blast is a shove and the centre a knockdown -- and unused by the pistol and the rifle, which both
+fly straight and stop dead on the first thing they touch: the machinery is there for whatever joins
+the arsenal next, not a promise about what is coming.
+
+**Ammo.** `ammo N` is still the magazine. Two lines are new: `reserve N` is what a goon is handed
+alongside the magazine the first time they pick up a gun of that kind, and `ammo_type NAME` names
+the pool it draws on. The pistol is 12 rounds in the gun and 96 in reserve; the rifle is 5 and 40 --
+five heavy, slow rounds against ninety-six quick, light ones is most of why the two guns feel like
+different weapons before either one is fired. A pool is found by a one-byte hash of its type name
+(`itemdef_kind_hash`, the same hash a projectile's `kind` byte uses on the wire) rather than by the
+string itself, so host and every client agree on which pool "pistol" or "rifle" means without the
+word ever going on the wire; a goon can carry up to six distinct pools at once, capped at 999 rounds
+each, far more than the two guns here will ever ask for. The pool is seeded once, the first time a
+goon equips a gun of that kind -- putting a pistol down and picking the same or a different one back
+up does not hand over a second load of ninety-six rounds.
+
+An ammo pickup's file uses the very same `ammo` key a gun's magazine size does, told apart by shape:
+`ammo 12` on a gun is a single number, the size of its magazine; `ammo pistol 24` on a box is a name
+and a number, the type and size of what it refills. `ammo_pistol.txt` is `ammo pistol 24`,
+`ammo_rifle.txt` is `ammo rifle 10`, and both are the same Poly Haven "Ammo Box" scan, tinted rust
+red and steel blue so they can be told apart lying on the ground. Ammo is collected by walking
+within 1.5 m of it -- no prompt, no button -- because loot is a decision worth pressing E for and a
+box of rounds is not; loot itself still needs E exactly as before. Picking one up tops the matching
+pool up and breaks the box, the same debris-and-value-lost path a vase takes, just worth nothing and
+gone in a step rather than a throw. Thirty boxes are scattered across the island: twenty pistol
+boxes and ten rifle boxes, on the paths between things rather than tucked behind them, so nobody has
+to backtrack for a resupply. A gun whose item file names no `ammo_type` at all still reloads out of
+thin air, the same as every gun did before pools existed.
 
 **Knockdown, not death.** A goon has 100 points of *wind*, which regenerates 12 a second after two
 and a half seconds of nobody hitting them. Empty it and they collapse: controls off, camera still
@@ -488,15 +563,21 @@ holds E for 1.5 s -- the HUD offers `HOLD E   PICK UP <NAME>` and shows the prog
 is always on, because that is the joke. Nothing in the game is ever called death; the lying pose is
 the held last frame of a clip whose name we do not repeat in the UI.
 
-**Authority.** The host owns every shot. A client presses the button, plays its own kick, sound,
-flash and tracer on that frame so the gun feels connected to the mouse, and sends a reliable
-`NRM_WEAP_FIRE` carrying the eye and aim it fired from. The host checks that slot has that weapon,
-has a round left and is off cooldown, snaps the origin to its own eye position if the client's is
-more than 2.5 m out, re-runs the hitscan against its own copy of the world, and applies the result.
-Knockdown, ammo and wind ride in the player snapshot as three extra bytes; tracers, flashes, thuds
-and clicks go out as `NPT_EVENT`, unreliable, because they describe one frame and a lost one is
-simply not seen. A shot a client predicted and the host refused costs one round for a tenth of a
-second and is then put back by the next snapshot.
+**Authority.** The host owns every shot, and every projectile that shot puts in the air. A client
+presses the button, plays its own kick, sound, flash and (for a hitscan gun) tracer on that frame so
+the gun feels connected to the mouse, and sends a reliable `NRM_WEAP_FIRE` carrying the eye and aim
+it fired from. The host checks that slot has that weapon, has a round left and is off cooldown,
+snaps the origin to its own eye position if the client's is more than 2.5 m out, re-runs the shot
+against its own copy of the world -- a hitscan trace, or a fleet of new projectiles -- and applies
+the result. The two new event kinds both ride the same unreliable `NPT_EVENT` every other one does:
+`FE_BOOM` is a detonation (`from` is the centre, `pellets` doubles as the blast radius in tenths of
+a metre) and `FE_IMPACT` is a projectile arriving, feedback only -- the damage was already applied
+on the host, and the dust and the thud were already played by whichever machine's own copy of the
+projectile just died, so this carries nothing but the hit marker for whoever pulled the trigger.
+Knockdown, ammo, reserve and wind ride in the player snapshot as four extra bytes; tracers, flashes,
+booms, impacts, thuds and clicks all go out as `NPT_EVENT`, unreliable, because they describe one
+frame and a lost one is simply not seen. A shot a client predicted and the host refused costs one
+round for a tenth of a second and is then put back by the next snapshot.
 
 | Message | Direction | Payload |
 |---------|-----------|---------|
@@ -505,19 +586,46 @@ second and is then put back by the next snapshot.
 | `NRM_WEAP_SWAP` (reliable) | client -> host | nothing |
 | `NRM_WEAP_REVIVE` (reliable) | client -> host | target slot, holding flag; resent every 6 ticks while held |
 | `NRM_ITEM_GRAB` / `NRM_ITEM_RELEASE` | client -> host | unchanged: picking a weapon up and putting it down ride the item messages |
-| `NPT_EVENT` (unreliable) | host -> clients | count, then per event: slot, kind, what it hit, pellets, from and to in centimetres |
+| `NPT_EVENT` (unreliable) | host -> clients | count, then per event: slot, kind (swing, shot, click, reload, down, up, boom, impact), what it hit, pellets, from and to in centimetres |
 
-Snapshots gain three bytes per player: a flag byte (down, getting up, drawn, weapon kind, reloading,
-swinging), the round count and the wind. A weapon in a hand is drawn off its owner's `hand_r` on
-every client, so its position on the wire says nothing and it is only replicated when it changes
-hands -- which is cheaper than the loot it sits next to.
+Snapshots gain four bytes per player now, not three: a flag byte (down, getting up, drawn, weapon
+kind, reloading, swinging), the magazine, the reserve for whatever is in that hand (clamped to 255),
+and the wind. A weapon in a hand is drawn off its owner's `hand_r` on every client, so its position
+on the wire says nothing and it is only replicated when it changes hands -- which is cheaper than
+the loot it sits next to.
+
+Projectiles ride the same snapshot as their own section, after the items: a count byte, then up to
+`NET_PROJ_MAX` (40) of the host's own live ones, 15 bytes each -- id and owner sharing a `u16` (14
+bits of id, 2 of owner), kind, position in centimetres and velocity in twentieths of a metre per
+second, three `i16` apiece. A predicted copy is never written; only a projectile the host has
+sanctioned is worth a byte on the wire.
+
+Measured on the four-process test: a client sees 4.0-5.5 kB/s down and 1.56 kB/s up, and the host,
+with three clients seated, sends 16.1-16.5 kB/s out. With `HOLLOW_NET_LOSS=0.2` everything still
+joins, the numbers hold within noise of that, and six knockdowns still land.
+
+**The viewmodel.** The first-person gun is drawn last, in front of the whole rendered world through
+its own 58-degree lens and its own near slice of the depth buffer, on the goon's own skinned trigger
+arm rather than a floating prop. Recoil is a spring rather than a canned animation, so a fast gun's
+kick visibly stacks; the muzzle flash sits at the model's own measured muzzle rather than a fixed
+distance down the aim vector; spent cases are ejected and drawn in camera-local space; the reload is
+animated by code, because the clip belongs to the third-person rig that is not what is on screen in
+first person; and the crosshair blooms with recoil and shows a hit marker, which for either current
+gun can only ever arrive after `FE_IMPACT` reports back -- an honest answer sent late rather than a
+lie sent on time. The rules behind every one of those, and why each one is built the way it is, are
+`docs/weapons_feel.md`, not repeated here.
 
 **Debugging.** `--test down` puts the local goon on the floor at tick 150, so the view from down
-there can be captured on purpose instead of waited for. `HOLLOW_BOT=shoot` turns the explore bot into a weapon bot: it walks to the nearest
-weapon, picks it up, and shoots the nearest other player or item every couple of seconds, which is
-how the whole path is exercised headlessly. `HOLLOW_GRIP="x y z yaw pitch roll scale"` (and
-`HOLLOW_GRIP_PISTOL`, `HOLLOW_GRIP_SHOTGUN`, ...) retunes how a weapon sits in the hand without a
-rebuild.
+there can be captured on purpose instead of waited for. `HOLLOW_BOT=shoot` turns the explore bot
+into a weapon bot -- find a weapon, pick it up, shoot the nearest other player or item every couple
+of seconds -- but it needs `--bot` as well: the environment variable only chooses which bot a driven
+process runs, and `--bot` is what turns bot driving on at all. `HOLLOW_VM_FOV`, `HOLLOW_VM_REST`,
+`HOLLOW_VM_ARMS` and `HOLLOW_VM_HAND` retune the viewmodel's own lens, rest position, arm turn and
+hand correction live, for finding a number by eye; `HOLLOW_FP_FOV` pins the first-person *world*
+lens itself, which is the only way to capture the same shot at the walking 70 degrees and the
+sprinting 78 without waiting for the bot to happen to be at the right speed. `HOLLOW_GRIP="x y z yaw
+pitch roll scale"` (and `HOLLOW_GRIP_PISTOL`, `HOLLOW_GRIP_RIFLE`, `HOLLOW_GRIP_BAT`,
+`HOLLOW_GRIP_WRENCH`) retunes how a weapon sits in the hand without a rebuild.
 
 ## Testing and debugging
 
@@ -943,7 +1051,7 @@ rendered frame so two runs land on the same tick of the same frame:
 | `pier` | walking the stone mole in first person, the real physics and the real first-person camera |
 | `courtyard` | third person orbiting the Villa Ambergris colonnade |
 | `summit` | third person looking across the island from the eastern high point -- the heavy one |
-| `shootout` | four seated goons circling each other with a bat, a pistol, a wrench and a shotgun |
+| `shootout` | four seated goons circling each other, each with the pistol their character file lands them with |
 
 It writes `bench.json`: median and p90 frame time, every profiler phase, and the draw / instance /
 triangle / batch counts per path. `--bench-shots DIR` drops a PNG of each path so a human can check
@@ -1461,10 +1569,15 @@ without a separate retry timer.
 `u32`, player count `u8`, the boat's hold totals (`u16` count, `u32` value), item count `u8`, then
 one record per player and one per item. Each record starts with a type and an id rather than being
 a fixed struct, which is how item entities ride along in the same packet as players. A player
-record is 22 bytes: position 3 × `f32`, yaw `i16`, anim `u8`, anim time `u16` (ms), hp `u16`,
-player state `u8`.
+record is 24 bytes: position 3 × `f32`, yaw `i16`, anim `u8`, anim time `u16` (ms), hp `u16`,
+player state `u8`, and four weapon bytes (flags, magazine, reserve, wind — see "Weapons").
 
-Four players is a 113-byte snapshot. See the measured bandwidth below.
+After the items comes a projectile count `u8` and one 15-byte record per projectile in the air:
+id and owner sharing a `u16` (ids are a per-level counter and never come near 16384 in a run),
+the projectile kind `u8`, position 3 × `i16` in centimetres and velocity 3 × `i16` in twentieths
+of a metre per second. Capped at `NET_PROJ_MAX` a snapshot.
+
+Four players and nothing in the air is a 121-byte snapshot. See the measured bandwidth below.
 
 ### Items over the network
 
@@ -1550,7 +1663,8 @@ Add `HOLLOW_NET_LOSS=0.2` to every process to throw away one packet in five on r
 
 ### What it costs, measured
 
-One host and three bot clients on loopback, the lantern level, 60 Hz, 45 seconds:
+One host and three bot clients on loopback, the lantern level, 60 Hz, 45 seconds, with nothing but
+players and furniture on the wire:
 
 | | up | down |
 |---|---|---|
@@ -1559,6 +1673,12 @@ One host and three bot clients on loopback, the lantern level, 60 Hz, 45 seconds
 
 So a full four-player game costs the host about 6 kB/s out and 3 kB/s in — nothing, and it stays
 flat as players join because the snapshot is one packet per client per 33 ms whatever is in it.
+
+The island with four goons shooting at each other is the heavier case, because the snapshot then
+carries thirty-odd items, the ammunition boxes and everything in the air. Measured the same way,
+over the four-process test in "Weapons": each client 1.56 kB/s up and 4.0 to 5.5 kB/s down, the
+host 16.1 to 16.5 kB/s out for three clients and 3.7 to 4.7 kB/s in — about 5.4 kB/s of downstream
+a client, which is where the fifteen-byte projectile record was sized to land.
 
 Reconciliation over the same run: 100 to 370 corrections in 26 seconds, mean 0.07 to 0.21 m each,
 one or two hard snaps per client and those are the moment of joining, before the host's spawn has

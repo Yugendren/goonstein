@@ -2,24 +2,27 @@
 //
 // A hitscan shot is a decision; a projectile is an object. It leaves the muzzle at a speed, falls
 // if it has any weight, loses a little to the air, bounces off the scenery if it is the bouncing
-// kind, and either sticks, vanishes or goes off. That difference is the whole point of the nail
-// gun and the grenade launcher: you have to lead a moving goon, and you have to think about the
-// arc and the wall behind him.
+// kind, and either sticks, vanishes or goes off. The difference is that you have to lead a moving
+// goon, and that the round has to actually get there -- which is what makes the rifle's slower,
+// heavier bullet feel like a different weapon from the pistol's rather than like the same one with
+// different numbers. Bouncing and blast radius are implemented and unused by the two guns the game
+// currently has; they are here for whatever is added next.
 //
 // Everything about one kind lives in its gun's item file (`projectile SPEED GRAVITY BOUNCE LIFE
 // DAMAGE RADIUS SOUND MODEL`, see items.h), so a new projectile is a text file and no code.
 //
 // AUTHORITY. The host owns every projectile: it spawns them, moves them, and decides what they
 // hit. A client that pulls its own trigger spawns a *predicted* copy immediately -- otherwise the
-// nail leaves the barrel a round trip after the click, which feels like a broken gun -- and the
+// round leaves the barrel a round trip after the click, which feels like a broken gun -- and the
 // host's own copy takes it over the moment the first snapshot carrying it arrives. A predicted
 // projectile never damages anything and never explodes for real; it is a picture of one.
 //
-// ON THE WIRE. Live projectiles ride the ordinary entity snapshot as NET_ENT_PROJ: id, kind,
-// owner, position in centimetres and velocity in decimetres per second, ten bytes each. Clients
-// integrate between snapshots with the same code the host uses, so twenty nails in the air cost
-// 10 B * 20 * 30 Hz = 6 kB/s at the very worst and usually far less, because most of them are gone
-// inside a second. A detonation is a one-off event (FE_BOOM), not state.
+// ON THE WIRE. Live projectiles ride the ordinary entity snapshot in a section of their own with a
+// count of their own, so they need no type byte: fifteen bytes each, id and owner sharing a u16,
+// the kind as one byte, position in centimetres and velocity in twentieths of a metre per second.
+// Clients integrate between snapshots with the same code the host uses, so twenty rounds in the air
+// cost 15 B * 20 * 30 Hz = 9 kB/s at the very worst and in practice far less, because most of them
+// are gone inside a second. A detonation is a one-off event (FE_BOOM), not state.
 #pragma once
 #include "hmath.h"
 #include "gfx.h"
