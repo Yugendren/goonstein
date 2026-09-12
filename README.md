@@ -266,7 +266,7 @@ logged for the latter). A file with no `model` fails to load and the item never 
 | `knock` | `0` | metres per second of shove given to whatever is hit |
 | `pellets` | `1` (clamped to 1..24) | hitscan rays per shot: one for a pistol, a handful for a shotgun |
 | `fire_sound` | none | name of the `SoundId` played on firing (`shot`, `boom`, `whoosh`) |
-| `grip` | `0 0 0 0 0 0` | `x y z yaw pitch roll` that turns the model's own rest pose into "grip at the origin, business end down +Z" -- what the viewmodel and the hand attachment both assume. A model authored that way needs no line at all; the Kenney blasters point down -Z and so carry `grip 0 0.019 0.025 180 0 0` |
+| `grip` | `0 0 0 0 0 0` | `x y z yaw pitch roll` that turns the model's own rest pose into "grip at the origin, business end down +Z" -- what the viewmodel and the hand attachment both assume. All four weapons are now authored that way (see ASSETS.md, "The weapon frame"), so the line only frames them: it slides the model around in the viewmodel's own right/up/forward axes until the gun reads in the lower right of the screen |
 
 `assets/items/vase.txt`, one of the eight starter items, as a worked example:
 
@@ -475,6 +475,65 @@ clip names, and any clip previews on the hero. SAVE writes `assets/characters/NA
 (`model`, `hide`, `borrow`, `recolor`, `attach`, `anim` lines, and the `spawn` and `voice` lines it
 was loaded with); SAVE + USE AS HERO also sets it as the hero
 in `assets/settings.txt`. `--hero NAME` plays it, overriding only the local player's slot character.
+
+### Characters
+
+The four goons are MakeHuman bodies wearing the Quaternius animation library. Nothing about the
+character file format changed: `model` points at a GLB, `anim NAME CLIP` names a clip in it, and
+the builder above still opens them.
+
+Why it works: MakeHuman's "game engine" skeleton and the Quaternius universal rig are the same
+rig. 53 bones, the Unreal mannequin's names -- `root`, `pelvis`, `spine_01..03`, `clavicle_l`,
+`upperarm_l`, `lowerarm_l`, `hand_l`, five fingers of three joints, `neck_01`, `Head`, `thigh_l`,
+`calf_l`, `foot_l`, `ball_l` and the same on the right -- in the same hierarchy, differing in the
+spelling of exactly two (`Root`/`root`, `head`/`Head`). What does differ is the **rest pose**:
+MakeHuman stands in an A-pose and all 84 clips were authored against a T-pose, and a clip stores
+each bone's rotation *relative to its own rest*, so playing one on the other leaves the arms 48
+degrees low in every frame. `tools/blender/retarget.py` fixes that by moving the body rather than
+the animation -- it poses every bone to the clip rig's rest orientation, bakes that pose into the
+meshes, makes it the new rest pose, and then hangs the actions on it untouched. No keyframe is
+resampled, created or moved; the goon GLBs carry the same keys Quaternius shipped, on a body with
+its own limb lengths.
+
+**To regenerate a goon** you need two downloads that live outside the repo (280 MB of assets does
+not belong in git). Neither needs an account:
+
+    # 1. MPFB2, the MakeHuman plugin for Blender (GPL; we ship none of it, only its CC0 output)
+    mkdir -p ~/mpfb/extensions/user_default && cd ~/mpfb/extensions/user_default
+    curl -LO https://files.makehumancommunity.org/plugins/mpfb2-latest.zip && unzip -q mpfb2-latest.zip
+
+    # 2. the MakeHuman system assets: base mesh, skins, clothes, hair, eyes, proxies. CC0.
+    mkdir -p ~/mpfb/extensions/.user/user_default/mpfb/data
+    cd ~/mpfb/extensions/.user/user_default/mpfb/data
+    curl -LO http://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip
+    unzip -q makehuman_system_assets_cc0.zip
+
+Then, from the repo root, two commands per goon:
+
+    export BLENDER_USER_EXTENSIONS=~/mpfb/extensions
+    blender -b --python tools/blender/makegoon.py -- assets/characters/mh/goon_a.json /tmp/goon_a_body.glb
+    blender -b --python tools/blender/retarget.py -- /tmp/goon_a_body.glb \
+        assets/models/quaternius/ranger_male.glb assets/models/characters/goon_a.glb
+
+`makegoon.py` reads a recipe and writes a rigged, unanimated body: the MakeHuman macro sliders
+(gender, age, muscle, weight, height, proportions, race), a skin, clothes, shoes, hair, eyebrows
+and eyes, a triangle budget per mesh, one 512 px base-colour map per material with the normal and
+AO maps thrown away, and a `tint` that repaints a cloth map the way `merge.py --tint` repaints a
+Quaternius atlas. `retarget.py` scales the body so its neck sits at the clip rig's neck height --
+so the clips' root and hip translations still land -- does the rest-pose move above, and exports.
+
+The recipes are `assets/characters/mh/goon_a.json` .. `goon_d.json`, and they are the whole
+character: change `"weight": 0.80` to `0.45` and Dez loses four stone. The asset names are
+MakeHuman's own (`male_casualsuit01`, `short02`, `young_asian_male`, `male1591`); the full lists
+are the folder names under the asset pack you just unzipped. Faces are slider output on a
+symmetric base mesh with a generic skin map -- there is no scan of any real person anywhere in
+this pipeline, and MakeHuman's assets predate generative tools.
+
+Height stays in the character file, not the model: every goon GLB comes out about 1.8 m and the
+`scale` line makes Dez 1.93, Marko 2.11, Pip 1.64 and Bunny 1.85, which is exactly as tall as the
+old stylised cast stood. Those four are still in the tree as `goon_a_toon.txt` .. `goon_d_toon.txt`
+if you prefer them; they load the Quaternius ranger and the same clip names, so swapping back is
+one `--hero` flag or four file renames.
 
 ### Lighting
 
@@ -873,7 +932,7 @@ still on the plain look.
 
 Characters and props are 3D, drawn through the pixel-art pass (small layer, grid-snapped camera,
 Endesga 32 palette, one-pixel outline, depth-composited), so nothing is drawn by hand and
-everything matches. Models come from CC0 packs (KayKit, Quaternius, Kenney, and photoscanned Poly Haven models with
+everything matches. Models come from CC0 packs (KayKit, Quaternius, MakeHuman, and photoscanned Poly Haven models with
 textures in `assets/models/polyhaven`) or from your CAD tool: export OBJ with materials
 into `assets/models/import` and it is in the palette (millimetre files scale themselves). Dialogue
 portraits render live from the speaker's model with an emotion-driven clip (`assets/portraits.txt`

@@ -53,17 +53,20 @@ Only `intro` has a scene wired to it. The other twelve are named landing points:
 
 ### The four goons
 
-`assets/characters/goon_a.txt` .. `goon_d.txt`, all from the Quaternius ranger with the sword
-attachment dropped and every action bound to unarmed clips (`Idle_Loop`, `Walk_Loop`,
-`Jog_Fwd_Loop`, `Sprint_Loop`, `Punch_Jab` / `Punch_Cross` / `Melee_Hook`, `Roll`, `Hit_*`,
-`Death01`).
+`assets/characters/goon_a.txt` .. `goon_d.txt`. Four MakeHuman bodies -- four builds, four faces,
+real clothes -- carrying the same Quaternius clips they always did, put there by
+`tools/blender/makegoon.py` and `tools/blender/retarget.py` from the recipes in
+`assets/characters/mh/`; see README, "Characters". Every action is bound to an unarmed clip
+(`Idle_Loop`, `Walk_Loop`, `Jog_Fwd_Loop`, `Sprint_Loop`, `Punch_Jab` / `Punch_Cross` /
+`Melee_Hook`, `Roll`, `Hit_*`, `Death01`). The old stylised cast is still in the tree as
+`goon_a_toon.txt` .. `goon_d_toon.txt`.
 
-| file | name | scale | outfit |
+| file | name | scale | build and outfit |
 |---|---|---|---|
-| goon_a | **Dez** | 1.05 | rust orange, maroon trousers — the player (`hero goon_a` in settings.txt) |
-| goon_b | **Marko** | 1.15 | olive-yellow — the big one, brought the extension lead |
-| goon_c | **Pip** | 0.90 | teal-cyan — the small one, the only one who read anything |
-| goon_d | **Bunny** | 1.00 | purple-magenta — wants it on record that he said to call somebody |
+| goon_a | **Dez** | 1.06 | heavy, middle-aged, rust-red shirt and jeans — the player (`hero goon_a` in settings.txt) |
+| goon_b | **Marko** | 1.18 | tall and long-limbed, olive-yellow work suit — the big one, brought the extension lead |
+| goon_c | **Pip** | 0.87 | small and slight, teal-cyan jacket — the only one who read anything |
+| goon_d | **Bunny** | 1.00 | average everything, purple-magenta jacket — wants it on record that he said to call somebody |
 
 b, c and d stand on the pier as `npc` lines with a talk scene each
 (`island_marko.txt`, `island_pip.txt`, `island_bunny.txt`). The intro is `island_intro.txt`.

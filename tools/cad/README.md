@@ -15,6 +15,13 @@ obey the same frame and the same colour rules, and reuse its pieces.
     tools/cad/obj_stage.py     the Blender half, shared by both
     tools/cad/shell_stage.py   the same, once per material group of a building
 
+There is a third, much smaller half: **weapons**. `tools/cad/build_weapons.py` and
+`tools/cad/weapon_stage.py` build the pump shotgun (`assets/models/own/shotgun.glb`), the one
+weapon in the game with no CC0 photoscan behind it. Same CadQuery-to-Blender route, but the output
+is a single GLB with one flat material per colour rather than an OBJ set placed by a `.part`,
+because a weapon is one prop held in one hand. See ASSETS.md, "The weapon frame", for the axes it
+has to come out in.
+
 Jump to [The buildings](#the-buildings) for the shells.
 
 # The architecture kit
