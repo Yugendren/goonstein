@@ -20,6 +20,7 @@
 #     x   6   a 1.6 m wall    a mantle, with room to stand on top and a 1.6 m step off the far side
 #     x  18   a slab at 1.05  nothing but a slide fits under it
 #     x  30   three 1.6 m steps to 4.8 m, then a run off the end: a fall deep enough to roll out of
+#     x  44   a 2 m platform beside a 16 m wall: leave the platform with Space held and it is a wall run
 
 sun      0.35 -0.80 0.45   1.05   1.00 0.96 0.90
 ambient  0.40 0.44 0.52   0.18 0.17 0.15
@@ -57,3 +58,7 @@ block   18 2.025 -12    4.0 1.95 6   flat   0.62 0.60 0.52   1   solid
 block   30 0.800 -12    2.0 1.60 6   flat   0.58 0.56 0.50   1   solid
 block   32 1.600 -12    2.0 3.20 6   flat   0.54 0.52 0.48   1   solid
 block   34 2.400 -12    2.0 4.80 6   flat   0.50 0.48 0.46   1   solid
+# and a wall to run along: a 2 m platform to leave the ground from, then sixteen metres of face
+# half a metre off the lane's shoulder, with nothing under it for two metres.
+block   44 1.000 -12    4.0 2.00 6   flat   0.56 0.54 0.50   1   solid
+block   54 3.000 -13.0 16.0 6.00 1   flat   0.44 0.46 0.52   1   solid

@@ -1049,6 +1049,13 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     if (SDL_getenv("HOLLOW_AUTOWALK")) {
         if (in != &bot_in) bot_in = *in_real;
         bot_in.move_x = 0; bot_in.move_y = -1; in = &bot_in;
+        // AUTOWALK owns the whole input, not just the stick. A measurement run that inherits
+        // whatever the real keyboard and mouse happen to be doing is not a measurement: a stray
+        // Ctrl held somewhere else on the desktop turned one capture into a slide.
+        bot_in.sprint = bot_in.crouch = bot_in.jump = bot_in.jump_held = false;
+        bot_in.attack = bot_in.parry = bot_in.dodge = bot_in.interact = bot_in.lockon = false;
+        bot_in.mouse_held = bot_in.rmouse_held = false;
+        bot_in.look_x = bot_in.look_y = bot_in.look_stick_x = bot_in.look_stick_y = 0;
         // HOLLOW_AUTOWALK=DEGREES aims the walk (and the view) once, so a run can be pinned to a
         // known flat stretch; any value below 2 just walks wherever the spawn faces.
         static bool aimed = false;
@@ -1059,7 +1066,9 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
         const char *ai = SDL_getenv("HOLLOW_AUTOINPUT");
         if (ai) { if (strstr(ai, "sprint")) bot_in.sprint = true;
                   if (strstr(ai, "crouch")) bot_in.crouch = true;
-                  if (strstr(ai, "jump") && g->tick % 60 == 0) bot_in.jump = true;
+                  // A parkour run holds the jump key: the edge fires once a second, the hold is
+                  // what a wall run reads to know you still want it.
+                  if (strstr(ai, "jump")) { bot_in.jump_held = true; if (g->tick % 60 == 0) bot_in.jump = true; }
                   // --- traversal --- `slide` is not a key, it is crouch pressed at the right speed,
                   // which is a thing no fixed input pattern can do: hold it once the run is fast
                   // enough and keep holding it while the slide lasts.

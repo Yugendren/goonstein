@@ -104,7 +104,9 @@ the third-person fight, `combat cards` the card battle.
 
 ### Movement
 
-Half-Life's shape, at whatever rate your screen runs.
+Mirror's Edge on a Half-Life base, at whatever rate your screen runs. Three keys -- Space, Shift,
+Ctrl -- and no fourth: every parkour move is one of those three pressed somewhere the world can do
+something with it. Nothing in a level is marked climbable.
 
 **Look.** Mouse look is applied on every rendered *frame*, not on the 60 Hz tick: the delta the
 mouse reported this frame turns the view this frame, and the simulation reads whatever yaw the view
@@ -113,26 +115,96 @@ drawn interpolating between the last two of those turns, so at 144 Hz the pan ra
 two values 30 times a second (measured: alternating 0.0122 and 0.0183 radians a tick under a steady
 hand) and the whole view lagged a tick behind the mouse. There is no smoothing and no acceleration
 anywhere in the path -- the pointer delta *is* the rotation. `mouse_sens` in `assets/settings.txt`
-multiplies it (1.0 is the default 0.0022 radians per mouse pixel). The body turns with the view.
+multiplies it (1.0 is the default 0.0022 radians per mouse pixel). The body turns with the view,
+except during a mantle or a vault, where turning to face the mouse would walk you off the side of
+the thing you are going over.
 
-**Ground.** Acceleration and friction, Quake-shaped, in `assets/player.txt`: walk `speed 3.2`,
-`sprint_mult 1.56` for a 5.0 m/s jog on Shift, `accel 10`, `friction 8`, `stop_speed 1.4`. In the
-air `air_accel 10` chases a wish speed capped at 0.9 m/s, which is the classic small air control:
-steer a little, never run on. Gravity is 20 m/s^2 and `jump_height 1.0` metres is what Space buys
-(the impulse is derived from the height, so changing one number changes the jump). Ctrl crouches:
-half speed, and the eye drops half a metre.
+**Momentum.** The run is built, not switched on. Holding Shift ramps the wish speed from the
+`speed 3.2` walk to `speed * sprint_mult` = 7.0 m/s over `sprint_ramp 1.25` seconds (measured from
+a standing start: 3.7 m/s at half a second, 5.1 at one, 6.4 at one and a half, 7.0 at two), and the
+build is *kept* while the feet are off the ground and spent by stopping, so a hop costs you nothing
+and a stop costs you the run-up. Underneath it is still Quake: `accel 10`, `friction 8`,
+`stop_speed 1.4`, and `air_wish 1.6` m/s of mid-air steering (0.9 was the classic "steer a little";
+1.6 is enough to pick which side of a gap you land on). Two rules make hopping worth doing and keep
+it finite: the friction is skipped on the tick a jump fires -- one 60 Hz bite out of 7 m/s is most
+of a metre per second, which is the difference between a chain of hops and a series of stops -- and
+`speed_cap 8.8` is a ceiling nothing gets past. Gravity is 20 m/s^2 and `jump_height 1.0` metres is
+what Space buys; the impulse is derived from the height, so changing one number changes the jump.
+A jump is forgiven for `coyote 0.12` seconds past an edge and remembered for `jump_buffer 0.15`
+seconds before the feet land.
+
+**Mantle and vault.** Run or jump into anything between `mantle_min 0.55` and `mantle_max 2.2`
+metres with room to stand on top and you go up it. The probe is three columns in front of the feet
+-- the ledge, half a metre past it (a ledge, or the bottom of a taller wall?), and the face in
+between -- asked of block tops, prop colliders, boat decks and the terrain alike, so a quay, a
+veranda rail and a compound wall are all just ledges. Below `vault_max 1.2` metres at more than
+4.2 m/s it is vaulted instead: the path bulges over the top and the speed is kept whole. A climb
+takes 0.35 s on a knee-high ledge and 0.6 s on a head-high one and costs you most of the run-up
+(you come out at 55% of what you went in with, capped at 3.6 m/s); both halves of it -- up, then
+over -- are smoothsteps, so the eye leaves and arrives with no vertical speed. The speed the move
+reads is the speed you were doing a fifth of a second ago, not this instant: running into a wall
+zeroes your velocity inside one tick, and "how fast were you going when you hit it" is the question
+a vault has to answer.
+
+**Slide.** Ctrl above `slide_enter 4.6` m/s is a `slide_time 0.8` second slide that bleeds
+`slide_decel 1.6` m/s per second, drops the eye 0.95 m (a crouch drops it 0.5) and shrinks the body
+to 55% of its height, so a gap a metre high is something you go through. Let go of Ctrl under a
+roof and the slide holds itself there until there is headroom -- a culvert is a thing you pass
+through, not a thing you get stuck in. Space out of a slide is the long hop: the slide's speed plus
+a tenth, and a jump 6% higher.
+
+**Landing.** Under `roll_fall 4.0` metres of drop the landing keeps every bit of your momentum and
+only the knees give (the eye dips about 0.1 m per metre-per-second of impact and springs back
+inside 0.4 s). Over it, it is a 0.55 s roll instead of a stop: the body plays its Roll clip, the
+view pitches 34 degrees through the somersault and comes back, and you keep 78% of the run.
+
+**Wall run.** Optional and rare on purpose: leave the ground at more than 4.6 m/s with Space still
+held, alongside a vertical block face within half a metre and with nothing under your feet for a
+metre and a bit, and you run along it for up to `wallrun_time 1.2` seconds at a fifth of gravity,
+the horizon rolled 14 degrees toward the wall. Space again jumps off it, away from the face and up.
+It needs a wall standing over a drop, which the island has very little of; `wallrun_time 0` in
+`player.txt` turns it off entirely without touching any code.
 
 **Stairs and edges.** The feet are glued to the ground they are standing on through a step up *or*
 down of up to 0.5 m, so walking off the edge of a deck is a step rather than the start of a fall,
 and the old bounce along a deck edge (fall, catch, fall) cannot happen. What the feet do instantly
 the eye does over about 80 ms -- the Quake step-smoothing trick -- so a stair reads as a stair and
-not as a pop. Ground steeper than 50 degrees is a slide, not a floor. Landing from a fall dips the
-eye about 0.1 m per metre-per-second of impact and springs back inside 0.4 s.
+not as a pop. Ground steeper than 50 degrees is a slide, not a floor. A scripted traversal owns its
+own height while it runs: gravity, the ground snap and the step ease all stay out of its way, which
+is why a mantle comes out with no step in the eye.
 
 **The head.** The walk bob is one cycle per 2.2 m of ground covered, +-18 mm vertical and +-14 mm
 lateral, advanced on the frame clock. It used to be +-35 mm at 3.8 Hz driven off the tick, which
 measured as a vibration rather than a walk; the viewmodel's own bob was a 10 Hz jackhammer and now
 shares the head's phase. `view first 0` in the level turns the bob off, `HOLLOW_BOB=N` overrides it.
+The field of view opens from 70 to 78 degrees between a walk and a flat-out sprint, the horizon
+leans up to 2 degrees into a strafe, and the footstep cadence follows the stride -- 0.80 m per step
+at a walk, 1.45 m at a sprint -- so the steps come faster because the ground goes past faster. The
+viewmodel carries the momentum too: the gun lags the run, drifts with a strafe, floats on a jump,
+and a hand leaves it to plant on the ledge during a mantle (drawn as a bare forearm when the hands
+are empty). All of it is advanced per rendered frame; the 60 Hz tick only ever sets a goal.
+
+**Measuring it.** `assets/levels/feel.txt` is the movement bench. Its second lane, at z = -12, is a
+0.9 m box to vault, a 1.6 m wall to climb, a slab at 1.05 m that only a slide fits under, three
+1.6 m steps to 4.8 m with a run off the end worth rolling out of, and a 16 m wall beside a 2 m
+platform for the wall run:
+
+    HOLLOW_SILENT=1 HOLLOW_AUTOWALK=90 HOLLOW_AUTOINPUT="sprint slide" ./build/bin/goonstein \
+        --level feel --first --no-scenes --volume 0 --spawn -20 -12 --frames 900
+
+`HOLLOW_AUTOINPUT` takes any combination of `sprint`, `crouch`, `jump` and `slide` (`slide` is not a
+key held down: pressing Ctrl early caps the run below the speed a slide needs, so it waits for the
+run to build and then holds Ctrl for one slide every three seconds). `HOLLOW_AUTOWALK` owns the
+whole input while it is set, not just the stick, so a measurement run cannot inherit a stray key
+held somewhere else on the desktop. `HOLLOW_BOT=traverse` is the course runner -- it picks the
+nearest block top between knee and head height, sprints at it, jumps when blocked or cresting, and
+slides every four seconds -- and logs a line a second:
+
+    traverse: speed 6.94 avg 7.01 max | air 72% | mantle 1 vault 0 slide 1 jump 1 roll 0 wallrun 0 | mode slide
+
+The `smooth:` line in `hollow.log` carries the eye's own answer, with two columns for the traversal
+specifically: the peak single-frame eye move, and how many frames were spent traversing with their
+own peak. A pop in a mantle shows up there and nowhere else.
 
 ## Combat
 
