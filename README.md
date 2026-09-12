@@ -1190,7 +1190,24 @@ and says so in the log.
 
 The move direction is **quantised before the client uses it**, to a signed byte per axis. The
 client predicts with the same numbers the host will replay, so the two do not drift apart just
-from rounding.
+from rounding. Held buttons -- sprint, guard, crouch, the held jump -- survive a repeated intent on
+a tick the host's jitter buffer runs dry, because they are states rather than edges; dropping
+crouch that way ended a client's slide half a second early on the host and nowhere else.
+
+**A climb is predicted too, and the correction knows it.** A mantle, a vault, a slide and a roll
+are pure functions of the inputs and the blocks, so the client starts one on the frame it asks for
+it and the host, replaying the same intent against the same level, picks the same ledge. The
+prediction history carries the traversal mode, its timer and the ground velocity alongside the
+position, for one decision: mid-climb the difference between the two is usually *phase* rather than
+drift. The host takes the intent out of its jitter buffer a few ticks after the client predicted
+it, so for the length of the move the two sit at different points on the same curve -- and the
+curve is deterministic, so it ends in the same place. Under a metre that is worth waiting out, and
+the history is left untouched so the first snapshot afterwards still sees the error. Over a metre
+the two disagree about *where* and not *when*, and the correction moves the curve rather than the
+body, so the climb still finishes standing on a ledge instead of short of one. Either way it never
+hard-snaps mid-climb: a snap there drops you off the wall, and the whole move is over inside 0.6 s.
+After a hard snap anywhere else the predicted velocity is fiction, so the acked tick's velocity is
+put back and any climb abandoned.
 
 ### Packet layout
 

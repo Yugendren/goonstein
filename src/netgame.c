@@ -306,7 +306,19 @@ static void reconcile(Game *g, const NetSnapPlayer *auth, uint32_t ack_tick) {
     n->s_corrections++; n->t_corrections++;
     n->s_corr_sum += mag; n->t_corr_sum += mag;
     if (mag > n->s_corr_max) n->s_corr_max = mag;
-    if (mag > 2.0f) {   // too far gone to smooth: snap
+    // --- traversal --- Mid-climb the difference with the host is usually PHASE and not drift: the
+    // host takes the intent out of its jitter buffer a few ticks after the client predicted it, so
+    // for the length of the move the two sit at different points on the same curve -- and the curve
+    // is deterministic, so it ends in the same place. Under a metre that is worth waiting out.
+    // Over it the two disagree about WHERE and not WHEN, and the curve moves with the correction so
+    // the climb still ends on a ledge. Either way it never snaps: a snap mid-climb drops you off
+    // the wall, and the whole thing is over inside 0.6 s.
+    bool climbing = p->trav == TM_MANTLE || p->trav == TM_VAULT;
+    if (climbing && mag < 1.0f) {
+        if (mag > 0.25f) dbg_log("net: %.2f m held back during %s at tick %u", mag, trav_name(was), ack_tick);
+        return;   // the history is left alone on purpose: the next snapshot still sees the error
+    }
+    if (mag > 2.0f && !climbing) {   // too far gone to smooth: snap
         p->c.pos = v3_add(p->c.pos, err);
         n->pos_error = v3(0, 0, 0);
         n->s_hard_snaps++; n->t_hard_snaps++;
@@ -322,12 +334,9 @@ static void reconcile(Game *g, const NetSnapPlayer *auth, uint32_t ack_tick) {
         // decays back, so the player never sees the jump.
         p->c.pos = v3_add(p->c.pos, err);
         n->pos_error = v3_sub(n->pos_error, err);
-        // --- traversal --- A mantle is a curve the body is already halfway along: correcting the
-        // body alone would be undone by the next tick of that curve, and the eye would ring at the
-        // snapshot rate for the length of the climb. Move the curve with it instead.
         player_traverse_shift(p, err);
         if (was != TM_NONE && mag > 0.25f)
-            dbg_log("net: %.2f m correction during %s at tick %u", mag, trav_name(was), ack_tick);
+            dbg_log("net: %.2f m correction %s %s at tick %u", mag, climbing ? "during" : "after", trav_name(was), ack_tick);
     }
     for (int i = 0; i < NET_HIST; i++) n->hist_pos[i] = v3_add(n->hist_pos[i], err);   // do not correct twice
 }

@@ -222,8 +222,8 @@ void boss_reset(Boss *b, Vec3 pos, float yaw);
 // move_dir: desired world-space XZ movement (already camera-relative), length 0..1.
 // boss may be NULL outside fights.
 void player_update(Player *p, const Input *in, Vec3 move_dir, const World *w, Boss *boss, float dt, CombatEvents *ev);
-// --- traversal --- A correction from the host landed mid-mantle: move the scripted path with it
-// rather than the body, so the climb finishes where the host says without a step in the eye.
+// --- traversal --- A correction big enough to be a real disagreement landed mid-climb: move the
+// scripted path with it, not the body, so the climb still ends standing on a ledge.
 void player_traverse_shift(Player *p, Vec3 delta);
 void boss_update(Boss *b, Player *p, const Level *lv, float dt, CombatEvents *ev);
 

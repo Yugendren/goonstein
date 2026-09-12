@@ -356,8 +356,9 @@ static void traverse_enter(Player *p, TravMode m, float dur, Vec3 to, Vec3 dir, 
     p->c.vy = 0;
 }
 
-// A correction from the host landed mid-climb: carry the path with it. Moving the body instead
-// would be undone by the next tick of the lerp, and the eye would ring at the snapshot rate.
+// A correction from the host landed mid-climb and is too big to be the usual few ticks of phase
+// difference: carry the path with it. Moving the body instead would be undone by the next tick of
+// the lerp, and the climb would finish in the air beside the ledge it was aimed at.
 void player_traverse_shift(Player *p, Vec3 delta) {
     if (p->trav != TM_MANTLE && p->trav != TM_VAULT) return;
     p->trav_from = v3_add(p->trav_from, delta);
@@ -413,9 +414,9 @@ static void traverse_try(Player *p, const Input *in, Vec3 move_dir, float mlen, 
     // A wall run is the last thing tried and the first thing to give up: airborne, quick, jump still
     // held, a face alongside and nothing under the feet. Anything less and it fires on every corner.
     if (d->wallrun_time > 0 && !c->grounded && in->jump_held && carried >= WALL_MIN_SPEED && c->vy < 2.0f) {
-        Vec3 n; float gap;
+        Vec3 n;
         float y0 = c->pos.y + 0.4f, y1 = c->pos.y + c->height * 0.9f;
-        if (level_wall_near(w->lv, c->pos.x, c->pos.z, c->radius + 0.30f, y0, y1, &n, &gap)
+        if (level_wall_near(w->lv, c->pos.x, c->pos.z, c->radius + 0.30f, y0, y1, &n, NULL)
             && world_top(w, c->pos.x, c->pos.z, c->pos.y - 0.6f) < c->pos.y - 1.2f) {
             Vec3 along = v3(-n.z, 0, n.x);
             float s = v3_dot(v3(c->hvel.x, 0, c->hvel.z), along);
@@ -523,9 +524,9 @@ static void traverse_update(Player *p, const Input *in, Vec3 move_dir, float mle
         c->pos.y += c->vy * dt;
         if (dt > 1e-5f) { c->hvel.x = (c->pos.x - prev.x) / dt; c->hvel.z = (c->pos.z - prev.z) / dt; }
         c->speed = p->trav_speed;
-        Vec3 n; float gap;
+        Vec3 n;
         bool still = level_wall_near(w->lv, c->pos.x, c->pos.z, c->radius + 0.42f,
-                                     c->pos.y + 0.4f, c->pos.y + c->height * 0.9f, &n, &gap)
+                                     c->pos.y + 0.4f, c->pos.y + c->height * 0.9f, &n, NULL)
                      && v3_dot(n, p->wall_normal) > 0.7f;
         bool jumped = p->buf_jump > 0;
         if (jumped) {
