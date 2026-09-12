@@ -506,7 +506,11 @@ static void host_simulate(Game *g, float dt) {
             if (s->qn > 3) { int drop = s->qn - 3; memmove(s->q, s->q + drop, sizeof s->q[0] * (size_t)(s->qn - drop)); s->qn -= drop; }
             s->input = s->q[0]; s->have_input = true; s->input_tick = s->input.tick;
             memmove(s->q, s->q + 1, sizeof s->q[0] * (size_t)(s->qn - 1)); s->qn--;
-        } else s->input.buttons &= (uint16_t)(NB_SPRINT | NB_GUARD);
+        } else s->input.buttons &= (uint16_t)(NB_SPRINT | NB_GUARD | NB_CROUCH | NB_JUMPHELD);
+        // Crouch and the held jump stay on a repeated intent for the same reason sprint and guard
+        // always did: they are states, not edges. Dropping them on a dry tick ended a client's slide
+        // half a second early on the host and nowhere else, which the reconciliation then spent the
+        // rest of the slide arguing about -- a third of a metre at a time, every snapshot.
         Input in; Vec3 dir = unpack_input(&s->input, &in);
         if (!s->have_input) { memset(&in, 0, sizeof in); dir = v3(0, 0, 0); }
         // Two hands on the painting is two hands off everything else: the host applies the same

@@ -271,7 +271,8 @@ static void player_posture_hit(Player *p, float amount, CombatEvents *ev) {
 // ---------------------------------------------------------------- traversal
 //
 // Mirror's Edge on top of the Quake base: momentum that has to be built, a jump that forgives, and
-// three scripted moves the world picks for you rather than a key.
+// a set of moves the world picks for you rather than a key of their own -- a slide, a vault, a
+// mantle, a roll out of a bad landing, and a run along a wall.
 //
 // The whole section is a pure function of the inputs and the blocks under them. That is not a
 // stylistic preference: it is what lets a client start a mantle on the frame it asks for one and
@@ -281,7 +282,9 @@ static void player_posture_hit(Player *p, float amount, CombatEvents *ev) {
 // stand on, found by probing three columns in front of the feet.
 
 static const char *TRAV_NAMES[] = { "none", "slide", "mantle", "vault", "roll", "wallrun" };
-const char *trav_name(TravMode m) { return ((int)m >= 0 && (int)m < 6) ? TRAV_NAMES[m] : "?"; }
+const char *trav_name(TravMode m) {
+    return ((size_t)m < sizeof TRAV_NAMES / sizeof *TRAV_NAMES) ? TRAV_NAMES[m] : "?";
+}
 
 #define SLIDE_HEIGHT   0.55f    // fraction of standing height a slide fits through: a low gap is the point of it
 #define SLIDE_STEER    1.1f     // m/s of wish speed left for aiming the slide; more and it is a run on your back
@@ -467,7 +470,11 @@ static void traverse_update(Player *p, const Input *in, Vec3 move_dir, float mle
     } break;
 
     case TM_SLIDE: {
-        float sp = fmaxf(0.0f, p->trav_speed - d->slide_decel * p->trav_t);
+        // Ctrl let go under a low gap is a wish, not an order: the slide holds until there is
+        // headroom, which is what makes a culvert passable rather than a place you get stuck. That
+        // only works if it never runs out of speed under there, so under a roof it crawls.
+        bool roof = !world_clear(w, c->pos.x, c->pos.z, c->radius * 0.9f, c->pos.y + 0.2f, c->pos.y + c->height * 0.95f);
+        float sp = fmaxf(roof ? 1.5f : 0.0f, p->trav_speed - d->slide_decel * p->trav_t);
         // Steering, not driving: enough to aim at a gap, never enough to keep the slide alive.
         if (mlen > 0.05f) {
             Vec3 want = v3_scale(move_dir, SLIDE_STEER);
@@ -484,9 +491,6 @@ static void traverse_update(Player *p, const Input *in, Vec3 move_dir, float mle
         if (mlen > 0.05f) c->yaw = angle_damp(c->yaw, atan2f(p->trav_dir.x, p->trav_dir.z), d->turn_speed * 0.5f, dt);
         // Jumping out of a slide is the long hop: the slide's speed, plus a tenth, plus the jump.
         bool jumped = p->buf_jump > 0 && c->grounded;
-        // Ctrl let go under a low gap is a wish, not an order: the slide holds until there is
-        // headroom, which is what makes a culvert passable rather than a place you get stuck.
-        bool roof = !world_clear(w, c->pos.x, c->pos.z, c->radius * 0.9f, c->pos.y + 0.2f, c->pos.y + c->height * 0.95f);
         bool over = (p->trav_t >= p->trav_dur) || sp <= d->slide_exit || (!in->crouch && !roof);
         if (jumped || (over && !roof)) {
             float out = jumped ? fminf(sp * SLIDE_JUMP_KEEP, d->speed_cap) : sp;
