@@ -59,7 +59,8 @@ and what is verified versus untested.
 | Crouch / slide | Ctrl (hold; at a sprint it is a slide) | --  |
 | Attack        | Left mouse (or J)         | RB               |
 | Deflect / block | Right mouse tap / hold (or K) | LB           |
-| Step dodge / sprint | Shift tap / hold          | B          |
+| Sprint        | Shift (hold; `sprint toggle` in settings.txt makes it a toggle) | B |
+| Step dodge    | Shift, **in a fight only** | B         |
 | Mantle / vault | (none: run or jump into a ledge)  | --       |
 | Lock-on       | Middle mouse, Q or Tab    | R3               |
 | Interact / pick a mate up | E (hold to pick up) | A            |
@@ -81,7 +82,10 @@ and what is verified versus untested.
 | Player list   | hold Tab                  |                  |
 | Change a setting | Left / Right or A / D  | D-pad left / right |
 
-The layout follows Sekiro on PC. Level files also hot-reload on save while the game is running.
+The layout follows Sekiro on PC, with one deliberate departure: Shift is the step dodge only while
+you are actually fighting something. Out in the world it is sprint and nothing else, because a
+0.42 s, 3.2 m lunge every time you start running is not a control scheme, it is a trap.
+Level files also hot-reload on save while the game is running.
 Starting the game with no flags opens the main menu; Esc during play opens the in-game menu
 instead of quitting. `SETTINGS` on either of those two menus opens one page of sound, voice, mouse
 and picture settings -- see [The menu](#the-menu) -- where left and right change the highlighted
@@ -120,26 +124,67 @@ multiplies it (1.0 is the default 0.0022 radians per mouse pixel). The body turn
 except during a mantle or a vault, where turning to face the mouse would walk you off the side of
 the thing you are going over.
 
-**Momentum.** The run is built, not switched on. Holding Shift ramps the wish speed from the
-`speed 3.2` walk to `speed * sprint_mult` = 7.0 m/s over `sprint_ramp 1.05` seconds (measured from
-a standing start: 3.9 m/s at half a second, 5.7 at one, 7.0 at one and a half), and the
-build is *kept* while the feet are off the ground and spent by stopping, so a hop costs you nothing
-and a stop costs you the run-up. Underneath it is still Quake: `accel 10`, `friction 8`,
-`stop_speed 1.4`, and `air_wish 1.6` m/s of mid-air steering (0.9 was the classic "steer a little";
-1.6 is enough to pick which side of a gap you land on). Two rules make hopping worth doing and keep
-it finite: the friction is skipped on the tick a jump fires -- one 60 Hz bite out of 7 m/s is most
-of a metre per second, which is the difference between a chain of hops and a series of stops -- and
-`speed_cap 8.8` is a ceiling nothing gets past. Gravity is 20 m/s^2 and `jump_height 1.0` metres is
-what Space buys; the impulse is derived from the height, so changing one number changes the jump.
-A jump is forgiven for `coyote 0.12` seconds past an edge and remembered for `jump_buffer 0.15`
-seconds before the feet land.
+**The numbers, and where they come from.** These were set against the games that got them right
+rather than by feel, and every one of them lives in `assets/player.txt` with its source in the
+comment beside it. Source engine units are inches (a player is 72 units = 1.83 m tall), so
+190 u/s is 4.83 m/s.
+
+| | ours | the reference it came from |
+|---|---|---|
+| walk | **4.8 m/s** | Half-Life 2 / Source default run, `cl_forwardspeed` 190 u/s = 4.83 m/s |
+| sprint | **7.5 m/s**, reached **0.35 s** after Shift | HL2 `+speed` sprint is 320 u/s = 8.13 m/s; Mirror's Edge is at full speed in well under a second |
+| long run | climbs to **8.5 m/s** over another ~3.4 s | Mirror's Edge tops Faith out around 8-9 m/s |
+| crouch | **2.0 m/s** (`crouch_mult 0.42`) | HL2 crouch-walk 75 u/s = 1.9 m/s |
+| ceiling | `speed_cap` **9.5 m/s** | Quake's `sv_maxspeed 320` = 8.13 m/s, plus headroom for a chain of hops |
+| ground accel | `accel 12` | Source `sv_accelerate 10` -- the same Quake-shaped coefficient, a touch higher |
+| friction | `friction 5` | Source `sv_friction 4`, CS:GO's 5.2 |
+| stop speed | `stop_speed 2.5` | Source `sv_stopspeed` 100 u/s = 2.54 m/s |
+| air control | `air_accel 12`, wish speed capped at `air_wish 1.6` | Quake's air accel; Titanfall/Apex keep the same shape -- a small wish cap is what makes air control steerable without being flight |
+| for scale | -- | Counter-Strike runs at 250 u/s = 6.35 m/s, between our walk and our sprint |
+
+**Momentum.** The run is built, not switched on, but building it is now fast enough to feel like a
+key rather than a wait. Shift engages on the tick it is seen -- there is no arming delay -- and
+ramps the wish speed from the `speed 4.8` walk to `speed * sprint_mult` = 7.5 m/s over
+`sprint_ramp 0.35` seconds (measured, with `HOLLOW_SPRINT_TEST=1`: 5.57 m/s at 0.1 s, 6.34 at 0.2,
+7.11 at 0.3, 7.5 at 0.350). `sprint_surge 1.0` is a second, slower ramp on top of that -- `surge_ramp
+2.5` seconds of unbroken running for one more metre per second, reaching 8.5 m/s 3.7 s in -- so a
+long run keeps paying out and a short one does not. The build is *kept* while the feet are off the
+ground and spent by stopping, so a hop costs you nothing and a stop costs you the run-up.
+
+Three things used to be wrong with that and are worth writing down, because each was worth more to
+how Shift feels than any of the numbers. **One:** sprint did not start until Shift had been held for
+a quarter of a second, so the first thing Shift did was nothing. **Two:** the sprint state was a
+raw per-tick expression, `in->sprint && sprint_t > 0.25 && mlen > 0.05`, and *any* single tick where
+the stick read zero -- turning a corner, swapping strafe keys, a key transition -- reset the arming
+timer, which meant a quarter second of walking before the run came back while the momentum bled
+away at 2/s. That is the stutter. It is now a latch with `sprint_grace 0.25` seconds of slack: a gap
+that short in the input does not end the run at all, and only a real stop spends `sprint_decay 0.6`
+seconds bleeding it away. Measured with a deliberate one-tick input gap every twenty ticks, the run
+holds 8.500 m/s with momentum and surge both pinned at 1.00. **Three:** Shift also fired the Sekiro
+step -- a 0.42 s, 3.2 m lunge -- on every press, in the middle of the overworld. The step is a
+combat move now: outside a fight, Shift is sprint and nothing else.
+
+`sprint hold|toggle` in `assets/settings.txt` picks how Shift behaves. `hold` is the default.
+`toggle` flips the run on with a press and off with the next one, and switches itself off when you
+stop moving, so it never survives a stop.
+
+Underneath it is still Quake. Two rules make hopping worth doing and keep it finite: the friction is
+skipped on the tick a jump fires -- one 60 Hz bite out of 7.5 m/s is most of a metre per second,
+which is the difference between a chain of hops and a series of stops -- and `speed_cap 9.5` is a
+ceiling nothing gets past. Gravity is 20 m/s^2 and `jump_height 1.05` metres is what Space buys; the
+impulse is derived from the height, so changing one number changes the jump. A jump is forgiven for
+`coyote 0.12` seconds past an edge and remembered for `jump_buffer 0.15` seconds before the feet
+land.
 
 **Mantle and vault.** Run or jump into anything between `mantle_min 0.55` and `mantle_max 2.2`
 metres with room to stand on top and you go up it. The probe is three columns in front of the feet
 -- the ledge, half a metre past it (a ledge, or the bottom of a taller wall?), and the face in
 between -- asked of block tops, prop colliders, boat decks and the terrain alike, so a quay, a
 veranda rail and a compound wall are all just ledges. Below `vault_max 1.2` metres at more than
-4.2 m/s it is vaulted instead: the path bulges over the top and the speed is kept whole. A climb
+`vault_speed 5.5` m/s it is vaulted instead: the path bulges over the top and the speed is kept
+whole. That threshold and `wallrun_speed 6.0` both moved up with the walk -- at a 4.8 m/s walk the
+old 4.2 and 4.6 would have fired on an ordinary stroll, and a move that happens when you did not
+ask for it is worse than one that does not happen. A climb
 takes 0.35 s on a knee-high ledge and 0.6 s on a head-high one and costs you most of the run-up
 (you come out at 55% of what you went in with, capped at 3.6 m/s); both halves of it -- up, then
 over -- are smoothsteps, so the eye leaves and arrives with no vertical speed. The speed the move
@@ -147,8 +192,8 @@ reads is the speed you were doing a fifth of a second ago, not this instant: run
 zeroes your velocity inside one tick, and "how fast were you going when you hit it" is the question
 a vault has to answer.
 
-**Slide.** Ctrl above `slide_enter 4.6` m/s is a `slide_time 0.8` second slide that bleeds
-`slide_decel 1.6` m/s per second, drops the eye 0.95 m (a crouch drops it 0.5) and shrinks the body
+**Slide.** Ctrl above `slide_enter 6.0` m/s is a `slide_time 0.85` second slide that bleeds
+`slide_decel 2.2` m/s per second, drops the eye 0.95 m (a crouch drops it 0.5) and shrinks the body
 to 55% of its height, so a gap a metre high is something you go through. Let go of Ctrl under a
 roof and the slide holds itself there until there is headroom -- a culvert is a thing you pass
 through, not a thing you get stuck in. Space out of a slide is the long hop: the slide's speed plus
@@ -647,7 +692,10 @@ Three hooks measure this without a hand on the keyboard. `HOLLOW_TRACE=FILE` wri
 per rendered frame (time, alpha, eye, view angles, feet, speed, grounded) and dumps it at exit;
 `HOLLOW_AUTOWALK=DEGREES` holds W with the view aimed along that compass yaw, and
 `HOLLOW_AUTOINPUT=sprint|crouch|jump` holds those with it; `HOLLOW_AUTOLOOK=PIXELS_PER_SECOND`
-injects a steady pan where a real mouse's motion arrives. A shake is a sign-alternating delta in
+injects a steady pan where a real mouse's motion arrives. `HOLLOW_SPRINT_TEST=1` rides on
+`HOLLOW_AUTOWALK`: it walks for a second and a half, presses Shift, and writes the speed every tick
+until the run tops out -- which is where the sprint timings in [Movement](#movement) come from --
+then deliberately drops the input for one tick in twenty to prove the run does not flicker. A shake is a sign-alternating delta in
 that file. `assets/levels/feel.txt` is the bench they run on: flat ground, four 0.25 m steps, a deck
 with an edge to walk off and a 2 m ledge to fall from.
 
@@ -659,6 +707,14 @@ with an edge to walk off and a 2 m ledge to fall from.
 While the game runs: the level file, its terrain, every loaded model or part file, and the hero's
 character file and model reload within a second of being saved. Edit a character in a text editor,
 export a new glTF over an old one, or save from the tools, and the world updates in place.
+
+The polling is *spread*, not batched. It used to ask the filesystem about every model the level had
+loaded in a single tick, once a second: 110 files on the island, measured at 0.15 ms on a warm
+cache and 0.95 ms on a cold one, all of it inside one 6.9 ms frame, on the thread that also owns
+the GPU -- a spike by construction, once a second, forever, whether or not anybody was editing
+anything. `props_hot_reload` now walks a rolling cursor of four files a tick, which covers the same
+110 files just as often and costs about 0.02 ms in any one tick. `HOLLOW_NO_HOTRELOAD=1` turns the
+polling off outright for a benchmark or a shipped run.
 
 ### Performance budget
 
@@ -699,6 +755,66 @@ image to draw into, so a large value means the GPU is behind and a small one mea
 `input->present` is the gap between the input poll returning and the frame being handed to the
 driver -- a floor under the real input-to-photon latency, not the whole of it, since the display's
 own pipeline is past where this can see.
+
+#### A stall is not a median
+
+A median frame time cannot see the thing a player complains about. "Super laggy" and "median
+6.94 ms" were both true of the same session: the frames were fine and a handful of them, scattered
+through half a minute, took two to four hundred milliseconds each. Four things now make that
+visible instead of arguable, and four more make it cost less when it happens.
+
+**Seeing it.**
+
+  * `stall:` at exit. Every rendered frame's whole phase breakdown is kept (a memcpy of nineteen
+    floats a frame, in a static array, so the recording cannot be what it measures) and printed as
+    percentiles plus the ten worst frames with where the time went in each:
+
+        stall: 2939 frames  median 6.94  p90 6.95  p99 6.96  max 11.26 ms  |  over 12ms 0  over 25ms 0  over 2x median 0
+        stall:   #1390  11.26 ms = render 1.70 cull 0.56 shadow 0.36 world 0.55 submit 9.50 cap_sleep 9.48
+
+  * `hitch:` lines in `hollow.log`, written the moment a frame costs more than 25 ms, with the
+    phases that were in it. This is the one that matters in a played session: the player does not
+    have to reproduce anything or run anything special, the log already says which phase it was.
+    Capped at forty lines, so a broken run does not turn the log into the problem.
+  * `HOLLOW_STALL=FILE` writes the same per-frame breakdown as a CSV, one row per frame.
+  * The `smooth:` line grew a `worst N ms late N` pair and now measures the **raw** frame time
+    rather than the one `MAX_FRAME_DT` clamped. It was reporting a 400 ms hitch as 250 ms -- a
+    meter covering for the thing it exists to catch.
+
+The phase list gained `reload` (the once-a-second asset polls) and the tick's `net` and `game`
+breakdowns, which were declared in `prof.h` and never actually measured anywhere.
+
+**Costing less when it happens.**
+
+  * **One stall no longer buys a second one.** `MAX_FRAME_DT` stops the accumulator running away,
+    but a quarter second of backlog is still fifteen ticks, and running fifteen ticks inside one
+    frame makes *that* frame late, which hands the next one a backlog of its own. It is also
+    exactly the "stall, then a catch-up jump of hundreds of millimetres" pattern in the old
+    `smooth:` log -- the eye covering fifteen ticks of walking between two pictures. There is now a
+    ceiling of five ticks per frame and the rest is dropped rather than owed.
+  * **The asset polling is spread** (see Hot reload above): a 0.15-0.95 ms spike once a second
+    became about 0.02 ms a tick.
+  * **The quality probe no longer rebuilds anything mid-play.** It still measures two seconds of
+    real play and still writes its verdict to `settings.txt`, but applying it used to call
+    `quality_apply` -> `gfx_set_shadow_size` -> `SDL_WaitForGPUIdle`, which is a full pipeline
+    flush two seconds into a session on exactly the machine that was already struggling. The tier
+    takes effect on the next start. A render target is rebuilt when the player changes a setting
+    and at no other time.
+  * **The game thread asks for the interactive QoS class.** On an idle machine this changes
+    nothing. On a machine that is also compiling something -- which is most development machines
+    and plenty of players' -- an ordinary-priority main thread gets preempted for as long as the
+    scheduler likes, and a 7 ms frame costs two hundred. That is not a frame the renderer can be
+    blamed for and not one any profiling of this process will explain, because the process was not
+    running. `HOLLOW_NO_PRIORITY=1` opts out.
+
+Measured, island, bot walking, 3000 frames, off screen at a 144 cap:
+
+    before: median 6.944  p90 6.945  max --  (no per-frame record existed)
+    after:  median 6.94   p90 6.95   p99 6.96   max 11.26 ms   0 frames over 12 ms   0 over 2x median
+
+Uncapped off screen the same run is median 1.84 / p90 3.01 / p99 7.27 ms, and every frame in the
+worst ten is `present_wait` -- the CPU waiting on a GPU being asked for 500 frames a second. That
+is the fence doing its job, not a stall, and it does not exist at a display-rate cap.
 
 #### Measuring anything at all: the two switches
 
@@ -1112,6 +1228,12 @@ in, still there for scripted testing and CI.
 
 New `assets/settings.txt` keys: `name`, `port`, `last_join`. The settings page writes `volume`,
 `voice`, `voice_volume`, `mouse_sens`, `fps`, `vsync` and `quality`, all of which already existed.
+
+`sprint hold|toggle` is a settings.txt key with no menu row, on purpose: DESIGN.md asks for a
+minimal UI and this is the kind of thing one player in fifty changes once. `hold` is the default
+and is what Half-Life, Titanfall and everything in between do. `toggle` flips the run on with a
+press and off with the next one, and also switches itself off the moment you stop moving, so the
+run never survives a conversation.
 
 `--menu-test settings` opens the page without a hand on the keyboard, and
 `--menu-test settings:volume=40,vsync=off,quality=high` then works the arrows one press at a time
