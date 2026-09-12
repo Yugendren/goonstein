@@ -1043,8 +1043,15 @@ static void tick_end(Game *g, const Input *in, float dt) {
     if (in->interact && g->state_t > 1.0f) reset_to_start(g);
 }
 
+// The length of a simulation tick, remembered from the last one. main.c owns TICK_DT and the
+// render path needs it to know how much real time the alpha it was handed stands for; a static set
+// here is the whole of the coupling, and it is right even if the tick rate is ever changed.
+static float g_tick_dt = 1.0f / 60.0f;
+float game_tick_dt(void) { return g_tick_dt; }
+
 void game_tick(Game *g, const Input *in_real, double ddt) {
     float dt = (float)ddt;
+    if (ddt > 1e-6) g_tick_dt = (float)ddt;
     for (int i = 0; i < NET_MAX_PLAYERS; i++) g->prev_players[i] = g->players[i].c.pos;
     g->prev_boss = g->boss.c.pos; g->prev_eye = g->cam.eye; g->prev_target = g->cam.target; g->prev_valid = true;
     Input bot_in; const Input *in = in_real;
@@ -1114,6 +1121,74 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
             } else if (g->time > 0.9) dbg_log("sprint test: walking %.3f m/s", (double)sp);
         }
     }
+    // HOLLOW_INPUT_SCRIPT=FILE: a hand at the keyboard, written down.
+    //
+    // Tuning movement is claiming that a technique earns you speed, and a claim about a technique
+    // cannot be checked by holding W. Air strafing is a mouse turn and a strafe key in time with
+    // each other; a bunny hop chain is a jump pressed on the tick the feet land, eight times. No
+    // bot does that repeatably and no hand does it twice the same way. So: one line per moment,
+    //
+    //     TICK  KEYS  MOUSE_DX  MOUSE_DY
+    //
+    // where TICK is the sim tick the line takes effect on, KEYS is a +-separated list from
+    // w a s d sprint crouch jump jumphold attack parry interact (or "-" for nothing), and the two
+    // mouse numbers are pixels of movement applied on every tick until the next line. A line holds
+    // until the line after it, so a six-hop strafe run is a dozen lines and the same dozen lines
+    // produce the same speed on every machine and at every frame rate -- which is what makes
+    // "strafe jumping gains 0.4 m/s a hop" a measurement instead of a feeling.
+    { static bool script_read = false; static struct { unsigned tick; float mx, my; unsigned char keys; } *sc = NULL; static int nsc = 0, at = 0;
+      enum { SK_W = 1, SK_A = 2, SK_S = 4, SK_D = 8, SK_SPRINT = 16, SK_CROUCH = 32, SK_JUMP = 64, SK_HOLD = 128 };
+      if (!script_read) { script_read = true;
+        const char *path = SDL_getenv("HOLLOW_INPUT_SCRIPT");
+        size_t len = 0; char *txt = path ? (char *)SDL_LoadFile(path, &len) : NULL;
+        if (path && !txt) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "input script: cannot read %s", path);
+        if (txt) { int cap = 0;
+          for (char *cur = txt; *cur; ) { char *line = cur; char *nl = strchr(cur, '\n');
+            if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
+            char *hash = strchr(line, '#'); if (hash) *hash = 0;
+            unsigned tk; char words[96] = ""; float mx = 0, my = 0;
+            int got = sscanf(line, "%u %95s %f %f", &tk, words, &mx, &my);
+            if (got < 2) continue;
+            if (nsc == cap) { cap = cap ? cap * 2 : 64; sc = SDL_realloc(sc, (size_t)cap * sizeof *sc); }
+            // Split on '+' and match whole words. Substring matching looks tempting and is wrong:
+            // "jumphold" contains a d, and a d is the strafe-right key.
+            unsigned char k = 0;
+            for (char *tok = words; *tok; ) {
+                char *plus = strchr(tok, '+'); if (plus) *plus = 0;
+                if (!strcmp(tok, "w")) k |= SK_W;
+                else if (!strcmp(tok, "a")) k |= SK_A;
+                else if (!strcmp(tok, "s")) k |= SK_S;
+                else if (!strcmp(tok, "d")) k |= SK_D;
+                else if (!strcmp(tok, "sprint")) k |= SK_SPRINT;
+                else if (!strcmp(tok, "crouch")) k |= SK_CROUCH;
+                else if (!strcmp(tok, "jumphold")) k |= SK_HOLD;
+                else if (!strcmp(tok, "jump")) k |= (unsigned char)(SK_JUMP | SK_HOLD);
+                else if (strcmp(tok, "-")) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "input script: unknown key \"%s\"", tok);
+                if (!plus) break;
+                tok = plus + 1;
+            }
+            sc[nsc].tick = tk; sc[nsc].keys = k; sc[nsc].mx = mx; sc[nsc].my = my; nsc++;
+          }
+          SDL_free(txt);
+          dbg_log("input script: %d lines from %s", nsc, path); } }
+      if (nsc > 0) {
+        while (at + 1 < nsc && sc[at + 1].tick <= g->tick) at++;
+        bool fresh = sc[at].tick == g->tick;   // the jump EDGE fires on the line's own tick only
+        if (in != &bot_in) bot_in = *in_real;
+        in = &bot_in;
+        unsigned char k = sc[at].keys;
+        bot_in.move_x = (float)((k & SK_D) != 0) - (float)((k & SK_A) != 0);
+        bot_in.move_y = (float)((k & SK_S) != 0) - (float)((k & SK_W) != 0);
+        bot_in.sprint = (k & SK_SPRINT) != 0;
+        bot_in.crouch = (k & SK_CROUCH) != 0;
+        bot_in.jump_held = (k & SK_HOLD) != 0;
+        bot_in.jump = (k & SK_JUMP) != 0 && fresh;
+        bot_in.attack = bot_in.parry = bot_in.dodge = bot_in.interact = bot_in.lockon = false;
+        bot_in.mouse_held = bot_in.rmouse_held = false;
+        bot_in.look_x = sc[at].mx; bot_in.look_y = sc[at].my;
+        bot_in.look_stick_x = bot_in.look_stick_y = 0;
+      } }
+
     // A bot writes its look into its own copy of the input, which the frame-rate view update never
     // sees. Apply it here instead, at the tick rate: a bot has no hand and no monitor.
     if (in != in_real && (in->look_x != 0.0f || in->look_y != 0.0f)) camera_look(&g->cam, in->look_x, in->look_y, 0, 0, dt);
@@ -1707,7 +1782,7 @@ float game_frame_dt(const Game *g) { return g->render_frame_dt; }
 // answers cannot change while the process runs -- they are capture and debug switches, set before
 // main() and never again. Read them at the first frame and remember.
 typedef struct RenderEnv {
-    bool noshadow, nopix, noblob, nopart, nohud, nointerp;
+    bool noshadow, nopix, noblob, nopart, nohud, nointerp, noahead;
     const char *shadow, *pix, *pixoff, *style;
 } RenderEnv;
 static RenderEnv R_ENV;
@@ -1721,6 +1796,7 @@ static const RenderEnv *renv(void) {
         R_ENV.nopart   = SDL_getenv("HOLLOW_NOPART")   != NULL;
         R_ENV.nohud    = SDL_getenv("HOLLOW_NOHUD")    != NULL;
         R_ENV.nointerp = SDL_getenv("HOLLOW_NOINTERP") != NULL;
+        R_ENV.noahead  = SDL_getenv("HOLLOW_NOAHEAD")  != NULL;
         R_ENV.shadow   = SDL_getenv("HOLLOW_SHADOW");
         R_ENV.pix      = SDL_getenv("HOLLOW_PIX");
         R_ENV.pixoff   = SDL_getenv("HOLLOW_PIXOFF");
@@ -1739,6 +1815,36 @@ void game_render(Game *g, Platform *pf, float alpha) {
     Vec3 sp[NET_MAX_PLAYERS]; Vec3 sb = g->boss.c.pos, se = g->cam.eye, st = g->cam.target;
     float sdist = g->cam.cur_dist;   // the wall/terrain solve below is a decision the TICK owns
     for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) { sp[i] = g->players[i].c.pos; g->players[i].c.pos = lerp_or_cut(g->prev_players[i], sp[i], alpha); }
+    // The local player is drawn AHEAD of the tick, not between two of them.
+    //
+    // Interpolation lerps from tick n-1 to tick n, so the picture is a whole tick -- 16.7 ms --
+    // behind the clock, every frame, at every frame rate. On everything the local machine does not
+    // own that is exactly right: it is what buys the smoothness, and there is nothing better to
+    // show. For the body under your own hands it is a straight 16.7 ms of lag between the mouse and
+    // the world moving, and in a game whose whole subject is manoeuvring, that is the difference
+    // between steering and asking.
+    //
+    // So: take the tick's own position and velocity and carry them forward by the alpha that is
+    // left in the accumulator, which is precisely how much real time has passed since the tick ran.
+    // The carry is pushed through level_move, so a wall stops the picture where it will stop the
+    // simulation a few milliseconds later instead of letting the eye slide into it. Vertically it
+    // is only done in the air, where nothing is underfoot to be clipped through; on the ground the
+    // interpolated height stands, and a slope costs a constant fourteen millimetres of lag that
+    // nobody can see because it never changes.
+    //
+    // Nothing here is written back. The simulation is untouched, prediction and reconciliation see
+    // exactly what they saw before, and this stays a statement about which moment is drawn.
+    // HOLLOW_NOAHEAD=1 turns it off for an A/B.
+    { int me = g->local;
+      const Player *lp = &g->players[me];
+      // Not during a mantle, a vault or a roll: those move the body along a scripted curve and
+      // hvel is not what is carrying it, so a carry-forward would point somewhere it is not going.
+      if (g->net.slots[me].active && lp->state == PS_FREE && lp->trav == TM_NONE && !renv()->noahead) {
+          float ahead = alpha * game_tick_dt();
+          Vec3 step = v3(lp->c.hvel.x * ahead, lp->c.grounded ? 0.0f : lp->c.vy * ahead, lp->c.hvel.z * ahead);
+          if (v3_len(step) > 0.0001f)
+              g->players[me].c.pos = level_move(&g->level, sp[me], lp->c.radius, lp->c.body_height > 0.1f ? lp->c.body_height : lp->c.height, step);
+      } }
     g->boss.c.pos = lerp_or_cut(g->prev_boss, sb, alpha);
     // The eye is REBUILT here, not interpolated. Mouse look has already turned the view this frame,
     // and lerping the last two ticks' eye positions would drag it back to where the tick left it: a
