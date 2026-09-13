@@ -315,15 +315,15 @@ static void tick_pause(Game *g, const Input *in, MenuKeys k) {
 // rather than from a copy kept here, so the page can never drift from the running game. Every
 // change is applied live and written to assets/settings.txt the same instant: there is no APPLY
 // button to forget, and the row flashes "(saved)" so it is obvious the file was touched.
-enum { SET_VOLUME, SET_VOICE, SET_VOICE_VOL, SET_SENS, SET_FPS, SET_VSYNC, SET_QUALITY, SET_BACK, SET_N };
+enum { SET_VOLUME, SET_VOICE, SET_VOICE_VOL, SET_SENS, SET_FPS, SET_VSYNC, SET_FULLSCREEN, SET_QUALITY, SET_BACK, SET_N };
 
 static const char *const SET_LABEL[SET_N] = {
-    "VOLUME", "VOICE", "VOICE VOLUME", "MOUSE SENSITIVITY", "FRAME CAP", "VSYNC", "QUALITY", "BACK"
+    "VOLUME", "VOICE", "VOICE VOLUME", "MOUSE SENSITIVITY", "FRAME CAP", "VSYNC", "FULLSCREEN", "QUALITY", "BACK"
 };
 // The settings.txt key each row writes, which is also the word a --menu-test script names it by.
 // BACK writes nothing.
 static const char *const SET_KEY[SET_N] = {
-    "volume", "voice", "voice_volume", "mouse_sens", "fps", "vsync", "quality", NULL
+    "volume", "voice", "voice_volume", "mouse_sens", "fps", "vsync", "fullscreen", "quality", NULL
 };
 // The frame caps this row offers are not a fixed list any more: they are THIS display's rate and
 // its whole divisors (platform_fps_options). A cap that is not a divisor of the refresh -- 90 on a
@@ -363,6 +363,7 @@ static int set_pos(Game *g, int row) {
     case SET_SENS:      v = (int)lroundf(camera_mouse_sens_mult() * 10.0f); break;
     case SET_FPS:       for (int i = 0; i < SET_FPS_N; i++) if (g->pf->fps_cap == SET_FPS_CAPS[i]) v = i; break;   // an unlisted cap reads as row 0 (DISPLAY), which is what it will behave as
     case SET_VSYNC:     v = g->pf->vsync ? 1 : 0; break;
+    case SET_FULLSCREEN: v = g->pf->fullscreen ? 1 : 0; break;
     case SET_QUALITY:   v = (int)quality_current(); break;
     default:            break;
     }
@@ -379,6 +380,7 @@ static void set_range(int row, int *lo, int *hi, int *step) {
     case SET_SENS:      *lo = 2; *hi = 30; break;          // tenths: 0.2 .. 3.0
     case SET_FPS:       *hi = SET_FPS_N - 1; break;
     case SET_VSYNC:     break;
+    case SET_FULLSCREEN: break;
     case SET_QUALITY:   *hi = Q_COUNT - 1; break;
     default:            *hi = 0; break;
     }
@@ -395,6 +397,9 @@ static void set_apply(Game *g, int row, int pos) {
     case SET_SENS:      camera_set_mouse_sens((float)pos / 10.0f); snprintf(v, sizeof v, "%.1f", (double)pos / 10.0); break;
     case SET_FPS:       platform_set_fps_cap(g->pf, SET_FPS_CAPS[pos]); snprintf(v, sizeof v, "%d", g->pf->fps_cap); break;
     case SET_VSYNC:     platform_set_vsync(g->pf, pos != 0); snprintf(v, sizeof v, "%d", pos); break;
+    // Fullscreen is on this page because it is the first thing to try when a Mac stutters, not
+    // because anyone needs a window-decoration preference: see platform_set_fullscreen.
+    case SET_FULLSCREEN: platform_set_fullscreen(g->pf, pos != 0); snprintf(v, sizeof v, "%d", pos); break;
     // quality_apply moves the render scale and the shadow map right now; the texture cap only
     // bites on the next texture that loads and the HDR format was fixed when the swapchain was
     // created, which is what the hint under the rows says.
@@ -432,7 +437,7 @@ static void set_text(Game *g, int row, char *out, size_t n) {
                              else if (k > 1) snprintf(out, n, "%d  (1 IN %d)", SET_FPS_CAPS[pos], k);
                              else snprintf(out, n, "%d", SET_FPS_CAPS[pos]); }
                       break;
-    case SET_VSYNC:   snprintf(out, n, "%s", pos ? "ON" : "OFF"); break;
+    case SET_VSYNC: case SET_FULLSCREEN: snprintf(out, n, "%s", pos ? "ON" : "OFF"); break;
     case SET_QUALITY: { const char *q = quality_name((Quality)pos); size_t i = 0;
                         for (; q[i] && i + 1 < n; i++) out[i] = (char)toupper((unsigned char)q[i]);
                         out[i] = 0; break; }
@@ -441,9 +446,9 @@ static void set_text(Game *g, int row, char *out, size_t n) {
 }
 
 // Eight rows and a value on each: tighter than the four-row pages, and laid out here only.
-#define SET_Y0  236.0f
-#define SET_DY  52.0f
-#define SET_H   44.0f
+#define SET_Y0  222.0f
+#define SET_DY  48.0f
+#define SET_H   42.0f
 #define SET_W   660.0f
 #define SET_PX  28
 static float set_row_top(int i)      { return SET_Y0 + (float)i * SET_DY; }
@@ -522,7 +527,8 @@ static int set_target(Game *g, int row, const char *w) {
                                                                    if (d < bestd) { bestd = d; best = i; } }
                              if (best > 0) v = best; }
                       break;
-    case SET_VSYNC:   v = (!strcmp(w, "on") || !strcmp(w, "1")) ? 1 : (!strcmp(w, "off") || !strcmp(w, "0")) ? 0 : -1; break;
+    case SET_VSYNC: case SET_FULLSCREEN:
+                      v = (!strcmp(w, "on") || !strcmp(w, "1")) ? 1 : (!strcmp(w, "off") || !strcmp(w, "0")) ? 0 : -1; break;
     case SET_QUALITY: for (int i = 0; i < Q_COUNT; i++) if (!strcmp(w, quality_name((Quality)i))) v = i; break;
     default: break;
     }
@@ -862,6 +868,8 @@ static void draw_settings(Game *g) {
     // The one row that cannot finish live, said out loud rather than left to be discovered.
     if (m->row == SET_QUALITY)
         text_mid(x, MW * 0.5f, MH - 128, 22, C_DIM, "render scale and shadows change now; textures and HDR on the next start");
+    else if (m->row == SET_FULLSCREEN)
+        text_mid(x, MW * 0.5f, MH - 128, 22, C_DIM, "F11 toggles it in game; fullscreen keeps the window server out of the frame");
     else if (m->row == SET_VOICE)
         text_mid(x, MW * 0.5f, MH - 128, 22, C_DIM, "push to talk is V, or the pad's left bumper");
     text_mid(x, MW * 0.5f, MH - 92, 24, C_DIM, "LEFT and RIGHT change a value   ESC goes back");

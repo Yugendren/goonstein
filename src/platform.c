@@ -80,6 +80,17 @@ bool platform_init(Platform *pf, const char *title, int w, int h) {
       pf->refresh_hz = m && m->refresh_rate > 1.0f ? (int)(m->refresh_rate + 0.5f) : 0;
       if (pf->refresh_hz) { SDL_Log("display: %d Hz", pf->refresh_hz); dbg_log("display: %d Hz", pf->refresh_hz); }
       else { SDL_Log("display: refresh rate unknown"); dbg_log("display: refresh rate unknown"); } }
+    // Which present modes this window really has, said out loud once. "Asking for X" and "getting
+    // X" are different things (see platform_set_vsync), and MAILBOX in particular -- present the
+    // newest finished frame at the refresh, so one late frame does not hold the whole chain -- is
+    // the obvious answer to a compositor-paced stutter and is simply not implemented by SDL's
+    // Metal backend (METAL_SupportsPresentMode answers VSYNC and IMMEDIATE and nothing else). This
+    // line is how the next log says so on the player's machine instead of on this one.
+    if (!pf->no_present)
+        SDL_Log("present modes supported: vsync %s, immediate %s, mailbox %s",
+                SDL_WindowSupportsGPUPresentMode(pf->gpu, pf->window, SDL_GPU_PRESENTMODE_VSYNC) ? "yes" : "no",
+                SDL_WindowSupportsGPUPresentMode(pf->gpu, pf->window, SDL_GPU_PRESENTMODE_IMMEDIATE) ? "yes" : "no",
+                SDL_WindowSupportsGPUPresentMode(pf->gpu, pf->window, SDL_GPU_PRESENTMODE_MAILBOX) ? "yes" : "no");
     // HOLLOW_NORELMOUSE=1: the other half of the same bisect. Relative mouse mode is a warp and a
     // window-server round trip on some platforms, which is a thing that can block the pump.
     if (!SDL_getenv("HOLLOW_NORELMOUSE")) SDL_SetWindowRelativeMouseMode(pf->window, true);
@@ -174,6 +185,10 @@ bool platform_poll(Platform *pf) {
             // that open a tool are read straight out of key_down by game.c.
             case SDL_SCANCODE_F1: in->debug_toggle = true; pf->debug = !pf->debug; break;
             case SDL_SCANCODE_F5: in->reload = true; break;
+            // F11 is the fullscreen toggle everywhere, and here it is a performance control as
+            // much as a preference (see platform_set_fullscreen). main.c keeps settings.txt in
+            // step with it, so the next launch starts the way this one ended.
+            case SDL_SCANCODE_F11: platform_set_fullscreen(pf, !pf->fullscreen); pf->fullscreen_dirty = true; break;
             case SDL_SCANCODE_F6: in->pause_toggle = true; break;
             case SDL_SCANCODE_F9: in->step = true; break;
             case SDL_SCANCODE_RETURN: in->skip = true; break;
@@ -327,6 +342,37 @@ bool platform_poll(Platform *pf) {
 // the renderer's throughput rather than how fast the CPU can fill a command buffer.
 //
 // Nothing appears on screen while this is on. It is for --bench and for measuring, never for play.
+// ---- the pace meter ----------------------------------------------------------------------------
+//
+// present_wait is the CPU sitting inside SDL_WaitAndAcquireGPUSwapchainTexture: waiting for
+// somebody else to hand over an image to draw into. With vsync on, one refresh period of that is
+// the display doing its job and is exactly what should be happening. Several refresh periods, on
+// frame after frame, is not the display -- it is the compositor. A played session on a 144 Hz
+// laptop logged forty late frames a second and present_wait spikes of 20-30 ms while the machine's
+// own `ps` had WindowServer at 157% CPU with a chat app and a browser on the same screen: the
+// window server was the frame pacer, and no amount of renderer work would have moved it.
+//
+// So count the frames that waited longer than one and a half refresh periods, once a second, and
+// print the count next to whether this process is fullscreen and what present mode it really got.
+// Going fullscreen is the fix; this line is how the next log says whether it worked.
+static void pace_sample(Platform *pf, Uint64 wait_ns) {
+    if (pf->no_present) return;   // nothing was presented, so there is no pacing to report
+    float ms = (float)((double)wait_ns * 1e-6);
+    Uint64 now = SDL_GetTicksNS();
+    if (!pf->pace_t0) pf->pace_t0 = now;
+    pf->pace_frames++;
+    pf->pace_wait_sum += ms;
+    if (ms > pf->pace_wait_worst) pf->pace_wait_worst = ms;
+    float period_ms = pf->refresh_hz > 0 ? 1000.0f / (float)pf->refresh_hz : 1000.0f / 60.0f;
+    if (ms > period_ms * 1.5f) pf->pace_late++;
+    if (now - pf->pace_t0 < SDL_NS_PER_SECOND || pf->pace_frames < 10) return;
+    dbg_log("pace: %d/%d frames waited over %.1f ms for a swapchain image | wait mean %.2f worst %.2f ms | %s | %s",
+            pf->pace_late, pf->pace_frames, (double)(period_ms * 1.5f),
+            (double)(pf->pace_wait_sum / (float)pf->pace_frames), (double)pf->pace_wait_worst,
+            pf->fullscreen ? "fullscreen" : "windowed", platform_present_mode_name(pf));
+    pf->pace_t0 = now; pf->pace_frames = 0; pf->pace_late = 0; pf->pace_wait_sum = 0; pf->pace_wait_worst = 0;
+}
+
 void platform_begin_frame(Platform *pf) {
     pf->cmd = SDL_AcquireGPUCommandBuffer(pf->gpu);
     pf->swapchain = NULL;
@@ -342,11 +388,15 @@ void platform_begin_frame(Platform *pf) {
         pf->console_swap = NULL;
         return;
     }
-    // Blocks until a swapchain image is ready; pairs with VSYNC present mode.
+    // Blocks until a swapchain image is ready; pairs with VSYNC present mode. Timed on its own --
+    // main.c's PROF_PRESENT_WAIT brackets this whole function, and the pace meter wants the wait
+    // and nothing else in it.
+    Uint64 wt0 = SDL_GetTicksNS();
     if (!SDL_WaitAndAcquireGPUSwapchainTexture(pf->cmd, pf->window, &pf->swapchain,
                                                &pf->swap_w, &pf->swap_h)) {
         pf->swapchain = NULL;
     }
+    pace_sample(pf, SDL_GetTicksNS() - wt0);
     pf->console_swap = NULL;
     if (pf->console_win && !SDL_AcquireGPUSwapchainTexture(pf->cmd, pf->console_win, &pf->console_swap, &pf->console_w, &pf->console_h)) pf->console_swap = NULL;
 }
@@ -389,11 +439,79 @@ void platform_set_vsync(Platform *pf, bool on) {
         if (!SDL_SetGPUSwapchainParameters(pf->gpu, pf->window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, order[i])) continue;
         pf->present_mode = order[i];
         SDL_Log("present mode: %s (asked for %s)", platform_present_mode_name(pf), on ? "vsync" : "no vsync");
+        dbg_log("present mode: %s (asked for %s)", platform_present_mode_name(pf), on ? "vsync" : "no vsync");
         return;
     }
     // Nothing took, not even VSYNC: whatever the swapchain was created with is what we have.
     pf->present_mode = SDL_GPU_PRESENTMODE_VSYNC;
     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "present mode: no requested mode accepted (%s); frame times are the display's, not the renderer's", SDL_GetError());
+}
+
+// Fullscreen, which on a Mac is a frame-pacing setting and not a cosmetic one.
+//
+// A windowed game hands every finished frame to the window server, which composites it with
+// everything else on the machine and shows the result when it gets round to it. That is fine on an
+// idle desktop and it is the whole problem on a busy one: a played session on this 144 Hz laptop
+// logged forty late frames a second, present_wait spikes of 20-30 ms and one 190 ms pump, with
+// WindowServer at 157% CPU and a chat app and a browser sharing the screen. Nothing in the
+// renderer was slow. The compositor was the pacer.
+//
+// A single opaque window that covers a whole display, with one of that display's OWN modes set on
+// it, is the case every platform special-cases: macOS gives the Metal layer direct-to-display (the
+// window server stops copying the game's frames around), Windows gives exclusive or independent
+// flip, and on Linux/Vulkan it is borderless with the compositor bypassed. So the mode matters --
+// SDL_SetWindowFullscreenMode(win, NULL) is "borderless desktop fullscreen", which on macOS is
+// still a composited window. Naming the panel's own mode at its own refresh is what asks for the
+// other thing.
+//
+// Everything downstream already follows the window: the world is rendered at a fixed internal
+// resolution and letterboxed into whatever the swapchain turns out to be (gfx_end), the UI is laid
+// out in that same fixed space, and platform_mouse_ui undoes the letterbox from the window's
+// current size. So a resize -- including the one this function causes -- needs no bookkeeping here
+// beyond putting the cursor mode back, which the transition can drop.
+//
+// The mode named is the DESKTOP's own mode -- the panel's native size at the refresh the player is
+// already running it at -- and not the fastest mode the panel will admit to. Asking for the fastest
+// looked clever and was not: this 1920x1080 display reports a 240 Hz mode, so the first fullscreen
+// run switched the panel out from under the desktop, sat through a real mode change, and then
+// measured its pacing against a 240 Hz clock nobody had asked for. Fullscreen is here to take the
+// compositor out of the loop, not to reconfigure the player's display.
+void platform_set_fullscreen(Platform *pf, bool on) {
+    if (!pf->window) return;
+    // A headless run must never take over a display: HOLLOW_NOPRESENT draws off screen and its
+    // window exists only to own a GPU device and a size.
+    if (pf->no_present) { pf->fullscreen = false; return; }
+    if (on) {
+        SDL_DisplayID d = SDL_GetDisplayForWindow(pf->window);
+        const SDL_DisplayMode *want = d ? SDL_GetDesktopDisplayMode(d) : NULL;
+        // SDL copies the mode, so nothing here outlives the call. A NULL mode is the borderless
+        // desktop fullscreen SDL falls back to anyway, which is still better than a window.
+        if (!SDL_SetWindowFullscreenMode(pf->window, want))
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "fullscreen mode: %s (falling back to borderless desktop)", SDL_GetError());
+    }
+    if (!SDL_SetWindowFullscreen(pf->window, on)) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "fullscreen %s failed: %s", on ? "on" : "off", SDL_GetError());
+        return;
+    }
+    // The transition is asynchronous on macOS (it is a window-server animation into a space of its
+    // own). Without this the next swapchain acquire is still the old size, which is one frame of
+    // the picture at the wrong scale on the way in and on the way out.
+    SDL_SyncWindow(pf->window);
+    pf->fullscreen = on;
+    // Entering or leaving fullscreen can drop the relative-mouse grab and put the arrow back. Ask
+    // for whatever the game last asked for rather than assuming: in a menu that is a free cursor.
+    if (!SDL_getenv("HOLLOW_NORELMOUSE")) platform_set_cursor(pf, pf->cursor_free);
+    // The refresh can change with the mode, and the refresh is what the cap snapping and the pace
+    // meter are measured against, so re-read it rather than trusting the one from startup.
+    { SDL_DisplayID d = SDL_GetDisplayForWindow(pf->window);
+      const SDL_DisplayMode *m = d ? SDL_GetCurrentDisplayMode(d) : NULL;
+      if (m && m->refresh_rate > 1.0f) pf->refresh_hz = (int)(m->refresh_rate + 0.5f); }
+    int w = 0, h = 0; SDL_GetWindowSizeInPixels(pf->window, &w, &h);
+    SDL_Log("present: %s, %s, %dx%d pixels, %d Hz", platform_present_mode_name(pf),
+            on ? "fullscreen (the compositor is out of the loop when the platform allows it)" : "windowed (every frame goes through the compositor)",
+            w, h, pf->refresh_hz);
+    dbg_log("present: %s, %s, %dx%d pixels, %d Hz", platform_present_mode_name(pf),
+            on ? "fullscreen" : "windowed", w, h, pf->refresh_hz);
 }
 
 int platform_refresh_hz(const Platform *pf) { return pf->refresh_hz; }
@@ -538,6 +656,9 @@ static void tile_windows(Platform *pf, float share, int *tw, int *th, int *tx, i
 
 void platform_tool_window_share(Platform *pf, bool open, float share, const char *title) {
     if (open && pf->console_win) { SDL_SetWindowTitle(pf->console_win, title); pf->console = true; return; }
+    // A tool window is tiled beside the game window, and a fullscreen window cannot be tiled beside
+    // anything: it owns the display. Opening a tool drops out of fullscreen (F11 puts it back).
+    if (open && pf->fullscreen) platform_set_fullscreen(pf, false);
     if (open && !pf->console_win && !SDL_getenv("HOLLOW_CONSOLE_INLINE")) {
         int w = 720, h = 820, x = 0, y = 0;
         bool tiled = !SDL_getenv("HOLLOW_NO_TILE") && !SDL_getenv("HOLLOW_TOOL_SIZE");
@@ -582,6 +703,7 @@ void platform_shutdown(Platform *pf) {
 }
 
 void platform_set_cursor(Platform *pf, bool free_cursor) {
+    pf->cursor_free = free_cursor;   // remembered so a fullscreen toggle can put it back
     SDL_SetWindowRelativeMouseMode(pf->window, !free_cursor);
     if (free_cursor) SDL_ShowCursor(); else SDL_HideCursor();
 }

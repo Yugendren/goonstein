@@ -825,6 +825,35 @@ turned this frame. Cameras nobody is driving -- a cutscene, the fixed overworld 
 interpolated. `HOLLOW_NOAHEAD=1` goes back to interpolating the local player;
 `HOLLOW_NOINTERP=1` draws the raw tick state.
 
+**If it stutters on a Mac, the first thing to check is not the game.** A windowed game hands every
+finished frame to the window server, which composites it with everything else on the machine and
+shows the result when it gets round to it. On a busy desktop that *is* the frame pacer. A played
+session on a 144 Hz panel logged forty late frames a second, `present_wait` spikes of 20-30 ms and
+one 190 ms `in_pump`, while the same machine's `ps` had **WindowServer at 157% CPU** with the
+Claude desktop app at 50% and Discord alongside it. Nothing in the renderer was slow; the frames
+were queueing behind everything else on the screen. So: `fullscreen 1` in `assets/settings.txt`
+(the default), the FULLSCREEN row on the settings page, or **F11** in game. Fullscreen sets the
+display's own mode on the window, which is what lets Metal present straight to the panel with the
+compositor out of the loop -- and on Windows and Linux buys the same borderless/exclusive path.
+Then close the browsers and the chat apps: a window server that is already at 150% of a core does
+not get faster because the game asked nicely. The once-a-second `pace:` line is the evidence:
+
+    pace: 0/120 frames waited over 10.4 ms for a swapchain image | wait mean 4.84 worst 6.89 ms | fullscreen | vsync
+
+The count is frames that spent more than one and a half refresh periods blocked in the swapchain
+acquire, waiting for somebody else to hand over an image. Zero, with a mean wait near one refresh,
+is the display doing its job. A third of the frames over the line, with a worst of 30-50 ms, is the
+compositor, and the words at the end of the line say which mode that was measured in. Present mode
+is logged at startup next to the window state (`present: vsync, fullscreen, 3840x2160 pixels,
+144 Hz`), along with the modes the swapchain really supports -- MAILBOX, which would let a late
+frame be skipped rather than hold the whole chain, is *not* implemented by SDL's Metal backend
+(`METAL_SupportsPresentMode` answers VSYNC and IMMEDIATE and nothing else), so on macOS it is not
+an option, whatever the mode list on another platform says.
+
+Scripted runs stay windowed unless `--fullscreen` says otherwise -- a screenshot, a `--test`, a
+tool, a `--bench` -- because automation must not take over the display, and `HOLLOW_NOPRESENT`
+never goes fullscreen at all. `--windowed` forces it off for a played run.
+
 **Measuring it.** The once-a-second `smooth:` line in `hollow.log` quotes two spreads and they mean
 different things:
 

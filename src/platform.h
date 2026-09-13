@@ -62,6 +62,12 @@ typedef struct Platform {
     int fps_cap; bool vsync;   // frame cap (0 = display rate) and vsync; platform_end_frame enforces the cap
     int refresh_hz;            // the display's refresh rate, rounded. 0 when it could not be read (headless)
     SDL_GPUPresentMode present_mode;   // what the swapchain actually got, not what was asked for
+    bool fullscreen;        // settings.txt `fullscreen`, F11, the FULLSCREEN row. See platform_set_fullscreen.
+    bool fullscreen_dirty;  // F11 flipped it this frame: main.c writes the new value back to settings.txt
+    bool cursor_free;       // what platform_set_cursor last asked for; re-applied after a mode change
+    // The pace meter: how many frames a second waited longer than one and a half refresh periods
+    // for a swapchain image. See pace_sample in platform.c.
+    Uint64 pace_t0; int pace_frames, pace_late; float pace_wait_sum, pace_wait_worst;
     // HOLLOW_NOPRESENT=1: draw the frame but never hand it to the compositor. See platform_begin_frame.
     bool no_present; SDL_GPUFence *inflight[2]; unsigned inflight_i;
     Uint64 next_frame_ns;
@@ -107,6 +113,13 @@ void platform_tool_window_share(Platform *pf, bool open, float share, const char
 void platform_begin_frame(Platform *pf);
 void platform_end_frame(Platform *pf);
 void platform_set_vsync(Platform *pf, bool on);   // applies immediately
+// Fullscreen, and on macOS that is a frame-pacing setting rather than a cosmetic one: a window
+// that covers a whole display and names that display's own mode lets Metal present straight to the
+// panel, with the window server out of the loop. Windowed, every frame is composited by a process
+// that is also compositing everything else the machine is running. Applies immediately, keeps the
+// cursor mode the game asked for, and is a no-op in a HOLLOW_NOPRESENT run (a headless run must
+// never take over a display). F11 toggles it; main.c writes the new value to settings.txt.
+void platform_set_fullscreen(Platform *pf, bool on);
 // The present mode the swapchain is really running in, as a word: "vsync", "mailbox", "immediate".
 // Asking for no vsync is a request, not a promise: a driver that has neither IMMEDIATE nor MAILBOX
 // keeps VSYNC and every frame time measured on it is the display's, not the renderer's. Print this.

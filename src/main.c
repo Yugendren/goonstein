@@ -107,6 +107,9 @@ int main(int argc, char **argv) {
     //                             silent). Implied by either voice hook above. Not the same as
     //                             --volume 0, which mutes the game but leaves voice audible.
     // --quality potato|normal|high   overrides settings.txt's `quality` line for this run (see quality.h)
+    // --fullscreen / --windowed   override settings.txt's `fullscreen` line (F11 toggles it in game).
+    //                 A scripted run -- a screenshot, a test, a tool, a bench -- stays windowed unless
+    //                 one of these flags asked otherwise: automation must not take over the display.
     // --menu-test S   drive the main menu without a hand on the keyboard: "host", "join:HOST:PORT",
     //                 "settings" (open the settings page) or "settings:volume=40,vsync=off" (open it
     //                 and work the arrows until every named row is there, writing settings.txt)
@@ -118,6 +121,10 @@ int main(int argc, char **argv) {
     bool bench_active = bench_requested(argc, argv, &bench_json, &bench_shot_dir);
     int max_frames = -1; const char *shot = NULL; const char *tool_shot = NULL; const char *shot_every_dir = NULL; int shot_every = 0; bool spawn_set = false; float spawn_x = 0, spawn_z = 0; const char *start = NULL; bool bot = false; float volume = 1.0f; const char *shot_when = NULL;
     bool debug_on = false, console_on = false; int tool_mode = 0; int fps_cap = 0; int vsync = 1; bool log_set = false;
+    // settings.txt `fullscreen`, default on. On a Mac this is a performance setting: windowed, every
+    // frame goes through a window server that is also compositing everything else running; fullscreen
+    // at the panel's own mode lets Metal present straight to the display. See platform_set_fullscreen.
+    int fullscreen = 1; bool fullscreen_cli = false;
     float mouse_sens = 1.0f;   // settings.txt `mouse_sens`: a multiplier on the default radians per mouse pixel
     bool sprint_toggle = false;   // settings.txt `sprint hold|toggle`: hold is the default and what every
                                   // shooter since Half-Life does; toggle is an accessibility option, not a mode.
@@ -128,9 +135,10 @@ int main(int argc, char **argv) {
     { char sp[640]; snprintf(sp, sizeof sp, "%s/settings.txt", HOLLOW_ASSET_DIR); size_t sn; char *st = SDL_LoadFile(sp, &sn);
       if (st) { char *cur = st; while (*cur) { char *line = cur; char *nl = strchr(cur, '\n'); if (nl) { *nl = 0; cur = nl + 1; } else cur += strlen(cur);
           char *hash = strchr(line, '#'); if (hash) *hash = 0; char key[32], val[128];
-          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); else if (!strcmp(key, "fps")) fps_cap = atoi(val); else if (!strcmp(key, "vsync")) vsync = atoi(val); else if (!strcmp(key, "mouse_sens")) mouse_sens = (float)atof(val); else if (!strcmp(key, "sprint")) sprint_toggle = !strcmp(val, "toggle"); else if (!strcmp(key, "voice")) voice_mode = SDL_strdup(val);                       /* --- voice --- */ else if (!strcmp(key, "voice_volume")) voice_vol = (float)atof(val); else if (!strcmp(key, "voice_monitor")) voice_mon = atoi(val); else if (!strcmp(key, "level") && !game.level_path[0]) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, val); else if (!strcmp(key, "quality")) snprintf(quality_word, sizeof quality_word, "%s", val); } }
+          if (sscanf(line, "%31s %127s", key, val) == 2) { if (!strcmp(key, "volume")) volume = (float)atof(val); else if (!strcmp(key, "debug")) debug_on = atoi(val) != 0; else if (!strcmp(key, "hero")) snprintf(game.hero_config, sizeof game.hero_config, "%s", val); else if (!strcmp(key, "fps")) fps_cap = atoi(val); else if (!strcmp(key, "vsync")) vsync = atoi(val); else if (!strcmp(key, "fullscreen")) fullscreen = atoi(val); else if (!strcmp(key, "mouse_sens")) mouse_sens = (float)atof(val); else if (!strcmp(key, "sprint")) sprint_toggle = !strcmp(val, "toggle"); else if (!strcmp(key, "voice")) voice_mode = SDL_strdup(val);                       /* --- voice --- */ else if (!strcmp(key, "voice_volume")) voice_vol = (float)atof(val); else if (!strcmp(key, "voice_monitor")) voice_mon = atoi(val); else if (!strcmp(key, "level") && !game.level_path[0]) snprintf(game.level_path, sizeof game.level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, val); else if (!strcmp(key, "quality")) snprintf(quality_word, sizeof quality_word, "%s", val); } }
       if (SDL_getenv("HOLLOW_FPS")) fps_cap = atoi(SDL_getenv("HOLLOW_FPS"));
       if (SDL_getenv("HOLLOW_NOVSYNC")) vsync = 0;
+      if (SDL_getenv("HOLLOW_WINDOWED")) fullscreen = 0;
         SDL_free(st); } }
     netgame_parse_args(&game.net, argc, argv);   // --host/--slots/--join/--name; must run before game_init
     if (netgame_on(&game.net)) game.no_scenes = true;
@@ -148,6 +156,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--voice") && i + 1 < argc) voice_mode = argv[++i];                  // --- voice ---
         else if (!strcmp(argv[i], "--voice-volume") && i + 1 < argc) voice_vol = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--voice-monitor")) voice_mon = 1;
+        else if (!strcmp(argv[i], "--fullscreen")) { fullscreen = 1; fullscreen_cli = true; }
+        else if (!strcmp(argv[i], "--windowed")) { fullscreen = 0; fullscreen_cli = true; }
         else if (!strcmp(argv[i], "--debug")) debug_on = true;
         else if (!strcmp(argv[i], "--console")) console_on = true;
         else if (!strcmp(argv[i], "--tool") && i + 1 < argc) tool_mode = atoi(argv[++i]);   // 2 = world editor, 4 = character builder
@@ -252,6 +262,14 @@ int main(int argc, char **argv) {
     // vsync first, then the cap: whether a cap needs snapping to a whole divisor of the refresh is
     // only a question when the display is the thing the frames are handed to (platform_set_fps_cap).
     if (!vsync) platform_set_vsync(&pf, false); else pf.vsync = true;
+    // Fullscreen after vsync (the `present:` line quotes the mode) and before the cap (going
+    // fullscreen can change the refresh, which is what a cap is snapped against). A run that is
+    // driving itself -- a screenshot, a scripted test, a tool, a benchmark -- stays windowed
+    // unless --fullscreen said otherwise: an automated run that steals the display is a run
+    // nobody can watch anything else during, and half of them already draw off screen.
+    { bool scripted = shot || shot_every_dir || tool_shot || game.test_mode[0] || menu_test || bench_active || tool_mode;
+      if (scripted && !fullscreen_cli) fullscreen = 0;
+      platform_set_fullscreen(&pf, fullscreen != 0); }
     platform_set_fps_cap(&pf, fps_cap);
     // A snapped cap is written back to settings.txt, once. Otherwise the file keeps a number the
     // game will not honour, the settings row has no entry to sit on, and the warning is printed
@@ -353,6 +371,9 @@ int main(int argc, char **argv) {
         prof_begin(PROF_INPUT);
         running = platform_poll(&pf);
         prof_mark_input();   // the newest input state is ready now; input->present latency starts here
+        // F11 already flipped the window; settings.txt follows it here, where game_settings_set is,
+        // so the next launch starts the way this session ended.
+        if (pf.fullscreen_dirty) { pf.fullscreen_dirty = false; game_settings_set(&game, "fullscreen", pf.fullscreen ? "1" : "0"); }
         if (pf.want_quit) running = false;
 
         // bench_pre_tick runs before game_view_look on purpose: it writes into pf.input, and
