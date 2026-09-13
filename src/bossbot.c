@@ -170,13 +170,25 @@ bool boss_bot_input(Game *g, Input *in) {
             // from the boat because that is where a run begins, but a capture started with
             // --spawn halfway up the island should not walk back to the pier first.
             if (s->route) {
-                float best = 1e18f;
+                // Nearest point, but only one you could actually be standing ON. Height matters
+                // here more than distance: the Culvert's door is six metres of rock below the hill
+                // it is cut into, so a bot dropped on that hill is eight metres from the last leg
+                // of the route in xz and cannot reach it from there at all. If nothing on the route
+                // is at roughly this height, the honest answer is to walk the whole thing.
+                World wr = { &g->level, &g->terrain };
+                float best = 1e18f; int pick = -1;
                 for (int i = 0; i < s->route->n; i++) {
                     float dx = s->route->x[i] - me.x, dz = s->route->z[i] - me.z;
-                    if (dx * dx + dz * dz < best) { best = dx * dx + dz * dz; s->leg = i; }
+                    float d2 = dx * dx + dz * dz;
+                    if (d2 >= best) continue;
+                    float top = world_top(&wr, s->route->x[i], s->route->z[i], me.y + 40.0f);
+                    if (top < -1e8f || fabsf(top - me.y) > 3.0f) continue;
+                    best = d2; pick = i;
                 }
-                if (s->leg > 0) dbg_log("bossbot: joining the route at leg %d/%d, %.0f m from its start",
-                                        s->leg + 1, s->route->n, (double)sqrtf(best));
+                s->leg = pick >= 0 ? pick : 0;
+                if (pick < 0) dbg_log("bossbot: nothing on the route is within three metres of this height; walking it from the start");
+                else if (s->leg > 0) dbg_log("bossbot: joining the route at leg %d/%d, %.0f m from its start",
+                                             s->leg + 1, s->route->n, (double)sqrtf(best));
             }
             dbg_log("bossbot: heading for %s at %.1f %.1f %.1f, %s",
                     door_name, (double)door.x, (double)door.y, (double)door.z,
