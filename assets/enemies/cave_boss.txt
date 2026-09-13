@@ -1,0 +1,83 @@
+# The thing at the bottom of the Culvert. Second boss, first one that is a fight rather than a duel.
+#
+# Everything here is read by boss_def_load (src/combat.c) and driven by src/boss.c -- NOT by the
+# Warden's state machine, even though it shares the file format and the struct. The difference is
+# the `kind` on each move: the Warden has four swings, this has four different KINDS of thing, and
+# the fight is about which one is coming rather than about when to press parry. There is no parry.
+#
+# 600 hp against a pistol (34) and a rifle is about two minutes of sustained fire for one goon and
+# well under a minute for four, which is the shape a co-op boss wants: long enough to have phases,
+# short enough that being knocked down twice does not mean starting again.
+name The Thing In The Culvert
+model cave_boss              # assets/characters/cave_boss.txt (a placeholder; see that file)
+hp 600
+posture 100                  # unused: nothing here can be parried, so nothing spends posture
+posture_regen 0
+speed 3.4                    # walking. The charge is how it actually closes.
+attack_range 6.0             # the distance it settles at between moves. Deliberately not melee
+                             # range: a thing four metres tall standing on top of you fills the
+                             # screen, and a telegraph drawn on the floor around its feet is the
+                             # one thing you then cannot see. It closes to hit you and backs off.
+think_min 0.35
+think_max 0.90
+phase2_hp 0.5                # below half it winds up faster and the volley comes twice
+phase2_windup_mult 0.68
+combo_chance 0.38
+
+# --- stagger --- This boss has no guard to break, so damage breaks it instead: 120 points inside
+# two seconds and it stops dead for a second and a half taking double. That is a deliberate ask --
+# 120 is three and a half pistol magazines' worth of hits in two seconds, which one goon cannot do
+# and three focusing the same window can. It is the co-op move.
+stagger_damage 120
+stagger_window 2.0
+stagger_time 1.5
+stagger_damage_mult 2.0
+
+# --- damage_scale --- The one number that reconciles 600 hp with guns tuned against a goon's
+# 100-point wind pool. A pistol round is 34 of that pool and a rifle round is 72; at face value one
+# pistol empties this boss in four and a half seconds. At 0.30 a pistol round is 10 and a rifle round
+# is 22, one goon does about 41 damage a second, and 600 hp is a fight of about a minute on your own
+# -- less with mates, which is the direction a co-op boss should scale in. It also means the 120-in-
+# two-seconds stagger above is genuinely a group move: one goon does 82 in two seconds and two do 164. The other
+# way to stagger it is to bait a charge into a wall, which is the thing you can do alone.
+damage_scale 0.30
+
+aggro_range 0                # 0 = the whole cavern; there is nowhere in it to hide for long
+retarget 2.5                 # seconds between reconsidering who it is angriest at
+
+size 2.0 4.0 2.0             # a hit box you cannot miss, which is the point of a boss this size.
+                             # assets/characters/cave_boss.txt's `scale` is set to match it: a model
+                             # drawn bigger than its own collision cylinder puts the camera inside it.
+color 0.42 0.30 0.34
+
+# One move to a line (the parser reads a line at a time, so these do not wrap):
+#   move NAME kind KIND windup S active S recovery S damage N range M parry no tell R G B
+#        weight W cooldown S band MIN MAX p1 X p2 Y p3 Z step M clip NAME contact F
+#
+# The four tell colours are the fight's vocabulary, and they never swap:
+#   red     you are standing in a line and it is about to run down it
+#   violet  the floor is about to leave
+#   orange  something is coming through the air
+#   yellow  it is going to swing where it is standing
+
+# (a) the charge. 0.9 s of windup, a red lane drawn on the floor, then 12 m/s for 16 m. Anything in
+# the lane goes over. Running into a wall costs it most of a second on top of the recovery, which
+# is the window the whole fight is built around: bait it into stone and empty a magazine.
+move charge kind charge windup 0.90 active 1.6 recovery 1.0 damage 55 range 2.0 parry no tell 1.00 0.16 0.12 weight 1.3 cooldown 3.2 band 9 40 p1 12.0 p2 16.0 p3 1.7 clip 2H_Melee_Attack_Chop contact 0.5
+
+# (b) the slam. 1.2 s, a violet ring on the floor at 6 m, then a shockwave half a metre high coming
+# out of the ground at 11 m/s. Half a metre is under the 1.1 m jump in assets/player.txt, so the
+# answer is in the air and nowhere else -- not behind a pillar, not further away.
+# Its band stops at 9 m and the charge's starts at 9: a ring six metres across thrown from twelve
+# metres away is a move nobody has to answer, and a boss whose moves do not reach is not scary,
+# it is a fireworks display. Inside nine metres this is the likeliest thing it does.
+move slam kind slam windup 1.20 active 0.45 recovery 1.1 damage 45 range 6.0 parry no tell 0.72 0.32 1.00 weight 1.6 cooldown 3.0 band 0 9 p1 6.0 p2 11.0 p3 0.5 clip 2H_Melee_Attack_Chop contact 0.55
+
+# (c) the volley. Five slow fireballs at whoever it is angry at, one every fifth of a second, each
+# aimed where they are and not where they will be. Ten in phase two. Walking sideways beats it;
+# standing behind a pillar beats it completely, which is what the pillars are for.
+move volley kind volley windup 0.70 active 1.4 recovery 0.9 damage 22 range 40 parry no tell 1.00 0.62 0.15 weight 1.1 cooldown 2.8 band 5 40 p1 5 p2 0.20 clip 2H_Melee_Attack_Slice contact 0.4
+
+# (d) the sweep. What it does when you are close enough to be hit by an arm. Short, cheap, and the
+# reason standing next to it is a decision rather than a default.
+move sweep kind sweep windup 0.55 active 0.22 recovery 0.65 damage 38 range 4.2 parry no tell 1.00 0.86 0.25 weight 1.2 cooldown 1.2 band 0 6.5 step 2.2 clip 2H_Melee_Attack_Slice contact 0.42

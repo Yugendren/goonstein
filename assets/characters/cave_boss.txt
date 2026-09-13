@@ -1,0 +1,39 @@
+# Boss: PLACEHOLDER. This is the KayKit Barbarian (CC0, same rig family as the knight) blown up to
+# roughly four metres, standing in for a proper cave monster, because no CC0 rigged monster with idle/walk/attack/
+# death could be fetched headlessly in the time box. Tried, in order:
+#   https://quaternius.com/packs/animatedmonster.html   -> its only download link is a Google Drive
+#     folder (drive.google.com/drive/folders/102H-...); curl gets Drive's JS app shell, not a zip.
+#   https://quaternius.com/packs/cutemonsters.html      -> same story, a different Drive folder id.
+#   https://quaternius.com/packs/bestiarydungeonmonsterskit.html -> links to
+#     quaternius.itch.io/bestiary-dungeon-monsters-kit, whose download button points at
+#     .../purchase (itch's claim-then-download flow, min_price 0 but still gated behind a session);
+#     curl gets an HTML page, not a .zip/.glb.
+# All three require a browser session (Drive folder rendering or itch.io claim), so per the brief
+# this was abandoned rather than forced. Swap `model` below for a real monster and re-bind the
+# clips once one is fetched by hand.
+#
+# Scale: warden_model.txt is the only other Barbarian user, at scale 1.45 for a boss whose def
+# says it is 2.9 m tall -- so this rig is about 2 metres of model per unit of scale. 1.90 puts
+# this one at very nearly the 4.0 m its enemy file claims, which matters more than it sounds:
+# the hit box and the telegraph decals are sized off the def, and a model drawn twice the size
+# of its own collision cylinder means the camera is inside its chest while the game still
+# thinks you are four metres away.
+# Clip names below are read straight out of Barbarian.glb's glTF JSON (76 clips, no login needed --
+# it already lives in this repo), not guessed.
+model models/kaykit/Barbarian.glb
+scale 1.90
+texture_size 256
+yaw_offset 0
+hide 1H_Axe_Offhand 1H_Axe Mug Barbarian_Round_Shield
+anim idle       2H_Melee_Idle loop
+anim walk       Walking_A loop
+anim run        Running_A loop
+anim attack     2H_Melee_Attack_Chop contact 0.45
+anim attack2    2H_Melee_Attack_Slice contact 0.42
+anim attack3    2H_Melee_Attack_Stab contact 0.4
+anim roar       Cheer
+anim hurt       Hit_A
+anim hurt_heavy Hit_B
+anim stagger    Hit_B
+anim dead       Death_A hold
+anim dodge      Dodge_Backward

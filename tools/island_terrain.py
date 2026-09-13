@@ -851,6 +851,23 @@ def near_pad(wx, wz, extra=0.0):
     return False
 
 
+# Places nothing may grow, at all, rather than merely seldom. near_pad only scales a weight down,
+# which is the right answer for a terrace and the wrong one for a two-and-a-half-metre concrete
+# cutting with a slab roof over it: a palm in there is not unlikely scenery, it is a tree growing
+# indoors -- and since the descent's door is at the end of that cutting, it was also a tree standing
+# in the doorway with its trunk collider blocking the way through.
+KEEPOUT = [
+    ("culvert_cutting", (8.5, 28.0, 85.5, 93.5)),
+]
+
+
+def in_keepout(wx, wz):
+    for _name, (x0, x1, z0, z1) in KEEPOUT:
+        if x0 < wx < x1 and z0 < wz < z1:
+            return True
+    return False
+
+
 def scatter(h, road_mask):
     rng = random.Random(4242)
     out = []
@@ -877,6 +894,8 @@ def scatter(h, road_mask):
                 break
             x = rng.uniform(-100, 82)
             z = rng.uniform(-170, 172)
+            if in_keepout(x, z):
+                continue
             y = sample(h, x, z)
             w = weight(x, z, y)
             if w <= 0 or rng.random() > w:

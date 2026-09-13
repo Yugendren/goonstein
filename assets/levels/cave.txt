@@ -1,0 +1,148 @@
+# cave.txt -- THE CULVERT, the descent under Goonstein Island.
+# Utility Two's service cutting does not dead-end after all: behind the door nobody opened is a
+# flooded concrete throat that drops into bare rock, and the rock opens into this cavern. Nobody
+# built the cavern. Somebody built the boss.
+#
+# Layout, metres, Y up: the arena is a 40 x 40 room, x -20..20, z -20..20, floor at y = 0 (no
+# terrain here, the rock is hand-placed). The entrance tunnel is the only way in, running south
+# from the room's south wall at z -20 down to a sealed dead end at z -31; the player starts partway
+# down it and walks north into the room. The boss waits at the north end, z 10, facing back down
+# the room at the door. Uneven floor, low ledges and two tiers of platform fill the room so the
+# fight is fought on the platforming (jump 1.1 m, mantle 0.55-2.2 m, wall jump) as much as on foot.
+
+# ---------------------------------------------------------------- look: dark rock, lava glow, no sun
+sun      0.2 -0.9 0.15   0.20   0.58 0.62 0.76
+ambient  0.30 0.31 0.38   0.14 0.12 0.10
+fogv     0.070 0.062 0.068   0.0150  0.0  0.03  0.20  6
+sky      0.02 0.02 0.03   0.03 0.03 0.04   0.02 0.02 0.02   0.0  0.0  0.15
+toon     0.16 0.10 2.5
+grade    2.05 1.06 1.08 0.62 0.85
+lift     0.010 0.008 0.014
+gain     1.04 0.98 0.92
+shadow   0.35
+look far 90
+look vignette 0.70
+look grain 0.02
+look chroma 0.6
+view     first
+combat   realtime
+
+# ---------------------------------------------------------------- placement
+spawn 0 0 -24 0
+boss  0 0 8 180
+# --- boss --- assets/enemies/cave_boss.txt, driven by src/boss.c. Without this line the cavern is
+# just a cavern: no other level in the game has one.
+boss_def cave_boss
+arena -20 0 -20 20 9 20
+
+# ================================================================ ROCK SHELL
+# Cold, dark stone with a man-made concrete cutting at the entrance. Tint varies block to block
+# so the walls do not read as one flat colour.
+block   0 4  21   44 8 2   stone   0.36 0.34 0.37   0.42 solid   # north wall
+block  21 4   0    2 8 44  stone   0.32 0.31 0.35   0.46 solid   # east wall
+block -21 4   0    2 8 44  stone   0.35 0.33 0.34   0.38 solid   # west wall
+block -12.25 4 -21  17.5 8 2  stone  0.33 0.32 0.36   0.44 solid   # south wall, west of doorway
+block  12.25 4 -21  17.5 8 2  stone  0.37 0.35 0.38   0.40 solid   # south wall, east of doorway (7 m gap between)
+block   0 8.5  0   44 1 44  stone   0.30 0.29 0.32   0.35 pass    # ceiling, decorative only -- nothing reaches it
+
+# corner chamfers so the room does not read as a perfect box
+block -18.5 4  18.5   4 8 4   stone   0.34 0.33 0.36   0.42 solid
+block  18.5 4  18.5   4 8 4   stone   0.37 0.35 0.33   0.40 solid
+block -18.5 4 -18.5   4 8 4   stone   0.33 0.35 0.37   0.44 solid
+block  18.5 4 -18.5   4 8 4   stone   0.36 0.32 0.34   0.38 solid
+
+# entrance tunnel, concrete cutting, z -21 to -31, 7 m wide, 3.4 m headroom, sealed behind you
+block -4.0 1.7 -26   1.0 3.4 10   concrete_rough   0.28 0.30 0.33   0.5 solid
+block  4.0 1.7 -26   1.0 3.4 10   concrete_rough   0.30 0.28 0.31   0.5 solid
+block  0.0 3.9 -26   9.0 1.0 10   concrete_rough   0.24 0.25 0.28   0.5 pass
+block  0.0 2.0 -31.5   9.0 4.0 1.0   concrete_rough   0.26 0.27 0.30   0.5 solid
+
+# ================================================================ UNEVEN FLOOR
+# Low steps, none over 0.45 m (LEVEL_STEP_UP is 0.5). The corridor x -6..6, z -6..12 stays clear
+# of anything above 0.3 m -- that's the lane the boss charges down.
+block -16 0.15    0   4 0.30 4   stone   0.31 0.30 0.28   0.42 solid
+block  16 0.15   -3   4 0.30 4   stone   0.29 0.31 0.30   0.40 solid
+block -13 0.125 -17   3 0.25 3   stone   0.33 0.32 0.30   0.45 solid
+block   8 0.125 -18   3 0.25 3   stone   0.30 0.29 0.31   0.38 solid
+block  -8 0.15   18   3 0.30 3   stone   0.34 0.33 0.35   0.44 solid
+block   8 0.15   18   3 0.30 3   stone   0.32 0.34 0.33   0.46 solid
+block  -4 0.125 -16   4 0.25 3   stone   0.35 0.34 0.32   0.40 solid
+block   4 0.125 -16   4 0.25 3   stone   0.33 0.35 0.34   0.42 solid
+block -19 0.125   9   3 0.25 3   stone   0.31 0.33 0.32   0.36 solid
+block  19 0.125   9   3 0.25 3   stone   0.32 0.31 0.33   0.37 solid
+block -19 0.10   -5   3 0.20 3   stone   0.30 0.32 0.31   0.39 solid
+block  19 0.10   -5   3 0.20 3   stone   0.33 0.30 0.32   0.41 solid
+
+# ================================================================ PLATFORMS
+# y is each block's centre, size is full width/height/depth, so the walkable top is y + sy/2.
+block  -9   0.5  -8    6  1.0  6   stone   0.42 0.38 0.34   0.40 solid   # top 1.0 (a jump)
+block   9   0.5  -8    6  1.0  6   stone   0.40 0.39 0.35   0.42 solid   # top 1.0 (a jump)
+block -13   1.0   4    7  2.0  7   stone   0.43 0.37 0.33   0.38 solid   # top 2.0 (a mantle)
+block  13   1.0   4    7  2.0  7   stone   0.41 0.38 0.35   0.40 solid   # top 2.0 (a mantle)
+block   0   0.8  14    8  1.6  6   stone   0.42 0.39 0.34   0.36 solid   # top 1.6 (a mantle)
+block  -6.5 1.5  15    5  3.0  5   stone   0.44 0.40 0.36   0.34 solid   # top 3.0 (two steps up)
+block   6.5 1.5  15    5  3.0  5   stone   0.43 0.41 0.37   0.35 solid   # top 3.0 (two steps up)
+
+# stepping stones that make the 3.0 m tops reachable
+block  -9.5 0.75 11   2.5 1.5 2.5   stone   0.45 0.41 0.37   0.40 solid   # top 1.5
+block   9.5 0.75 11   2.5 1.5 2.5   stone   0.44 0.42 0.38   0.42 solid   # top 1.5
+
+# ================================================================ PILLARS (cover)
+block  -5 4 -13   1.4 8 1.4   stone   0.16 0.15 0.17   0.5 solid
+block   5 4 -13   1.4 8 1.4   stone   0.15 0.16 0.14   0.5 solid
+block -15.5 4 -6  1.4 8 1.4   stone   0.17 0.14 0.16   0.5 solid
+block  15.5 4 -6  1.4 8 1.4   stone   0.14 0.17 0.15   0.5 solid
+block  -8 4  8    1.4 8 1.4   stone   0.16 0.16 0.14   0.5 solid
+block   8 4  8    1.4 8 1.4   stone   0.15 0.14 0.17   0.5 solid
+
+# ================================================================ LAVA GLOW POOLS
+# Visual only: not solid (pass), not damaging. Each pool is a bright core, a dimmer rim, a
+# flickering point light and a pair of emitters. Kept clear of the central corridor.
+block -16 0.06  16   6 0.12 6   flat   2.6 0.75 0.18   1.0 pass
+block -16 0.03  16   7 0.06 7   flat   1.2 0.42 0.12   1.0 pass
+light -16 1.5   16   2.0 0.62 0.16   15 2.20 flicker 0.35
+emitter ember -16 0.4  16   2.5 0.3 2.5   3   2.3 0.65 0.15   0.35 2.2
+emitter spark -16 0.15 19.5   1.0 0.1 1.0   2   2.5 0.80 0.20   0.15 0.8
+
+block  16 0.06 -16   7 0.12 7   flat   2.6 0.75 0.18   1.0 pass
+block  16 0.03 -16   8 0.06 8   flat   1.2 0.42 0.12   1.0 pass
+light  16 1.5  -16   2.0 0.62 0.16   15 2.20 flicker 0.35
+emitter ember  16 0.4 -16   3.0 0.3 3.0   3   2.3 0.65 0.15   0.35 2.2
+emitter spark  19.5 0.15 -16   0.1 0.1 1.0   2   2.5 0.80 0.20   0.15 0.8
+
+block -17 0.06 -12   5 0.12 8   flat   2.6 0.75 0.18   1.0 pass
+block -17 0.03 -12   6 0.06 9   flat   1.2 0.42 0.12   1.0 pass
+light -17 1.5  -12   2.0 0.62 0.16   15 2.20 flicker 0.35
+emitter ember -17 0.4 -12   2.0 0.3 3.5   3   2.3 0.65 0.15   0.35 2.2
+emitter spark -14.5 0.15 -12   0.1 0.1 3.5   2   2.5 0.80 0.20   0.15 0.8
+
+# ================================================================ LIGHTING
+# Dim and lantern-shaped: nothing here plus the three lava lights above comes near
+# LEVEL_MAX_LIGHTS (32).
+light -18 3.5  -4   1.0 0.78 0.5   11 1.38 flicker 0.25
+light  18 3.5  -4   1.0 0.78 0.5   11 1.38 flicker 0.25
+light -18 3.5  12   1.0 0.78 0.5   11 1.38 flicker 0.25
+light  18 3.5  12   1.0 0.78 0.5   11 1.38 flicker 0.25
+light   0 3   -21   0.6 0.7  0.9   13 1.59
+light   0 5    16   0.9 0.5  0.35  16 1.30 flicker 0.15
+
+emitter mist 0 0.15 0   20 0.1 20   2   0.5 0.55 0.6   0.5 5.0
+emitter firefly 0 2 0   18 2 18   1   0.6 0.9 0.5   0.15 6.0
+
+# ================================================================ PICKUPS (on the high platforms only)
+item ammo_pistol -6.5 3.12 15      # on the 3.0 m platform
+item ammo_rifle   6.5 3.12 15      # on the 3.0 m platform
+item medkit     -13.0 2.14 4       # on a 2.0 m platform
+item medkit      13.0 2.14 4       # on a 2.0 m platform
+# Two more boxes of pistol rounds, on the 2.0 m tier. One goon's starting 108 rounds is not quite
+# 600 points of boss at any realistic hit rate, and running dry with a third of its health left is
+# a worse ending than losing; climbing for more is a better one.
+item ammo_pistol -13.0 2.19 1.0    # on a 2.0 m platform
+item ammo_pistol  13.0 2.19 1.0    # on a 2.0 m platform
+
+# ================================================================ TRIGGERS
+trigger boss_gate -6 0 -4 6 4 4
+# The way back out, pushed right up against the tunnel's back wall on purpose: the spawn is at
+# z -24 and a charge can shove a goon a long way, and walking out of the fight by accident
+# because something hit you is not a thing that should be possible.
+trigger door:island -3.4 0 -31.4 3.4 3.4 -30.6
