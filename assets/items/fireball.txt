@@ -1,0 +1,28 @@
+# fireball.txt -- the thing the cave boss throws, and nothing else.
+#
+# This is an item file that is never an item. Nothing places it, nobody picks it up, and it has no
+# value; it exists because a projectile in this engine is described by the `projectile` line of the
+# item that fires it (see src/projectile.h and README.md, "Weapons"), and the boss needs one of
+# those to point at. src/boss.c loads it by name on every machine at level load -- on clients too,
+# because the wire carries only the one-byte kind hash and a client can resolve that back to a
+# definition only if it has actually read the file.
+#
+# It is SLOW on purpose. 14 m/s against a 5.5 m/s walk is about two and a half seconds to cross the
+# arena, which is long enough to see it leave, decide, and step behind a pillar. A fast fireball is
+# a hitscan with extra steps and there is no skill in it.
+#
+# STAND-IN model: models/shapes/sphere.obj, tinted past 1.0 so the bloom pass turns it into a glow.
+# A proper fireball wants its own model and a trail; this reads correctly and costs nothing.
+model      models/shapes/sphere.obj
+display    Fireball, Roughly Speaking
+mass       1.0                         # kg; only matters if one ever ends up on the floor, which it cannot
+half       0.18 0.18 0.18
+fragile    0
+value      0                           # dollars; not evidence of anything
+scale      0.36
+tint       2.60 0.95 0.28              # hot orange, above 1.0 so it blooms
+#          SPEED GRAV BOUNCE LIFE DMG RADIUS SOUND MODEL
+projectile 14    1.6  0      6.0  22  2.0    boom  models/shapes/sphere.obj
+proj_scale 0.36                        # the flying sphere's size, in the same units as `scale`
+proj_spread 0                          # the boss aims each one; a cone would make them unreadable
+proj_drag  0.05                        # a touch, so the last of a volley lags behind the first

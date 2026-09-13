@@ -137,24 +137,37 @@ void items_load_level(Game *g) {
 // --- loadouts --- The weapon a character file's `spawn` line hands a slot, created the moment that
 // slot is seated. Everything about it after this is ordinary: it has a body, a value, a def and a
 // stable id, and whoever ends up with it can drop it, throw it or lose it in the sea.
-int items_spawn_loadout(Game *g, int slot, const char *name, Vec3 at) {
+// --- boss --- An item that appears while the level is running, with an id the caller chooses.
+// The id matters: a snapshot's item entry carries a position and an id and no definition at all,
+// so a client can only track an item it already has a copy of. Anything created mid-level is
+// therefore created on EVERY machine, at the same id, off the same event -- which is exactly what
+// ITEM_LOADOUT_ID does for a weapon a slot is seated holding, and what the boss's loot drop does
+// when it dies. Returns the existing item if that id is already in the level.
+int items_spawn_named(Game *g, const char *name, Vec3 at, uint16_t id) {
     Items *its = &g->items;
-    if (slot < 0 || slot >= NET_MAX_PLAYERS || !name || !name[0]) return -1;
-    int have = items_find_id(its, ITEM_LOADOUT_ID(slot));
-    if (have >= 0) return have;                    // this slot already has its item in this level
+    if (!name || !name[0]) return -1;
+    int have = items_find_id(its, id);
+    if (have >= 0) return have;
     int d = itemdef_get(its, name);
-    if (d < 0) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "spawn: slot %d asks for item '%s', which does not load; it lands empty handed", slot, name); return -1; }
-    if (its->n >= ITEMS_MAX) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "spawn: no room for slot %d's %s (%d items)", slot, name, its->n); return -1; }
+    if (d < 0) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "spawn: item '%s' does not load", name); return -1; }
+    if (its->n >= ITEMS_MAX) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "spawn: no room for a %s (%d items)", name, its->n); return -1; }
     const ItemDef *def = &its->defs[d];
     int body = def->radius > 0 ? phys_add_sphere(&g->phys, at, quat_identity(), def->radius, def->mass)
                                : phys_add_box(&g->phys, at, quat_identity(), def->half, def->mass);
-    if (body < 0) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "spawn: out of physics bodies for slot %d's %s", slot, name); return -1; }
+    if (body < 0) { SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "spawn: out of physics bodies for a %s", name); return -1; }
     Item *it = &its->it[its->n]; memset(it, 0, sizeof *it);
     g->phys.b[body].user = its->n;
-    it->used = true; it->def = d; it->body = body; it->id = ITEM_LOADOUT_ID(slot);
+    it->used = true; it->def = d; it->body = body; it->id = id;
     it->held_by = -1; it->pos = at; it->rot = quat_identity(); it->dirty = true;
-    dbg_log("spawn: slot %d gets a %s (item %d, id %u)", slot, def->name, its->n, (unsigned)it->id);
+    dbg_log("spawn: a %s at %.1f %.1f %.1f (item %d, id %u)", def->name, (double)at.x, (double)at.y, (double)at.z, its->n, (unsigned)id);
     return its->n++;
+}
+
+int items_spawn_loadout(Game *g, int slot, const char *name, Vec3 at) {
+    if (slot < 0 || slot >= NET_MAX_PLAYERS || !name || !name[0]) return -1;
+    int r = items_spawn_named(g, name, at, ITEM_LOADOUT_ID(slot));
+    if (r < 0) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "spawn: slot %d asked for '%s' and lands empty handed", slot, name);
+    return r;
 }
 
 int items_find_id(const Items *its, uint16_t id) {
@@ -293,10 +306,14 @@ void items_break(Game *g, int idx) {
     // leaves the level and how that fact reaches every client, so all the bookkeeping above is
     // shared and only the picture and the noise change: a scoop of sparks and a hand closing on
     // something, not a smash, no debris, and nothing subtracted from the run's takings.
-    if (d->pickup_type[0]) {
-        particles_burst(&g->particles, PT_SPARK, at, v3(0, 0.8f, 0), 8, 2.4f, v3(1.0f, 0.9f, 0.55f), 0.05f, 0.3f);
-        audio_play(SND_GRAB, 0.7f, 1.25f);
-        dbg_log("item %u (%s) collected: %d %s round(s)", it->id, d->display, d->pickup_n, d->pickup_type);
+    if (d->pickup_type[0] || d->pickup_heal > 0) {
+        // --- boss --- A first-aid tin collects the same way a box of rounds does, in green.
+        bool heal = d->pickup_heal > 0;
+        particles_burst(&g->particles, PT_SPARK, at, v3(0, 0.8f, 0), 8, 2.4f,
+                        heal ? v3(0.45f, 1.2f, 0.6f) : v3(1.0f, 0.9f, 0.55f), 0.05f, 0.3f);
+        audio_play(SND_GRAB, 0.7f, heal ? 0.85f : 1.25f);
+        if (heal) dbg_log("item %u (%s) collected: %.0f wind", it->id, d->display, (double)d->pickup_heal);
+        else dbg_log("item %u (%s) collected: %d %s round(s)", it->id, d->display, d->pickup_n, d->pickup_type);
         return;
     }
     float size = d->radius > 0 ? d->radius : fmaxf(d->half.x, fmaxf(d->half.y, d->half.z));

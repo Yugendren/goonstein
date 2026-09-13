@@ -1,0 +1,14 @@
+# relic.txt -- the boss's loot drop: one gold object, ordinary carryable evidence (no pickup lines),
+# carried to the boat's hold like anything else.
+# STAND-IN model: reuses marble_bust_01 (see bust.txt's header for the scan details) painted gold
+# instead of left as plaster/marble. To be replaced with a proper golden idol.
+model      models/polyhaven/marble_bust_01/marble_bust_01_1k.gltf
+display    Golden Whatsit, Definitely Evidence
+mass       18                          # kg; same dense head-and-shoulders casting as bust.txt, now solid gold
+half       0.11 0.21 0.12              # half the scaled model bounds (0.22 x 0.41 x 0.24 m)
+fragile    5.0                         # m/s; a solid gold idol that chips like plaster is the joke
+value      2000                        # dollars; the whole reason the boss had it
+two_handed no
+scale      0.8
+tint       1.20 0.90 0.30              # gold, pushed past 1.0 on red so it catches the light
+sound      smash

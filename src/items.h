@@ -63,6 +63,10 @@ typedef struct ItemDef {
     char  ammo_type[16];   // the reserve pool this gun draws on ("pistol", "shell", "nail", ...)
     char  pickup_type[16]; // `ammo TYPE N` on a pickup item: the pool it fills; "" = not a pickup
     int   pickup_n;        // how many rounds that pickup is worth
+    float pickup_heal;     // `heal N` on a pickup item: points of wind it restores; 0 = not a health
+                            // pickup. Wind is the 100-point pool in weapons.h (WEAP_WIND), and this
+                            // is the health half of the same walk-over-it idea as an ammo box: an
+                            // item can carry both `heal` and `ammo TYPE N` at once.
     // --- weapons --- Where the business happens, in the model's own frame (the frame `grip` is
     // quoted in): `muzzle` is where the flash, the tracer and the projectile leave, and `eject` is
     // where a spent case is thrown from. All zero means "not measured", and the code falls back to
@@ -173,6 +177,12 @@ void items_load_level(struct Game *g);            // spawn from the level's `ite
 // One loadout item for `slot`, at `at`, with the id above. Returns its index, the existing one if
 // this slot already has its item in this level, or -1 (unknown item name, no room, no bodies left).
 int  items_spawn_loadout(struct Game *g, int slot, const char *name, Vec3 at);
+// --- boss --- The same thing without the slot: one item of `name` at `at`, under an id the caller
+// picks, created identically on every machine so the snapshot can then replicate it. The boss's
+// loot drop is the only user today. Returns the existing item if `id` is already in the level.
+int  items_spawn_named(struct Game *g, const char *name, Vec3 at, uint16_t id);
+// The id the cave boss's loot drop is created under, on every machine, off the death event.
+#define ITEM_BOSS_LOOT_ID ((uint16_t)0xFE01u)
 // One tick. The host (and single player) simulates; a client predicts the item in its own hands
 // and pins everything else where the interpolation puts it.
 void items_tick(struct Game *g, const struct Input *in, float dt);

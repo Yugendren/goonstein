@@ -1,0 +1,14 @@
+# medkit.txt -- a small first-aid tin, the kind a goon collects by walking over it.
+# STAND-IN model: Poly Haven photoscan "Ammo Box" (CC0, same models/polyhaven/ammo_box/ammo_box.glb
+# used by ammo_pistol.txt and ammo_rifle.txt), painted clean white-green instead of rust red or
+# steel blue so it reads as medical rather than more bullets. To be replaced with an actual tin.
+# Same mass and half as the ammo boxes; see ammo_pistol.txt's header for how the scan was converted.
+model      models/polyhaven/ammo_box/ammo_box.glb
+display    First-Aid Tin, Mostly Bandages
+mass       3.0                         # kg; same hand-carriable box as the ammo pickups
+half       0.043 0.089 0.129           # half the model's own bounds (0.087 x 0.178 x 0.258 m)
+fragile    0                           # unbreakable
+value      0                           # dollars; not evidence of anything
+scale      1.0
+tint       0.90 1.00 0.92              # clean white-green, to tell it apart from the ammo boxes
+heal       50                          # restores 50 of the 100-point wind pool

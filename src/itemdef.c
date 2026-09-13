@@ -51,6 +51,7 @@ static void itemdef_defaults(ItemDef *def, const char *name) {
     def->proj_damage = 0; def->proj_radius = 0; def->proj_sound = -1; def->proj_model[0] = '\0';
     def->proj_scale = 1.0f; def->proj_spread = 0; def->proj_drag = 0;
     def->reserve = 0; def->ammo_type[0] = '\0'; def->pickup_type[0] = '\0'; def->pickup_n = 0;
+    def->pickup_heal = 0;
     def->muzzle = v3(0, 0, 0); def->eject = v3(0, 0, 0);
     def->ok = false;
 }
@@ -191,9 +192,15 @@ static bool itemdef_parse(ItemDef *def, const char *path) {
             char *end = NULL;
             float f = (float)SDL_strtod(value, &end);
             if (end == value) { SDL_Log("itemdef:%d: '%s' bad %s", line_no, path, key); continue; }
-            if (key[0] == 'd') def->damage = fmaxf(f, 0);
-            else if (key[0] == 'r' && key[1] == 'a') { if (f < 0.05f) { SDL_Log("itemdef:%d: '%s' rate %.3f clamped to 0.05", line_no, path, f); f = 0.05f; } def->rate = f; }
-            else if (key[0] == 'r') def->wrange = fmaxf(f, 0);
+            // Told apart by strcmp, not by their first two letters. `rate` and `range` share both
+            // of those, so the old test sent every gun's `range` line into `rate` -- and because
+            // `range` is written after `rate` in every item file, every gun in the game had a fire
+            // rate equal to its range in metres (the pistol: 45 shots a second) and a range of
+            // zero, which resolve_fire then replaced with its 30 m fallback. Found by a boss that
+            // kept dying in under a second.
+            if (strcmp(key, "damage") == 0) def->damage = fmaxf(f, 0);
+            else if (strcmp(key, "rate") == 0) { if (f < 0.05f) { SDL_Log("itemdef:%d: '%s' rate %.3f clamped to 0.05", line_no, path, f); f = 0.05f; } def->rate = f; }
+            else if (strcmp(key, "range") == 0) def->wrange = fmaxf(f, 0);
             else def->knock = fmaxf(f, 0);
 
         } else if (strcmp(key, "ammo") == 0) {
@@ -232,6 +239,15 @@ static bool itemdef_parse(ItemDef *def, const char *path) {
         } else if (strcmp(key, "ammo_type") == 0) {
             if (*value == '\0') { SDL_Log("itemdef:%d: '%s' empty ammo_type", line_no, path); continue; }
             SDL_strlcpy(def->ammo_type, value, sizeof def->ammo_type);
+
+        // A pickup item's health half of the same walk-over-it idea as `ammo TYPE N`: `heal N`
+        // restores N points of the 100-point wind pool (WEAP_WIND, weapons.h). An item may have
+        // both a `heal` and an `ammo TYPE N` line.
+        } else if (strcmp(key, "heal") == 0) {
+            char *end = NULL;
+            float f = (float)SDL_strtod(value, &end);
+            if (end == value) { SDL_Log("itemdef:%d: '%s' bad heal", line_no, path); continue; }
+            def->pickup_heal = fmaxf(f, 0.0f);
 
         // --- projectiles --- One line for the whole flying thing, in the order the brief names
         // them: projectile SPEED GRAVITY BOUNCE LIFE DAMAGE RADIUS SOUND MODEL. SOUND is a sound
