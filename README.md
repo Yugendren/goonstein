@@ -627,6 +627,222 @@ sprinting 78 without waiting for the bot to happen to be at the right speed. `HO
 pitch roll scale"` (and `HOLLOW_GRIP_PISTOL`, `HOLLOW_GRIP_RIFLE`, `HOLLOW_GRIP_BAT`,
 `HOLLOW_GRIP_WRENCH`) retunes how a weapon sits in the hand without a rebuild.
 
+## The cave
+
+Everything in this section is `assets/levels/cave.txt`, `assets/enemies/cave_boss.txt` and
+`src/boss.c` (with `src/bossbot.c` for the headless harness): a co-op boss room under the island,
+reached through a door the way any other level is.
+
+### The way down
+
+The Culvert is a trigger, not a special case. A trigger named `door:NAME` in any level file is a
+door into `assets/levels/NAME.txt`, and `tick_explore` checks for one before it checks anything
+else a trigger might be: `if (t && !strncmp(t->name, "door:", 5)) { game_level_change(g, t->name +
+5); return; }`. The transition itself is host-authoritative and always the same four steps: a 0.45 s
+fade to black, the new level's load, every seated player put at that level's spawn, and 0.45 s back
+up. Nothing is simulated while the screen is black, so a client a hundred milliseconds behind the
+host still lands on the same level on the same frame it would have anyway. Only the host decides --
+`game_level_change` returns immediately if this machine is a client -- and when it does, it sends
+every client a reliable `NRM_LEVEL` (`netgame_send_level`) so all four go through the door together
+rather than three of them being left standing in the tunnel. Solo runs the identical code path with
+no messages in it at all: single player is the degenerate case of the multiplayer routine, not a
+second implementation of it. A client that joins mid-run, after the host has already gone down the
+Culvert, is told the host's level name in its `NRM_ACCEPT`, and if that does not match what it
+loaded on its own it follows the host there instead of carrying on alone.
+
+The cave's own `door:island` is the other half of the trip: it takes you back to the island's
+`spawn`, which sits inside the Pelican Pier zone the boat is moored in. Coming back out of the cave
+puts you standing at the extraction point with whatever you are carrying, the relic included.
+
+    trigger door:cave 10.4 16.9 88.3 13.2 21.5 90.7        # island.txt: the last 2.5 m of the cutting
+    trigger door:island -3.4 0 -31.4 3.4 3.4 -30.6         # cave.txt: hard against the tunnel's back wall
+
+The island's trigger sits in FRONT of the doorway rather than beyond it. The hill the cutting is dug
+into climbs twelve metres in four, so there is nowhere behind that door to build: you walk up to it,
+the screen goes, and what is on the other side is the cave. The cave's own exit is pushed right up
+against its back wall for a different reason -- the spawn is only seven metres from it and a charge
+can shove a goon a long way, and leaving the fight by accident because something hit you is not a
+thing that should be possible.
+
+### The arena
+
+The room is 40 x 40 m, x -20..20 and z -20..20, and there is no terrain under it: the floor is
+hand-placed rock at y = 0. Rough stone walls with chamfered corners keep it from reading as a box; a
+concrete entrance cutting comes in from the south and seals behind you. The floor itself is uneven --
+low stone steps up to about 0.3 m, all sub-0.5 m so nothing there needs a jump -- except for the
+corridor x -6..6, z -6..12, which stays clear of anything taller than 0.3 m on purpose: that is the
+lane the charge runs down.
+
+Seven platforms and two stepping stones give the room a second storey, six pillars give it cover,
+and three lava pools give it light and nothing else -- each one is a bright core quad, a dimmer rim
+quad, a flickering point light and two particle emitters, all `pass`, not solid and not damaging.
+
+| Platform (centre x, z) | Size (w x h x d) | Top | How you get up |
+|---|---|---|---|
+| -9, -8 | 6 x 1.0 x 6 | 1.0 m | a jump |
+| 9, -8 | 6 x 1.0 x 6 | 1.0 m | a jump |
+| -13, 4 | 7 x 2.0 x 7 | 2.0 m | a mantle |
+| 13, 4 | 7 x 2.0 x 7 | 2.0 m | a mantle |
+| 0, 14 | 8 x 1.6 x 6 | 1.6 m | a mantle |
+| -6.5, 15 | 5 x 3.0 x 5 | 3.0 m | two steps, via the 1.5 m stone at -9.5, 11 |
+| 6.5, 15 | 5 x 3.0 x 5 | 3.0 m | two steps, via the 1.5 m stone at 9.5, 11 |
+
+`ammo_pistol` and `ammo_rifle` sit on the two 3.0 m platforms, and each 2.0 m platform carries a
+`medkit` and a second box of pistol rounds -- one goon's starting 108 rounds is not quite 600 points
+of boss at any realistic hit rate, and running dry with a third of its health left is a worse ending
+than losing. Both are walked over rather than picked up: `medkit` carries a `heal 50` line, which is
+the health half of the same idea as a box of ammunition (see "Items and carrying"). The high ground
+is worth reaching for more than cover. That is the point of building the room with
+platforms at all: the slam's shockwave is half a metre high and cannot climb them, and the charge's
+lane is a straight line at floor level that runs underneath them. Height is not scenery here, it is
+one of the two ways to be somewhere the boss's moves cannot reach.
+
+### The boss
+
+The Thing In The Culvert has 600 hp and four moves, each a different shape rather than a different
+number attached to the same swing:
+
+| Move | Kind | Windup | Damage | Chosen at | The answer |
+|---|---|---|---|---|---|
+| charge | `charge` | 0.90 s | 55 | 9-40 m | do not be in the lane |
+| slam | `slam` | 1.20 s | 45 | 0-9 m | be in the air |
+| volley | `volley` | 0.70 s | 22 (x5, x10 in phase two) | 5-40 m | move sideways, or stand behind a pillar |
+| sweep | `sweep` | 0.55 s | 38 | 0-6.5 m | do not be next to it |
+
+The `band` on each move is what stops it throwing things that cannot reach: a six-metre ring thrown
+from twelve metres away is a move nobody has to answer. Its `attack_range` is 6.0 m, which is where
+it settles between moves rather than melee range -- something four metres tall standing on top of you
+fills the screen, and a telegraph drawn on the floor around its feet is then the one thing you cannot
+see. It closes to hit you and backs off again.
+
+The four telegraph colours are the fight's vocabulary and they never swap: red means you are
+standing in a line and it is about to run down it, violet means the floor is about to leave, orange
+means something is coming through the air, and yellow means it is going to swing where it is
+standing. At half health (`phase2_hp 0.5`) it gets up: windups shrink to 0.68 of their length, the
+volley throws twice as many fireballs, and it is likelier to chain straight into a second move.
+
+There are two ways to stagger it. Landing 120 damage inside a two-second window (`stagger_damage`,
+`stagger_window`) stops it dead for 1.5 s (`stagger_time`) taking double damage
+(`stagger_damage_mult`) -- and 120 in two seconds is more than one goon's rifle can do alone, which
+is the co-op move. The other way is to bait a charge into a wall: `charge_tick` ends the move hard
+the instant it fails to cover the distance it expected to, and that is a thing one goon can do on
+their own on purpose.
+
+`damage_scale 0.30` is the number that reconciles 600 hp with guns tuned against a goon's 100-point
+wind pool. A pistol round is 34 of that pool and a rifle round is 72; at face value a single pistol
+empties this boss in four and a half seconds, which is not a boss. At 0.30 a pistol round is worth 10
+and a rifle round 22, one goon does about 41 damage a second, and 600 hp is a fight of forty to sixty
+seconds alone -- the headless bot, which never misses and never panics, does it in about twenty-two,
+and four goons do it in nine, which is the direction a co-op boss ought to scale in and, at 600 hp,
+possibly a little further than it should. `damage_scale` is the one number to turn if a group fight
+wants to last longer. It also means
+the 120-in-two-seconds stagger is genuinely a group ask: one goon does 82 damage in two seconds and
+two do 164, so reaching it at all means more than one gun pointed at the same two seconds.
+
+Damage taken *while* staggered does not count toward the next stagger. Without that rule the window
+pays for itself -- double damage for a second and a half is worth more than the 120 the window costs
+-- and one goon could chain staggers forever off the first one.
+
+Dead, it falls: a column of dust, then a low ring of it rolling outward, and a `relic` worth $2000
+where it lands. There is no `hold` trigger down here, so it has to be carried all the way back up the
+Culvert and out to the boat like any other piece of evidence before it counts for anything.
+
+### Being hit, and hitting it
+
+Taking damage looks and sounds the same whoever is dishing it out. A red directional vignette leans
+toward wherever the hit came from (worked out in the camera's own basis, so a hit from behind darkens
+the bottom of the screen and one from the left darkens the left), camera shake and an inward FOV pull
+both scale with the damage taken, and a hurt sound plays. `FE_HURT` is queued by
+`weapons_hurt_player` for every source of damage there is -- a bullet in the back, a shockwave, a
+fireball -- so there is exactly one place that decides what getting hurt looks like, and a boss's
+sweep reads on screen exactly the way a mate's stray rifle round does.
+
+Hitting the boss back gets its own hit marker on the shooter's crosshair, the same one a shot on a
+goon gives -- a hit on the boss is still a hit. The boss itself flashes white for about 80 ms
+(`BOSS_FLASH_DECAY` decays the flash at 12 a second), floating damage numbers spawn from the point of
+impact rather than stacking in a corner of the screen, and the impact throws sparks and dust: no
+blood, on this boss or on anything else in the game. Its own health bar sits at the top of the
+screen with its name over it and a stagger meter underneath, which only appears once damage is
+actually accumulating toward a stagger, so it reads as something you are doing rather than another
+stat to track.
+
+### The file format
+
+A level names its boss with two lines, `boss` for where it stands and `boss_def` for what it is:
+
+    boss     0 0 8 180          # x y z yaw-degrees
+    boss_def cave_boss          # assets/enemies/cave_boss.txt
+
+An enemy file adds a `kind` to each `move` line and the numbers that kind means, plus a handful of
+boss-only keys the Warden never writes:
+
+    move NAME kind charge|slam|volley|sweep windup S active S recovery S damage N range M parry no tell R G B weight W cooldown S band MIN MAX p1 X p2 Y p3 Z step M clip NAME contact F
+
+    stagger_damage N        stagger_window S        aggro_range M        retarget S
+    damage_scale F           model NAME
+
+`p1`, `p2` and `p3` mean something different per kind, straight out of the `BossMove` comment in
+`src/combat.h`:
+
+    //   CHARGE  p1 = m/s, p2 = metres of run, p3 = corridor half-width
+    //   SLAM    p1 = metres the ring reaches, p2 = m/s it grows,
+    //           p3 = metres of ring height (jump higher than this)
+    //   VOLLEY  p1 = projectiles, p2 = seconds between them, p3 unused
+    //           (what a volley throws is assets/items/fireball.txt)
+
+A move with no `kind` line is `BMK_SWEEP` -- the Warden's old shape of move, unchanged -- and
+`damage_scale` defaults to 1, so a boss file that never mentions any of this reads exactly as it did
+before the cave existed.
+
+### On the wire
+
+The boss rides the ordinary entity snapshot, last, in an 18-byte section of its own, at the usual
+30 Hz -- about 480 bytes a second for the whole boss. That section carries a flag byte (present,
+phase two, staggered, dead), position (three `i16`, centimetres), yaw (`i16`), hp (`u16`), animation,
+state, move id, telegraph fill, the shockwave's current radius, who it is targeting and how much
+stagger damage has accumulated. A client draws the model, the health bar and every telegraph out of
+those bytes and decides nothing for itself: the telegraph is derived from replicated state rather
+than from an event on purpose, because an event that gets dropped would mean an attack with no
+warning, and that is the one failure this fight cannot absorb. For the same reason the boss is
+snapped to its new position on every packet rather than interpolated a hundred milliseconds into the
+past the way a player is -- it is big, slow, and sits in the middle of the screen for the whole
+fight, so a telegraph running a hundred milliseconds behind the attack it belongs to is a worse error
+than a small pop on a heavy body nobody is tracking pixel-perfectly.
+
+Projectiles pick up a third bit of owner for this: `WEAP_BOSS_SLOT` (7) lets a fireball belong to the
+boss instead of to any of the four seated players, and the id it shares a `u16` with drops from 14
+bits to 13, so projectile ids now wrap at 8192 rather than 16384 -- still nowhere near what a
+fifteen-minute run needs.
+
+### Testing it
+
+    HOLLOW_SILENT=1 HOLLOW_NOPRESENT=1 HOLLOW_BOT=boss ./build/bin/goonstein --level cave --bot --volume 0 --frames 120000 --log hollow.log
+
+No window, no sound, ever, in an automated run -- `HOLLOW_SILENT`, `HOLLOW_NOPRESENT` and
+`--volume 0` are on every headless invocation of this game and this one is no exception. The bot
+walks to the nearest `door:` trigger if it is not already in the cave; once the fight starts it holds
+7-15 m, circles, jumps the shockwave the instant it is about to reach its feet, steps sideways out of
+a charge's lane the moment the windup shows one, climbs onto whatever platform is in reach every ten
+seconds, and reloads the moment its magazine runs dry. It logs a line a second while the fight is
+live -- the boss's hp, the change since the last line, its own wind, the range, and whatever phase or
+stagger state is current -- and a closing block once the boss is down: damage dealt and taken, hits,
+staggers, knockdowns, a count per move kind, and how long the whole fight took.
+
+`HOLLOW_BOSSBOT_RANGE=MIN,MAX` overrides the distance it tries to hold. That exists for captures and
+for nothing else: the sweep only happens inside six and a half metres and the bot is written to stay
+outside seven, so without it there is no way to photograph a sweep telegraph with nobody at the
+keyboard.
+
+Every frame this fight has to be able to show has a name, so a screenshot of it is a command rather
+than an afternoon of scrubbing PNGs. `--shot-when NAME --screenshot FILE` takes `tell:charge`,
+`tell:slam`, `tell:volley`, `tell:sweep`, `shock`, `hurt`, `stagger`, `death` and `arena`; each one
+also insists the boss is in front of the camera, not behind a pillar, far enough away that what is
+being photographed is in frame, and that the player is not lying on the floor at the time. Note the
+trap: the harness writes `--screenshot` at the end of the run whether or not `--shot-when` ever
+matched, so a run that never saw its moment still leaves a PNG behind -- of the last frame, which
+for this fight is a dead boss and a faded HUD. The moment logs `shot: the moment 'NAME' is on
+screen` when it fires, and that line, not the file's existence, is the test.
+
 ## Testing and debugging
 
 `assets/settings.txt` holds personal defaults (volume, debug overlay, hero, `mouse_sens`); flags override it.
