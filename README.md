@@ -657,6 +657,20 @@ puts you standing at the extraction point with whatever you are carrying, the re
     trigger door:cave 10.4 16.9 88.3 13.2 21.5 90.7        # island.txt: the last 2.5 m of the cutting
     trigger door:island -3.4 0 -31.4 3.4 3.4 -30.6         # cave.txt: hard against the tunnel's back wall
 
+Getting to that trigger from the boat is its own problem, and it is the reason the level format
+grew a `route` line. The Culvert is cut into the north-east hill, so walking at the door from the
+pier climbs the hill and arrives ON TOP of the cutting's roof slab -- two metres above the doorway,
+outside the trigger, with nowhere to go. The service shed at the mouth of the cutting is walled on
+three sides and its one gap faces east, so even the last twenty metres have to be taken in the right
+order. `route door:cave` in `island.txt` is that walk written down, named after the trigger it leads
+to: off Pelican Pier, west of the villa, north past the Bunkhouse and over the saddle, up the east
+flank to Windward Point, across to Utility Two's yard, round to x 38 and in through the shed. 269 m,
+nothing solid in the way, and no mantle needed anywhere on it -- terrain in this engine has no step
+limit at all (`game_ground_character` plants the feet on the heightfield), so every rise on it is
+simply walked. It was solved rather than guessed: an A* over the heightmap with every block,
+collider and prop collider in the level treated as a wall and the golf-cart roads as cheap ground,
+then thinned to the points where the straight line between them stops being clear.
+
 The island's trigger sits in FRONT of the doorway rather than beyond it. The hill the cutting is dug
 into climbs twelve metres in four, so there is nowhere behind that door to build: you walk up to it,
 the screen goes, and what is on the other side is the cave. The cave's own exit is pushed right up
@@ -820,7 +834,8 @@ fifteen-minute run needs.
 
 No window, no sound, ever, in an automated run -- `HOLLOW_SILENT`, `HOLLOW_NOPRESENT` and
 `--volume 0` are on every headless invocation of this game and this one is no exception. The bot
-walks to the nearest `door:` trigger if it is not already in the cave; once the fight starts it holds
+walks the level's `route door:cave` to the door if it is not already in the cave, joining it at
+whichever leg it starts nearest and abandoning any leg that takes more than ten seconds; once the fight starts it holds
 7-15 m, circles, jumps the shockwave the instant it is about to reach its feet, steps sideways out of
 a charge's lane the moment the windup shows one, climbs onto whatever platform is in reach every ten
 seconds, and reloads the moment its magazine runs dry. It logs a line a second while the fight is

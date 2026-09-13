@@ -470,6 +470,34 @@ npc Marko goon_b -70 1.60 -110.6 40 island_marko.txt 3
 npc Pip goon_c -67.5 1.60 -114.0 15 island_pip.txt 3
 npc Bunny goon_d -74 1.60 -112.5 75 island_bunny.txt 3
 
+# ================================================================ THE WALK TO THE CULVERT
+# `route NAME x z ...` is a walkable line through the level, written down (see assets/levels/
+# README.md). This one is the way from the boat to the steel door, and the reason it exists is that
+# the straight line is a trap: the Culvert is cut into the north-east hill, and walking at the door
+# from the pier climbs that hill and puts you ON TOP of the cutting's roof slab, two metres over the
+# doorway and outside the trigger. The way in is round the front and up the island.
+#
+# It is named after the door it leads to (`door:cave`), which is how src/bossbot.c finds it. It was
+# solved rather than guessed: an A* over the heightmap with every solid block, collider and prop
+# collider in this file treated as a wall, the golf-cart roads as cheap ground and steep ground as
+# dear, then thinned to the points where the straight line between them stops being clear. 269 m,
+# nothing in the way, and no step that needs a mantle -- terrain in this engine has no step limit at
+# all (game_ground_character just plants the feet on the heightfield), so every rise on it is walked.
+#
+# Legs: off Pelican Pier and up the mole, west of the villa and its wing, north past the Bunkhouse
+# and over the saddle, up the east flank to Windward Point, across to Utility Two's yard, and in
+# through the service shed and down the cutting to the door.
+route door:cave -66 -112  -60 -111  -54 -107                    # off the pier and up the mole
+route door:cave -41 -76  -39 -55  -34 -49  -28 -46              # west of the villa, past the Oval
+route door:cave -20 -35  -14 -29  2 -7                          # past the Bunkhouse and over the saddle
+route door:cave 12 42  18 55  24 63                             # up the east flank to Windward Point
+route door:cave 26 69  27 77  32 80  37 84                      # across to Utility Two's yard
+# The shed is walled on three sides -- its own colliders at z 84.6 and z 94.4 leave one gap, facing
+# east -- so the last approach comes round to x 38 and goes in along z 89.5. Cutting the corner from
+# the yard walks into the south wall, which is exactly what the first version of this route did.
+route door:cave 38 89.5  32 89.5  25 89.5  18 89.5  13 89.5     # in through the shed, down the cutting
+
+
 # ================================================================ triggers
 # `intro` plays the cutscene; the rest are named landing points for scenes added later.
 trigger intro -72 -4.40 -116 -56 8.00 -109 once

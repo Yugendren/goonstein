@@ -300,8 +300,8 @@ static bool parse_level(Level *out, const char *path) {
         size_t len = strlen(line);
         while (len > 0 && (line[len - 1] == '\r' || line[len - 1] == ' ' || line[len - 1] == '\t')) line[--len] = '\0';
 
-        char *tok[32];
-        int n = tokenize(line, tok, 32);
+        char *tok[64];
+        int n = tokenize(line, tok, 64);
         if (n == 0) continue; // blank / comment-only line
 
         const char *cmd = tok[0];
@@ -343,6 +343,29 @@ static bool parse_level(Level *out, const char *path) {
             // --- boss --- the enemy file the cave boss is built from
             if (n != 2) { SDL_Log("level_load:%d: bad boss_def line (want a name)", line_no); continue; }
             SDL_strlcpy(out->boss_def, tok[1], sizeof out->boss_def);
+
+        } else if (strcmp(cmd, "route") == 0) {
+            // --- boss --- route NAME x z  x z  ...  (see Route in level.h)
+            if (n < 4 || ((n - 2) & 1)) { SDL_Log("level_load:%d: bad route line (want NAME then pairs of x z)", line_no); continue; }
+            (void)0;
+            // A second `route NAME` line APPENDS to the first, so a long walk can be written a
+            // leg to a line with a comment on each instead of as one unreadable run of numbers.
+            Route *r = NULL;
+            for (int i = 0; i < out->nroutes; i++) if (!strcmp(out->routes[i].name, tok[1])) r = &out->routes[i];
+            if (!r) {
+                if (out->nroutes >= LEVEL_MAX_ROUTES) { SDL_Log("level_load:%d: too many routes (max %d)", line_no, LEVEL_MAX_ROUTES); continue; }
+                r = &out->routes[out->nroutes++];
+                memset(r, 0, sizeof *r);
+                SDL_strlcpy(r->name, tok[1], sizeof r->name);
+            }
+            int added = 0;
+            for (int i = 2; i + 1 < n; i += 2) {
+                if (r->n >= LEVEL_MAX_ROUTE_PTS) { SDL_Log("level_load:%d: route '%s' is full (max %d points)", line_no, r->name, LEVEL_MAX_ROUTE_PTS); break; }
+                r->x[r->n] = (float)atof(tok[i]);
+                r->z[r->n] = (float)atof(tok[i + 1]);
+                r->n++; added++;
+            }
+            if (!added) SDL_Log("level_load:%d: route '%s' line added no points", line_no, r->name);
 
         } else if (strcmp(cmd, "arena") == 0) {
             float f[6];
@@ -664,6 +687,11 @@ bool level_save(const Level *lv, const char *path) {
     fprintf(f, "boss  %.3f %.3f %.3f %.3f\n",
             lv->boss_spawn.x, lv->boss_spawn.y, lv->boss_spawn.z, lv->boss_yaw * (180.0f / PI));
     if (lv->boss_def[0]) fprintf(f, "boss_def %s\n", lv->boss_def);   // --- boss ---
+    for (int i = 0; i < lv->nroutes; i++) {                           // --- boss ---
+        fprintf(f, "route %s", lv->routes[i].name);
+        for (int k = 0; k < lv->routes[i].n; k++) fprintf(f, " %.2f %.2f", lv->routes[i].x[k], lv->routes[i].z[k]);
+        fprintf(f, "\n");
+    }
     fprintf(f, "arena %.3f %.3f %.3f %.3f %.3f %.3f\n",
             lv->arena_min.x, lv->arena_min.y, lv->arena_min.z,
             lv->arena_max.x, lv->arena_max.y, lv->arena_max.z);
@@ -897,6 +925,12 @@ static bool point_in_box(Vec3 p, Vec3 vmin, Vec3 vmax) {
     return p.x >= vmin.x && p.x <= vmax.x &&
            p.y >= vmin.y && p.y <= vmax.y &&
            p.z >= vmin.z && p.z <= vmax.z;
+}
+
+// --- boss --- the route of this name, or NULL
+const Route *level_route(const Level *lv, const char *name) {
+    for (int i = 0; i < lv->nroutes; i++) if (!strcmp(lv->routes[i].name, name)) return &lv->routes[i];
+    return NULL;
 }
 
 const CamVolume *level_camera_at(const Level *lv, Vec3 p) {

@@ -42,6 +42,16 @@ typedef struct CamVolume {
 // npc NAME CHARACTER x y z yaw SCENE [radius]: a character standing in the world; E within radius plays SCENE
 typedef struct Npc { char name[32], file[128], scene[128]; Vec3 pos; float yaw, radius; } Npc;
 
+// --- boss --- `route NAME x z  x z  ...`: a walkable line through the level, in order, given as
+// ground positions only (the y of each point is resolved against the ground when it is used, so a
+// route survives the terrain being regenerated under it). It is not navigation and it is not a
+// path-finder: it is the answer to "which way round does a person actually go", written down in the
+// level that knows. The culvert route on the island follows the golf-cart roads from the pier to
+// the service yard, which is the way a player walks it too. src/bossbot.c is the only user.
+#define LEVEL_MAX_ROUTES    4
+#define LEVEL_MAX_ROUTE_PTS 64
+typedef struct Route { char name[24]; float x[LEVEL_MAX_ROUTE_PTS], z[LEVEL_MAX_ROUTE_PTS]; int n; } Route;
+
 #define LEVEL_MAX_ITEMS 128
 // item NAME x y z [yaw]: a carryable item from assets/items/NAME.txt (see items.h)
 typedef struct LevelItem { char name[32]; Vec3 pos; float yaw; } LevelItem;
@@ -127,6 +137,7 @@ typedef struct Level {
     float view_bob;         // first person head bob, 1 = the default subtle amount, 0 = off
     Npc       npcs[LEVEL_MAX_NPCS]; int nnpcs;
     LevelItem items[LEVEL_MAX_ITEMS]; int nitems;
+    Route     routes[LEVEL_MAX_ROUTES]; int nroutes;   // --- boss --- see Route above
     Vec3  spawn;      float spawn_yaw;    // player start (yaw in radians)
     Vec3  boss_spawn; float boss_yaw;
     // --- boss --- `boss_def NAME`: assets/enemies/NAME.txt, the cave boss this level fights (see
@@ -178,6 +189,9 @@ bool  level_clear(const Level *lv, float x, float z, float radius, float y0, flo
 bool  level_wall_near(const Level *lv, float x, float z, float radius, float y0, float y1, Vec3 *normal, float *gap);
 // First camera volume containing p, or NULL.
 const CamVolume *level_camera_at(const Level *lv, Vec3 p);
+// --- boss --- The route of this name, or NULL. Names are exact.
+const Route *level_route(const Level *lv, const char *name);
+
 // First trigger containing p that has not fired; marks it fired if once. NULL if none.
 Trigger *level_trigger_at(Level *lv, Vec3 p);
 // The trigger volume with this name, or NULL. Unlike level_trigger_at this never fires it:

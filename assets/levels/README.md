@@ -8,6 +8,9 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
 
     spawn    x y z yaw                         # player start
     boss     x y z yaw                         # boss start
+    boss_def NAME                              # assets/enemies/NAME.txt: the cave boss this level
+             # fights (src/boss.h). Absent on every level that has no boss, which is all of them but
+             # the cave; the Warden's own def is loaded by game.c regardless and is not this.
     arena    minx miny minz maxx maxy maxz     # fight bounds (legacy, camera no longer clamps to it)
     block    x y z  sx sy sz  tex  r g b  tile  [solid|pass]
              # box: centre, size, texture, tint, repeats per metre. The texture name is one of the
@@ -49,6 +52,19 @@ Yaw 0 faces +Z, positive yaw turns toward -X when viewed from above? No: positiv
              # hull rather than level with the deck: an item resting on the deck is only a few
              # centimetres above that floor, and a box that starts exactly at deck height would
              # count it in and out again every time the physics settles it another millimetre.
+    route    NAME  x z  x z  ...               # a walkable line through the level, in order
+             # Ground positions only: the y of each point is resolved against whatever is under it
+             # when it is used, so a route survives the terrain being regenerated beneath it. A
+             # second `route NAME ...` line APPENDS to the first, so a long walk is written a leg to
+             # a line with a comment on each rather than as one unreadable run of numbers.
+             # This is not navigation and it is not a path-finder. It is the answer to "which way
+             # round does a person actually go", written down in the level that knows -- and the
+             # answer is often not a straight line, because the straight line goes through a wall or
+             # over a roof. The island's `route door:cave` is named after the trigger it leads to,
+             # which is how src/bossbot.c finds it: HOLLOW_BOT=boss walks the route leg by leg,
+             # joining it at whichever leg it starts nearest, and gives up on any single leg after
+             # ten seconds so one bad point cannot deadlock a headless run.
+             # Up to 4 routes a level, 64 points each.
     scene    intro|boss|victory  FILE          # cutscene file under assets/scenes/ for that beat
     terrain  FILE                              # heightmap base name relative to assets/, e.g. levels/glade_terrain
              # (files FILE_h.png, FILE_c.png, FILE.txt)
