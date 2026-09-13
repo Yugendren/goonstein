@@ -21,6 +21,7 @@
 #include "items.h"
 #include "weapons.h"
 #include "projectile.h"   // --- projectiles --- nails, grenades and the things that carry them
+#include "boss.h"         // --- boss --- the cave fight
 
 #define INTERNAL_W 1280
 #define INTERNAL_H 800
@@ -48,6 +49,14 @@ typedef struct Game {
     PhysWorld phys; Items items;   // M2: rigid bodies and the loot that rides on them
     Weapons  weapons;              // --- weapons --- what is in the other hand, and who is on the floor
     Projectiles projectiles;       // --- projectiles --- everything in the air with a fuse or a point on it
+    // --- boss --- The cave fight: the boss itself, what being hit looks like, and the fade that
+    // carries everyone from one level to another. See src/boss.h.
+    CaveBoss cave;
+    float hurt_flash;              // 0..1 red vignette, decays; how hard the last hit was
+    Vec3  hurt_dir;                // that hit's direction in the eye's own frame (x right, z forward)
+    // A level change in progress. `to` is the level name; the fade runs out, the level loads, the
+    // fade runs back in. The host starts it and tells the clients; a client only ever reacts.
+    struct { char to[32]; int phase; float t; } warp;   // phase 0 none, 1 fading out, 2 fading in
     LevelEd leveled; bool leveled_ready;
     Builder builder; bool builder_ready;
     Terrain terrain; bool gen_done;
@@ -130,6 +139,14 @@ void game_screenshot(Game *g, const char *path);
 void game_tool_screenshot(Game *g, const char *path);
 // Test harness: jump to a state ("explore", "fight", "end").
 void game_start_at(Game *g, const char *where);
+// --- boss --- Start a level change. Host and single player call this (from a `door:NAME` trigger);
+// it fades out, loads, respawns everyone and fades back in, and on a host it sends every client the
+// same instruction so all four goons walk through the door together. A client ignores it: only
+// game_level_change_net, driven by the host's message, moves a client between levels.
+void game_level_change(Game *g, const char *name);
+void game_level_change_net(Game *g, const char *name);
+// --- boss --- Where a goon should reappear on this level, spread out the way the spawn is.
+Vec3 game_spawn_point(const Game *g, int slot);
 // Harness: true once when the named battle moment is on screen (ring closing, a judgement burst, a card in flight).
 bool game_shot_moment(Game *g, const char *when);
 // Open the sprite editor on a character (creates it if missing).

@@ -446,6 +446,7 @@ static void setup_level_content(Game *g) {
     }
     particles_prewarm(&g->particles, 8.0f);
     setup_npcs(g);
+    boss_level_changed(g);   // --- boss --- the level's `boss_def` line, or nothing at all
 }
 
 static void load_portraits(Game *g) {
@@ -538,8 +539,14 @@ void game_snap_camera(Game *g) {
 }
 
 // Puts players[slot] at the level spawn, spread out so seated players don't stack.
+// --- boss --- Four goons cannot all stand on one point, so a slot's spawn is the level's spawn
+// stepped sideways. Exported because a solo respawn in the cave needs the same answer.
+Vec3 game_spawn_point(const Game *g, int slot) {
+    return v3_add(g->level.spawn, v3(((float)slot - 1.5f) * 1.5f, 0, 0));
+}
+
 void game_spawn_player(Game *g, int slot) {
-    Vec3 pos = v3_add(g->level.spawn, v3(((float)slot - 1.5f) * 1.5f, 0, 0));
+    Vec3 pos = game_spawn_point(g, slot);
     player_init(&g->players[slot], &g->player_def, pos, g->level.spawn_yaw);
     g->players[slot].c.ground_block = -1;
     game_ground_character(g, &g->players[slot].c, 0);
@@ -565,14 +572,19 @@ void game_give_loadout(Game *g, int slot) {
 
 static void reset_to_start(Game *g) {
     level_reset_triggers(&g->level);
-    for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) { game_spawn_player(g, i); game_give_loadout(g, i); }
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) game_spawn_player(g, i);
+    // --- boss --- The camera is re-seated BEFORE the loadouts, not after. In first person
+    // weapons_eye is the camera's eye, weapons_equip refuses anything further than arm's reach
+    // from it, and on a level change the camera is still standing in the level everyone has just
+    // left -- so handing out the weapons first meant four goons arriving in the cave empty handed.
+    camera_init(&g->cam);
+    game_snap_camera(g);
+    for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) game_give_loadout(g, i);
     boss_init(&g->boss, &g->boss_def, g->level.boss_spawn, g->level.boss_yaw);
     g->boss.state = BS_SCRIPTED;   // dormant until the fight starts
     g->state = GS_EXPLORE; g->state_t = 0;
     g->fade = 0; g->letterbox = 0; g->hitstop = 0; g->fight_intensity = 0;
     audio_music_play(MUSIC("1 - Adventure Begin.ogg"), true, 0.28f, 2.0f);
-    camera_init(&g->cam);
-    game_snap_camera(g);
     g->hint_t = 8.0f;
 }
 
@@ -635,11 +647,13 @@ bool game_init_gfx(Game *g, Platform *pf) {
 }
 
 void game_shutdown(Game *g) {
+    boss_report(g);   // --- boss --- first, while the debug log is still open to receive it
     leveled_shutdown(&g->leveled);
     terrain_destroy(&g->gfx, &g->terrain);
     dbg_shutdown();
     props_clear(&g->gfx, &g->props);
     for (int i = 0; i < NET_MAX_PLAYERS; i++) charmodel_destroy(&g->gfx, &g->player_models[i]);
+    boss_shutdown(g);               // --- boss ---
     charmodel_destroy(&g->gfx, &g->boss_model);
     world_textures_destroy(&g->gfx, &g->wt);
     gfx_shutdown(&g->gfx);
@@ -648,6 +662,69 @@ void game_shutdown(Game *g) {
 
 void game_screenshot(Game *g, const char *path) { gfx_screenshot(&g->gfx, path); }
 void game_tool_screenshot(Game *g, const char *path) { if (!gfx_tool_screenshot_save(&g->gfx, path)) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "tool screenshot: nothing drawn in the tool window"); }
+
+// --- boss --- Walking through a door.
+//
+// A level change is three frames of bookkeeping wrapped in a second of black, and the only reason
+// it is not a one-liner is that four people have to go through the door at once. The host decides
+// (only the host ever calls game_level_change), tells every client over the reliable channel, and
+// then both sides run exactly the same thing: fade to black, load, put everyone at the new level's
+// spawn, fade back up. Nobody is simulated while the fade is out, so a client that is a hundred
+// milliseconds behind the host lands on the same level on the same frame it would have anyway.
+//
+// Solo is the same path with no messages in it, which is the point -- there is one level-change
+// routine and single player is the degenerate case of it, not a second implementation.
+#define WARP_FADE 0.45f    // seconds each way
+
+static void warp_now(Game *g) {
+    char path[512];
+    snprintf(path, sizeof path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, g->warp.to);
+    snprintf(g->level_path, sizeof g->level_path, "%s", path);
+    SDL_Log("level: going to %s", g->warp.to);
+    dbg_log("level: loading %s", path);
+    if (!load_defs(g)) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "level %s failed to load; staying where we are", path);
+    world_textures_create(&g->gfx, &g->wt);   // the new level's `look texcap` applies to these too
+    projectiles_reset(g);                     // nothing in the air survives a door
+    setup_level_content(g);
+    reset_to_start(g);
+    snprintf(g->net.level_name, sizeof g->net.level_name, "%s", g->warp.to);   // late joiners get told the truth
+    g->warp.phase = 2; g->warp.t = 0; g->fade = 1;
+    if (boss_present(g)) audio_music_play(MUSIC("17 - Fight.ogg"), true, 0.30f, 1.2f);
+}
+
+void game_level_change(Game *g, const char *name) {
+    if (g->net.mode == NM_CLIENT) return;     // a client is told, it does not decide
+    if (g->warp.phase || !name || !name[0]) return;
+    snprintf(g->warp.to, sizeof g->warp.to, "%s", name);
+    g->warp.phase = 1; g->warp.t = 0;
+    audio_play(SND_DOOR, 0.9f, 0.85f);
+    dbg_log("level: the door to %s opens", name);
+    if (g->net.mode == NM_HOST) netgame_send_level(g, name);
+}
+
+void game_level_change_net(Game *g, const char *name) {
+    if (g->warp.phase || !name || !name[0]) return;
+    if (!strcmp(name, g->net.level_name)) return;   // already here
+    snprintf(g->warp.to, sizeof g->warp.to, "%s", name);
+    g->warp.phase = 1; g->warp.t = 0;
+    audio_play(SND_DOOR, 0.9f, 0.85f);
+    dbg_log("level: the host says we are going to %s", name);
+}
+
+// One step of the fade. Returns true while the simulation should be held: the world is either
+// black or half-loaded and nothing in it should be moving.
+static bool warp_step(Game *g, float dt) {
+    if (!g->warp.phase) return false;
+    g->warp.t += dt;
+    if (g->warp.phase == 1) {
+        g->fade = clampf(g->warp.t / WARP_FADE, 0, 1);
+        if (g->warp.t >= WARP_FADE) warp_now(g);
+        return true;
+    }
+    g->fade = 1.0f - clampf(g->warp.t / WARP_FADE, 0, 1);
+    if (g->warp.t >= WARP_FADE) { g->fade = 0; g->warp.phase = 0; g->warp.to[0] = 0; }
+    return true;
+}
 
 void game_start_at(Game *g, const char *where) {
     if (!strncmp(where, "level:", 6)) { snprintf(g->level_path, sizeof g->level_path, "%s/levels/%s.txt", HOLLOW_ASSET_DIR, where + 6); load_defs(g); setup_level_content(g); reset_to_start(g); return; }
@@ -671,6 +748,7 @@ void game_start_at(Game *g, const char *where) {
 static void bot_input(Game *g, Input *in) {
     // M2: in the overworld the bot's whole job is the loot run. It falls through to the old wander
     // (and to the fight bot) whenever there is nothing left to carry.
+    if (g->state == GS_EXPLORE && boss_bot_input(g, in)) return;      // --- boss --- HOLLOW_BOT=boss
     if (g->state == GS_EXPLORE && traverse_bot_input(g, in)) return;  // --- traversal --- HOLLOW_BOT=traverse
     if (g->state == GS_EXPLORE && weapons_bot_input(g, in)) return;   // --- weapons --- HOLLOW_BOT=shoot
     if (g->state == GS_EXPLORE && items_bot_input(g, in)) return;
@@ -734,6 +812,10 @@ static void bot_input(Game *g, Input *in) {
 static void update_particles(Game *g, float dt) {
     particles_update(&g->particles, dt);
     g->flash = fmaxf(0, g->flash - dt * 6.0f);
+    // --- boss --- The red edge of the screen after a hit. Fast up, slow down: it has to be over
+    // before the next one lands, or a fight against something that hits four times leaves the
+    // screen permanently red and stops meaning anything.
+    g->hurt_flash = fmaxf(0, g->hurt_flash - dt * 2.2f);
 }
 
 static void screen_flash(Game *g, Vec3 color, float amount) { g->flash_color = color; g->flash = fmaxf(g->flash, amount); }
@@ -896,6 +978,10 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     } else if (g->level.view == VIEW_THIRD) { camera_orbit(&g->cam, PLAYER(g).c.pos, false, v3(0, 0, 0), &g->level, dt); camera_above_terrain(g); }   // view third: behind the hero, mouse look
     else camera_iso(&g->cam, PLAYER(g).c.pos, &g->level, dt);
     Trigger *t = level_trigger_at(&g->level, PLAYER(g).c.pos);   // marks the trigger fired even when scenes are skipped
+    // --- boss --- A trigger called `door:NAME` is a way out of this level and into levels/NAME.txt.
+    // It is checked before the scene names and outside the `no_scenes` guard on purpose: a door is
+    // not a cutscene, and multiplayer (which sets no_scenes) is exactly where it has to work.
+    if (t && !strncmp(t->name, "door:", 5)) { game_level_change(g, t->name + 5); return; }
     if (t && !g->no_scenes) {
         dbg_log("trigger %s at %.1f %.1f", t->name, PLAYER(g).c.pos.x, PLAYER(g).c.pos.z);
         if (!strcmp(t->name, "intro")) play_scene(g, g->level.scene_intro, GS_EXPLORE);
@@ -913,6 +999,7 @@ static void tick_explore(Game *g, const Input *in, float dt) {
     }
     items_tick(g, in, dt);   // after the camera: the hold point hangs off this tick's view
     weapons_tick(g, in, dt);   // --- weapons --- after the items: the thing just picked up is already in hand
+    boss_tick(g, dt);          // --- boss --- after the weapons: this tick's damage is already applied
     // Hands full, or loot in view: E belongs to the item, not to the conversation.
     if (g->talk_npc >= 0 && in->interact && g->state == GS_EXPLORE && !g->no_scenes
         && g->items.carry[g->local].item < 0 && g->items.look_at < 0 && !g->weapons.prompt[0])
@@ -1276,6 +1363,15 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     if (g->hitstop > 0) { g->hitstop -= dt; netgame_pre_tick(g, dt); netgame_post_tick(g, dt); camera_update(&g->cam, dt); return; }
 
     prof_begin(PROF_TICK_NET); netgame_pre_tick(g, dt); prof_end(PROF_TICK_NET);
+    // --- boss --- A level change owns the tick while it runs. The net still pumps either side of
+    // it, so the host's instruction reaches every client and the acks keep flowing, but nothing in
+    // the world moves while the screen is black -- and warp_now happens INSIDE a tick rather than
+    // between two, so the load's cost lands where the simulation already expects a long frame.
+    if (warp_step(g, dt)) {
+        prof_begin(PROF_TICK_NET); netgame_post_tick(g, dt); prof_end(PROF_TICK_NET);
+        camera_update(&g->cam, dt);
+        return;
+    }
     prof_begin(PROF_TICK_GAME);
     update_prop_actors(g, dt);
     switch (g->state) {
@@ -1298,6 +1394,10 @@ void game_tick(Game *g, const Input *in_real, double ddt) {
     }
     if (g->state != GS_BATTLE) {
         charmodel_drive_player(&PLAYER_MODEL(g), &PLAYER(g), dt); charmodel_drive_boss(&g->boss_model, &g->boss, dt);
+        // --- boss --- The cave boss rides the same driver: it IS a Boss, which is the whole reason
+        // boss.c reuses that struct rather than declaring one of its own. A move's windup clip is
+        // therefore fitted to the windup its text file asks for, and the telegraph is the animation.
+        if (g->cave.active && g->cave.model_ok) charmodel_drive_boss(&g->cave.model, &g->cave.b, dt);
         for (int i = 0; i < NET_MAX_PLAYERS; i++) {
             if (i == g->local || !g->net.slots[i].active || !g->player_models[i].loaded) continue;
             if (g->net.mode == NM_HOST) charmodel_drive_player(&g->player_models[i], &g->players[i], dt);
@@ -1317,6 +1417,36 @@ static void bar(Gfx *g, float x, float y, float w, float h, float k, Vec4 back, 
     gfx_ui_rect(g, x - 1, y - 1, w + 2, h + 2, v4(0, 0, 0, 0.7f));
     gfx_ui_rect(g, x, y, w, h, back);
     gfx_ui_rect(g, x, y, w * clampf(k, 0, 1), h, front);
+}
+
+// --- boss --- The red edge after a hit, leaning toward whatever did it.
+//
+// This is the one piece of feedback the fight cannot do without. A shockwave that catches you from
+// behind a pillar is indistinguishable from a bug unless the screen says, in the same frame, "that
+// came from over there" -- so the vignette is directional, and the direction is worked out in the
+// eye's own frame by boss_hurt_fx at the moment the damage lands (see src/boss.c). There is no
+// gradient primitive, so each edge is a stack of bands whose alpha rises toward the frame.
+#define HURT_BANDS 10
+static void draw_hurt_vignette(Gfx *x, float amount, Vec3 dir) {
+    if (amount <= 0.01f) return;
+    const float W = (float)INTERNAL_W, H = (float)INTERNAL_H;
+    float a = clampf(amount, 0, 1);
+    // Every edge gets a little, so a hit is never invisible; the edge it came from gets most of it.
+    float w_right = 0.25f + 0.75f * clampf( dir.x, 0, 1);
+    float w_left  = 0.25f + 0.75f * clampf(-dir.x, 0, 1);
+    float w_top   = 0.25f + 0.75f * clampf( dir.z, 0, 1);
+    float w_bot   = 0.25f + 0.75f * clampf(-dir.z, 0, 1);
+    float depth_x = W * 0.22f, depth_y = H * 0.28f;
+    for (int i = 0; i < HURT_BANDS; i++) {
+        float t = (float)i / (float)HURT_BANDS;            // 0 at the frame's edge
+        float k = (1.0f - t) * (1.0f - t) * a * 0.30f;
+        float bx = depth_x / HURT_BANDS, by = depth_y / HURT_BANDS;
+        Vec4 c = v4(0.75f, 0.06f, 0.05f, 0);
+        c.w = k * w_left;  gfx_ui_rect(x, t * depth_x, 0, bx, H, c);
+        c.w = k * w_right; gfx_ui_rect(x, W - (t + 1) * bx - t * (depth_x - bx), 0, bx, H, c);
+        c.w = k * w_top;   gfx_ui_rect(x, 0, t * depth_y, W, by, c);
+        c.w = k * w_bot;   gfx_ui_rect(x, 0, H - (t + 1) * by - t * (depth_y - by), W, by, c);
+    }
 }
 
 static void text_center(Gfx *g, float cx, float y, float scale, Vec4 c, const char *s) {
@@ -1645,6 +1775,10 @@ static void draw_hud(Game *g, Platform *pf) {
     if (g->msg_t > 0) gfx_ui_text(x, 12, H - 16, 1.0f, v4(0.9f, 0.8f, 0.4f, 1), g->msg);
     if (g->talk_npc >= 0 && g->state == GS_EXPLORE) { char s2[96]; snprintf(s2, sizeof s2, "E   talk to %s", g->level.npcs[g->talk_npc].name); text_center(x, W * 0.5f, H - 70, 1.3f, v4(1, 0.9f, 0.6f, 1), s2); }
     voice_draw_hud(g);   // --- voice --- transmit dot and the name tags with a speaker icon
+    // --- boss --- Under the item and weapon HUDs so the numbers stay readable through it, and
+    // above everything the world drew so it reads as the screen rather than as fog.
+    draw_hurt_vignette(x, g->hurt_flash, g->hurt_dir);
+    if (g->state == GS_EXPLORE) boss_draw_hud(g);
     if (g->state == GS_EXPLORE) items_draw_hud(g);
     if (g->state == GS_EXPLORE) weapons_draw_hud(g);   // --- weapons --- ammo, wind, DOWN, the prompt
     if (g->hint_t > 0 && g->state == GS_EXPLORE) {
@@ -1936,6 +2070,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     if (g->flash > 0 && fp.nlights < GFX_MAX_LIGHTS)
         fp.lights[fp.nlights++] = (PointLight){ .pos = v3(pc->pos.x, pc->pos.y + 1.2f, pc->pos.z), .radius = 7.0f, .color = g->flash_color, .intensity = 2.5f * g->flash };
     fp.nlights += weapons_lights(g, fp.lights + fp.nlights, GFX_MAX_LIGHTS - fp.nlights);   // --- weapons --- muzzle flashes
+    fp.nlights += boss_lights(g, fp.lights + fp.nlights, GFX_MAX_LIGHTS - fp.nlights);      // --- boss --- telegraph glow, shockwave
 
     Gfx *x = &g->gfx;
     // First person: the local player's own model is drawn into the sun shadow map (so it still casts)
@@ -1986,6 +2121,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
                 charmodel_draw(x, &g->player_models[i], &cc, v4(1, 1, 1, 1));
             }
             if (g->boss_model.loaded && !g->boss_model.is_sprite) charmodel_draw(x, &g->boss_model, bc, v4(1, 1, 1, 1));
+            boss_draw_shadow(g);   // --- boss --- something that size has to cast one
             for (int i = 0; i < g->nnpcs; i++) if (g->npcs[i].ok && !g->npcs[i].model.is_sprite) charmodel_draw(x, &g->npcs[i].model, &g->npcs[i].c, v4(1, 1, 1, 1));
             gfx_shadow_end(x);
         }
@@ -2002,6 +2138,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     props_draw_fallback(x, &g->props, lv, &g->wt, GFX_SET_WORLD);
     items_draw(g);
     weapons_draw(g);   // --- weapons --- viewmodel, held and holstered weapons, tracers and flashes
+    boss_draw(g);      // --- boss --- the boss, its telegraph on the floor, and any shockwave
     {
         Vec4 pt = v4(lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), lerpf(1, 1.6f, pc->flash), 1);
         Vec4 bt = v4(1, 1, 1, 1);
@@ -2066,6 +2203,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
         if (!renv()->noblob) {
             for (int i = 0; i < NET_MAX_PLAYERS; i++) if (g->net.slots[i].active) draw_blob_shadow(x, vpos[i], g->players[i].c.radius * 2.2f, 0.55f);
             draw_blob_shadow(x, bc->pos, bc->radius * 2.2f, 0.6f);
+            if (g->cave.active) draw_blob_shadow(x, g->cave.b.c.pos, g->cave.b.c.radius * 2.4f, 0.7f);   // --- boss ---
             for (int i = 0; i < g->nnpcs; i++) draw_blob_shadow(x, g->npcs[i].c.pos, 0.9f, 0.5f);
         }
     }
@@ -2121,6 +2259,7 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
 
 bool game_shot_moment(Game *g, const char *when) {
     const Battle *b = &g->battle;
+    if (boss_shot_moment(g, when)) return true;   // --- boss --- the cave fight's own moments
     if (g->state != GS_BATTLE) return false;
     if (!strcmp(when, "ring")) {
         if (b->state != BT_ENEMY_ATTACK && b->state != BT_ENEMY_TELL) return false;

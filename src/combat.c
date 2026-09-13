@@ -84,12 +84,22 @@ static char *next_line(char **cur) {
 
 #define KEYF(k, dst) else if (!strcmp(key, k)) { dst = (float)atof(strtok(NULL, " \t")); }
 
+// --- boss --- The move kinds, by the word a boss file writes.
+static const char *BMK_NAMES[BMK_KIND_COUNT] = { "sweep", "charge", "slam", "volley" };
+const char *boss_move_kind_name(int k) { return (k >= 0 && k < BMK_KIND_COUNT) ? BMK_NAMES[k] : "sweep"; }
+int boss_move_kind_from_name(const char *s) {
+    for (int i = 0; i < BMK_KIND_COUNT; i++) if (!strcmp(s, BMK_NAMES[i])) return i;
+    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "boss: unknown move kind '%s', treating it as a sweep", s);
+    return BMK_SWEEP;
+}
+
 bool boss_def_load(BossDef *d, const char *path) {
     size_t n; char *text = SDL_LoadFile(path, &n);
     if (!text) { SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "boss def missing: %s", path); return false; }
     BossDef o = { .hp = 100, .posture = 100, .posture_regen = 8, .stagger_time = 2.5f, .speed = 2.0f,
                   .attack_range = 2.2f, .think_min = 0.4f, .think_max = 1.2f, .phase2_hp = 0.5f,
                   .phase2_windup_mult = 0.75f, .stagger_damage_mult = 3.0f, .combo_chance = 0.35f,
+                  .damage_scale = 1.0f,
                   .size = v3(1.2f, 2.6f, 1.2f), .color = v3(0.35f, 0.3f, 0.4f) };
     strcpy(o.name, "Boss");
     char *cur = text, *line; int ln = 0;
@@ -102,6 +112,10 @@ bool boss_def_load(BossDef *d, const char *path) {
         KEYF("think_min", o.think_min) KEYF("think_max", o.think_max) KEYF("phase2_hp", o.phase2_hp)
         KEYF("phase2_windup_mult", o.phase2_windup_mult) KEYF("stagger_damage_mult", o.stagger_damage_mult)
         KEYF("combo_chance", o.combo_chance)
+        // --- boss --- the cave boss's own keys; the Warden writes none of them
+        KEYF("stagger_damage", o.stagger_damage) KEYF("stagger_window", o.stagger_window)
+        KEYF("aggro_range", o.aggro_range) KEYF("retarget", o.retarget) KEYF("damage_scale", o.damage_scale)
+        else if (!strcmp(key, "model")) { char *v = strtok(NULL, " \t"); if (v) snprintf(o.model, sizeof o.model, "%s", v); }
         else if (!strcmp(key, "size") || !strcmp(key, "color")) {
             Vec3 v; v.x = (float)atof(strtok(NULL, " \t")); v.y = (float)atof(strtok(NULL, " \t")); v.z = (float)atof(strtok(NULL, " \t"));
             if (key[0] == 's') o.size = v; else o.color = v;
@@ -127,6 +141,13 @@ bool boss_def_load(BossDef *d, const char *path) {
                 else if (!strcmp(k, "clip")) snprintf(m.clip, sizeof m.clip, "%s", v);
                 else if (!strcmp(k, "contact")) m.contact = (float)atof(v);
                 else if (!strcmp(k, "tell")) { m.tell.x = (float)atof(v); m.tell.y = (float)atof(strtok(NULL, " \t")); m.tell.z = (float)atof(strtok(NULL, " \t")); }
+                // --- boss --- the cave boss's own move keys
+                else if (!strcmp(k, "kind")) m.kind = boss_move_kind_from_name(v);
+                else if (!strcmp(k, "p1")) m.p1 = (float)atof(v);
+                else if (!strcmp(k, "p2")) m.p2 = (float)atof(v);
+                else if (!strcmp(k, "p3")) m.p3 = (float)atof(v);
+                else if (!strcmp(k, "cooldown")) m.cooldown = (float)atof(v);
+                else if (!strcmp(k, "band")) { m.min_range = (float)atof(v); m.max_range = (float)atof(strtok(NULL, " \t")); }
                 else SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s:%d unknown move key %s", path, ln, k);
             }
             o.moves[o.nmoves++] = m;

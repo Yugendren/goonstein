@@ -129,6 +129,10 @@ typedef struct Level {
     LevelItem items[LEVEL_MAX_ITEMS]; int nitems;
     Vec3  spawn;      float spawn_yaw;    // player start (yaw in radians)
     Vec3  boss_spawn; float boss_yaw;
+    // --- boss --- `boss_def NAME`: assets/enemies/NAME.txt, the cave boss this level fights (see
+    // src/boss.h). Empty on every level that has no boss, which is all of them but the cave; the
+    // Warden's own def is loaded by game.c regardless and is not this.
+    char  boss_def[64];
     Vec3  arena_min, arena_max;           // fight bounds; the follow camera stays inside
     Vec3  fog_color;  float fog_near, fog_far;
     Vec3  light_dir;  float ambient;  Vec3 light_color;

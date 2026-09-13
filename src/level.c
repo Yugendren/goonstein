@@ -339,6 +339,11 @@ static bool parse_level(Level *out, const char *path) {
             out->boss_spawn = v3(f[0], f[1], f[2]);
             out->boss_yaw = f[3] * DEG2RAD;
 
+        } else if (strcmp(cmd, "boss_def") == 0) {
+            // --- boss --- the enemy file the cave boss is built from
+            if (n != 2) { SDL_Log("level_load:%d: bad boss_def line (want a name)", line_no); continue; }
+            SDL_strlcpy(out->boss_def, tok[1], sizeof out->boss_def);
+
         } else if (strcmp(cmd, "arena") == 0) {
             float f[6];
             if (n != 7 || !parse_floats(tok, 1, 6, f)) { SDL_Log("level_load:%d: bad arena line", line_no); continue; }
@@ -658,6 +663,7 @@ bool level_save(const Level *lv, const char *path) {
             lv->spawn.x, lv->spawn.y, lv->spawn.z, lv->spawn_yaw * (180.0f / PI));
     fprintf(f, "boss  %.3f %.3f %.3f %.3f\n",
             lv->boss_spawn.x, lv->boss_spawn.y, lv->boss_spawn.z, lv->boss_yaw * (180.0f / PI));
+    if (lv->boss_def[0]) fprintf(f, "boss_def %s\n", lv->boss_def);   // --- boss ---
     fprintf(f, "arena %.3f %.3f %.3f %.3f %.3f %.3f\n",
             lv->arena_min.x, lv->arena_min.y, lv->arena_min.z,
             lv->arena_max.x, lv->arena_max.y, lv->arena_max.z);

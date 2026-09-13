@@ -179,7 +179,10 @@ void projectiles_reset(Game *g) {
 
 int projectile_spawn(Game *g, int slot, int def, Vec3 from, Vec3 dir, bool predicted, uint16_t id) {
     Projectiles *ps = &g->projectiles;
-    if (slot < 0 || slot >= NET_MAX_PLAYERS) return -1;
+    // --- boss --- WEAP_BOSS_SLOT is not a player and never will be; it is the owner a fireball
+    // the boss threw carries, so that nothing which loops over the four seats ever finds it and
+    // weapons_trace knows not to let it hit whatever threw it.
+    if ((slot < 0 || slot >= NET_MAX_PLAYERS) && slot != WEAP_BOSS_SLOT) return -1;
     if (def < 0 || def >= g->items.ndefs) return -1;
     const ItemDef *d = &g->items.defs[def];
     if (!d->proj) return -1;
@@ -209,7 +212,11 @@ int projectile_spawn(Game *g, int slot, int def, Vec3 from, Vec3 dir, bool predi
     if (host) {
         p->predicted = false;
         p->id = ps->next_id++;
-        if (ps->next_id == 0) ps->next_id = 1;   // wrapped past 65535: still skip 0
+        // --- boss --- The wire carries thirteen bits of id (the other three are the owner), so the
+        // counter wraps at 8192 rather than at 65536. It has to wrap where the wire wraps or two
+        // live projectiles would share an id on the clients while looking distinct here.
+        if (ps->next_id >= 0x2000u) ps->next_id = 1;   // and 0 stays reserved for "unconfirmed"
+
     } else {
         p->predicted = predicted;
         p->id = predicted ? 0 : id;
@@ -268,9 +275,10 @@ void projectiles_tick(Game *g, float dt) {
             WeapHit wh = weapons_trace(g, p->owner, p->prev, dirn, seglen);
             if (wh.kind == FH_NONE) continue;
 
-            if (wh.kind == FH_PLAYER || wh.kind == FH_ITEM) {
+            if (wh.kind == FH_PLAYER || wh.kind == FH_ITEM || wh.kind == FH_BOSS) {
                 if (host && !p->predicted && d) {
                     if (wh.kind == FH_PLAYER) weapons_hurt_player(g, wh.idx, d->proj_damage, dirn, d->knock);
+                    else if (wh.kind == FH_BOSS) boss_hurt(g, p->owner < NET_MAX_PLAYERS ? p->owner : -1, d->proj_damage, dirn, wh.point);   // --- boss ---
                     else weapons_hurt_item(g, wh.idx, dirn, d->knock, wh.point);
                     // Tell whoever fired it that it arrived. A bullet with travel time cannot put a
                     // hit marker on the screen at the moment the trigger went down, because at that

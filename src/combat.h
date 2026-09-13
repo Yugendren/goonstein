@@ -67,6 +67,21 @@ typedef struct Character {
     bool  scripted_moving; Vec3 move_from, move_to; float move_t, move_dur;
 } Character;
 
+// --- boss --- What a move IS, as opposed to how long it takes. The Warden has one shape of move
+// -- a swing with a windup -- and every one of its four is that shape with different numbers. The
+// cave boss (src/boss.c) has four different shapes, and this is what its state machine switches
+// on. A move with no `kind` line is BMK_SWEEP, which is exactly the Warden's behaviour, so the old
+// fight reads these fields as zero and never notices they arrived.
+typedef enum BossMoveKind {
+    BMK_SWEEP = 0,   // a melee arc in front: what it does when you are close enough to hit
+    BMK_CHARGE,      // a committed run along a line; anything in the corridor goes over
+    BMK_SLAM,        // a radial shockwave half a metre high, which is why you can jump it
+    BMK_VOLLEY,      // slow projectiles thrown at the target, dodgeable by moving
+    BMK_KIND_COUNT
+} BossMoveKind;
+const char *boss_move_kind_name(int k);
+int         boss_move_kind_from_name(const char *s);   // BMK_SWEEP if unknown
+
 typedef struct BossMove {
     char  name[32];
     float windup, active, recovery;  // seconds
@@ -77,6 +92,18 @@ typedef struct BossMove {
     Vec3  tell;                      // telegraph colour
     float weight;                    // selection weight
     char  clip[64]; float contact;   // animation clip and the fraction of it where the hit lands
+    // --- boss --- The cave boss's additions. All zero on a move that does not write them, which
+    // is every move the Warden has.
+    int   kind;                      // BossMoveKind
+    float p1, p2, p3;                // the numbers that kind means:
+                                     //   CHARGE  p1 = m/s, p2 = metres of run, p3 = corridor half-width
+                                     //   SLAM    p1 = metres the ring reaches, p2 = m/s it grows,
+                                     //           p3 = metres of ring height (jump higher than this)
+                                     //   VOLLEY  p1 = projectiles, p2 = seconds between them, p3 unused
+                                     //           (what a volley throws is assets/items/fireball.txt,
+                                     //            looked up by name in boss_level_changed)
+    float cooldown;                  // seconds this move is off the menu after being used
+    float min_range, max_range;      // the band of target distances it may be chosen at (0 0 = any)
 } BossMove;
 
 typedef struct BossDef {
@@ -89,6 +116,20 @@ typedef struct BossDef {
     float stagger_damage_mult;       // player damage multiplier while staggered
     float combo_chance;              // chance to chain straight into another move after recovery
     Vec3  size, color;
+    // --- boss --- The cave boss's additions (src/boss.c). The Warden writes none of them and its
+    // posture bar keeps doing its job; a boss that nobody parries staggers on damage instead, and
+    // these are the two numbers that decides.
+    float stagger_damage;            // damage inside stagger_window that stops it dead; 0 = posture only
+    float stagger_window;            // seconds that damage has to arrive in
+    // Every gun in this game is tuned against a goon's 100-point wind pool: a pistol round is 34
+    // of it and a rifle round is 72. A boss with 600 hp on that scale is four seconds of one
+    // pistol, which is not a boss. This is the one number that reconciles the two -- incoming
+    // damage is multiplied by it before anything else -- and 1 (the Warden's, because it never
+    // writes the line) leaves the old fight exactly as it was.
+    float damage_scale;
+    float aggro_range;               // metres it will cross to reach a target; 0 = the whole level
+    float retarget;                  // seconds between reconsidering who it is angry at
+    char  model[64];                 // assets/characters/NAME.txt; empty = whatever the game loaded
     BossMove moves[16]; int nmoves;
 } BossDef;
 

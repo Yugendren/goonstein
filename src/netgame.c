@@ -9,6 +9,7 @@
 #include "netgame.h"
 #include "weapons.h"
 #include "projectile.h"   // --- projectiles ---
+#include "boss.h"         // --- boss --- the boss rides the snapshot in a section of its own
 #include "debug.h"
 #include <math.h>
 #include <string.h>
@@ -20,7 +21,9 @@
 enum { NRM_JOIN = 1, NRM_ACCEPT = 2, NRM_REJECT = 3, NRM_JOINED = 4, NRM_LEFT = 5, NRM_BYE = 6,
        NRM_ITEM_GRAB = 7, NRM_ITEM_RELEASE = 8,
        // --- weapons ---
-       NRM_WEAP_FIRE = 9, NRM_WEAP_RELOAD = 10, NRM_WEAP_SWAP = 11, NRM_WEAP_REVIVE = 12 };
+       NRM_WEAP_FIRE = 9, NRM_WEAP_RELOAD = 10, NRM_WEAP_SWAP = 11, NRM_WEAP_REVIVE = 12,
+       // --- boss --- everyone goes through the door at once
+       NRM_LEVEL = 13 };
 enum { NET_ENT_PLAYER = 1, NET_ENT_ITEM = 2 };
 
 // --- projectiles --- Projectile entities: 15 bytes each, appended after the items with a count of
@@ -273,13 +276,23 @@ static void write_snapshot(Game *g, int for_slot, uint8_t *out, int *out_len, in
         const Projectile *p = &ps->p[i];
         if (!p->used || p->predicted || !p->id) continue;
         if (b.len + NET_PROJ_BYTES > b.cap) break;
-        nb_u16(&b, (uint16_t)((p->id & 0x3FFFu) | ((unsigned)(p->owner & 3u) << 14)));
+        // --- boss --- Three bits of owner, not two. The fourth value a projectile's owner can now
+        // take is WEAP_BOSS_SLOT (7), the cave boss's fireballs, which belong to nobody seated; ids
+        // lose a bit for it and still run to 8191, which a fifteen-minute run does not approach.
+        nb_u16(&b, (uint16_t)((p->id & 0x1FFFu) | ((unsigned)(p->owner & 7u) << 13)));
         nb_u8(&b, p->kind);
         nb_i16(&b, q_pos(p->pos.x)); nb_i16(&b, q_pos(p->pos.y)); nb_i16(&b, q_pos(p->pos.z));
         nb_i16(&b, q_vel(p->vel.x)); nb_i16(&b, q_vel(p->vel.y)); nb_i16(&b, q_vel(p->vel.z));
         nproj++;
     }
     if (!b.err) out[proj_count_at] = (uint8_t)nproj;
+
+    // --- boss --- Sixteen bytes of boss, last, after everything that can be truncated. It is last
+    // on purpose: the item and projectile passes stop when the packet is full, so putting the boss
+    // behind them would be the one thing that could get squeezed out -- which is why the cap check
+    // below drops the WHOLE section (writing the one "no boss" byte) rather than half of it.
+    if (b.len + BOSS_SNAP_BYTES <= b.cap) boss_net_write(g, &b);
+    else nb_u8(&b, 0);
 
     *out_len = b.err ? 0 : (int)b.len;
 }
@@ -434,8 +447,9 @@ static void read_snapshot(Game *g, const uint8_t *data, int len) {
         Vec3 pp; pp.x = dq_pos(rb_i16(&b)); pp.y = dq_pos(rb_i16(&b)); pp.z = dq_pos(rb_i16(&b));
         Vec3 pv; pv.x = dq_vel(rb_i16(&b)); pv.y = dq_vel(rb_i16(&b)); pv.z = dq_vel(rb_i16(&b));
         if (b.err) return;
-        projectiles_net_sample(g, (uint16_t)(io & 0x3FFFu), kind, (uint8_t)((io >> 14) & 3u), pp, pv, n->now);
+        projectiles_net_sample(g, (uint16_t)(io & 0x1FFFu), kind, (uint8_t)((io >> 13) & 7u), pp, pv, n->now);   // --- boss --- three bits of owner
     }
+    boss_net_read(g, &b);   // --- boss --- last in the packet, the way it was written
     for (int i = 0; i < NET_MAX_PLAYERS; i++)
         if (i != g->local && n->slots[i].active && !seen[i]) { dbg_log("net: slot %d (%s) left", i, n->slots[i].name); unseat(g, i); }
 }
@@ -631,6 +645,7 @@ static void client_reliable(Game *g, const uint8_t *body, int len) {
     if (len < 1) return;
     NetBuf b; nb_init_read(&b, body, (size_t)len);
     uint8_t type = rb_u8(&b);
+    if (SDL_getenv("HOLLOW_REL_TRACE")) dbg_log("TRACE client reliable type %u len %d", type, len);
     if (type == NRM_ACCEPT) {
         uint8_t slot = rb_u8(&b), smax = rb_u8(&b);
         char level[32]; rb_bytes(&b, level, sizeof level); level[sizeof level - 1] = 0;
@@ -646,8 +661,13 @@ static void client_reliable(Game *g, const uint8_t *body, int len) {
         game_snap_camera(g);
         dbg_log("net: accepted as slot %d of %d, level %s", slot, n->slots_max, level);
         SDL_Log("net: accepted as slot %d (level %s)", slot, level);
-        if (n->level_name[0] && strcmp(level, n->level_name) != 0)
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "net: host plays %s, this client loaded %s", level, n->level_name);
+        // --- boss --- A client that came up on a different level follows the host to this one
+        // instead of warning about it and carrying on somewhere else, which is what a client that
+        // joins mid-run -- after the host has already walked through the culvert door -- does.
+        if (level[0] && n->level_name[0] && strcmp(level, n->level_name) != 0) {
+            SDL_Log("net: the host plays %s and this client loaded %s; following the host", level, n->level_name);
+            game_level_change_net(g, level);
+        }
     } else if (type == NRM_JOINED) {
         uint8_t slot = rb_u8(&b); char name[24]; rb_bytes(&b, name, sizeof name); name[sizeof name - 1] = 0;
         if (!b.err && slot < NET_MAX_PLAYERS) dbg_log("net: %s joined as slot %d", name, slot);
@@ -658,6 +678,12 @@ static void client_reliable(Game *g, const uint8_t *body, int len) {
         n->rejected = true;   // --- menu --- the join page turns this into one line on screen
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "net: the host is full");
         dbg_log("net: rejected, the host is full");
+    } else if (type == NRM_LEVEL) {
+        // --- boss --- The host has gone through a door and so has everybody else.
+        char name[32]; rb_bytes(&b, name, sizeof name); name[sizeof name - 1] = 0;
+        if (b.err || !name[0]) return;
+        SDL_Log("net: the host is going to %s", name);
+        game_level_change_net(g, name);
     } else if (type == NRM_BYE) {
         dbg_log("net: the host shut down");
         n->connected = false;
@@ -765,6 +791,23 @@ void netgame_send_weapon_revive(Game *g, int target, bool holding) {
     uint8_t body[4]; NetBuf b; nb_init_write(&b, body, sizeof body);
     nb_u8(&b, NRM_WEAP_REVIVE); nb_u8(&b, (uint8_t)target); nb_u8(&b, holding ? 1 : 0);
     if (!b.err) net_reliable_send(&n->server, body, (uint16_t)b.len);
+}
+
+// --- boss --- The host telling everyone to walk through the door. Broadcast to every seated
+// client; the host runs its own copy of the change through game_level_change, which is what called
+// this, so there is nothing to apply here.
+void netgame_send_level(Game *g, const char *name) {
+    NetGame *n = &g->net;
+    if (n->mode != NM_HOST) return;
+    uint8_t buf[NET_REL_BODY]; NetBuf b; nb_init_write(&b, buf, sizeof buf);
+    nb_u8(&b, NRM_LEVEL);
+    char nm[32]; memset(nm, 0, sizeof nm); snprintf(nm, sizeof nm, "%s", name);
+    nb_bytes(&b, nm, sizeof nm);
+    if (b.err) return;
+    int sent = 0;
+    for (int i = 0; i < NET_MAX_PLAYERS; i++)
+        if (n->slots[i].has_peer && net_reliable_send(&n->slots[i].peer, buf, (uint16_t)b.len)) sent++;
+    dbg_log("net: told %d client(s) to load %s (%d bytes)", sent, name, (int)b.len);
 }
 
 void netgame_send_item_grab(Game *g, uint16_t id) {

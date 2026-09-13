@@ -9,6 +9,7 @@
 // draws the same tracer over the same corpse-free comedy. A client's shot never decides anything.
 #include "game.h"
 #include "weapons.h"
+#include "boss.h"   // --- boss --- the cave boss is a thing a ray can hit and a thing a shot can hurt
 #include "audio.h"
 #include "debug.h"
 #include "projectile.h"
@@ -253,11 +254,25 @@ static void ammo_pickups(Game *g) {
             Item *it = &its->it[i];
             if (!it->used || it->broken || it->held_by >= 0) continue;
             const ItemDef *d = &its->defs[it->def];
-            if (!d->pickup_type[0] || d->pickup_n <= 0) continue;
+            bool rounds = d->pickup_type[0] && d->pickup_n > 0;
+            // --- boss --- A first-aid tin is the same idea with the other pool. It is only worth
+            // picking up when there is wind missing to put back, so a goon at full health walks
+            // over one and leaves it there for whoever needs it -- which is the point of putting
+            // them on the platforms rather than at the door.
+            bool heals = d->pickup_heal > 0 && W(g)->w[slot].wind < WEAP_WIND - 0.5f;
+            if (!rounds && !heals) continue;
             if (v3_len(v3_sub(it->pos, chest)) > AMMO_PICKUP_REACH + c->radius) continue;
-            int got = weapons_reserve_add(g, slot, d->pickup_type, d->pickup_n);
-            dbg_log("ammo: slot %d walked over %d %s round(s) (%d taken, now %d)",
-                    slot, d->pickup_n, d->pickup_type, got, weapons_reserve(g, slot, d->pickup_type));
+            if (rounds) {
+                int got = weapons_reserve_add(g, slot, d->pickup_type, d->pickup_n);
+                dbg_log("ammo: slot %d walked over %d %s round(s) (%d taken, now %d)",
+                        slot, d->pickup_n, d->pickup_type, got, weapons_reserve(g, slot, d->pickup_type));
+            }
+            if (heals) {
+                float before = W(g)->w[slot].wind;
+                W(g)->w[slot].wind = fminf(WEAP_WIND, before + d->pickup_heal);
+                dbg_log("heal: slot %d walked over a %s, wind %.0f -> %.0f",
+                        slot, d->display, (double)before, (double)W(g)->w[slot].wind);
+            }
             items_break(g, i);   // how a thing leaves the level; an ammo box makes a different noise
             break;               // one box a tick a goon: two at once would be one sound over another
         }
@@ -326,6 +341,14 @@ RayHit weapons_trace(Game *g, int shooter, Vec3 from, Vec3 dir, float range) {
         float d = ray_capsule(from, dir, c->pos, c->radius * 1.15f, height, &p);
         if (d >= 0 && d < h.dist) { h.kind = FH_PLAYER; h.idx = i; h.dist = d; h.point = p; h.normal = v3_scale(dir, -1); }
     }
+    // --- boss --- The cave boss, between the goons and the loot. It is checked with the shooter
+    // passed through so a fireball the boss threw itself cannot come back and hit it, and it is not
+    // checked at all on a level that has no boss.
+    if (shooter != WEAP_BOSS_SLOT) {
+        float bd; Vec3 bp;
+        if (boss_ray(g, from, dir, h.dist, &bd, &bp) && bd < h.dist)
+            { h.kind = FH_BOSS; h.idx = 0; h.dist = bd; h.point = bp; h.normal = v3_scale(dir, -1); }
+    }
     // Items. A weapon in somebody's hand is part of them, not a target of its own -- and neither is
     // whatever the shooter is carrying, which hangs 1.2 m in front of their own eye and would
     // otherwise stop every shot they ever fired.
@@ -375,6 +398,22 @@ static void get_up(Game *g, int slot, const char *why) {
     dbg_log("weapon: slot %d got up after %.1f s (%s)", slot, (double)d->t, why);
 }
 
+// --- boss --- Down because something put you down, not because the pool ran out.
+void weapons_force_down(Game *g, int slot, const char *why) {
+    if (slot < 0 || slot >= NET_MAX_PLAYERS || !g->net.slots[slot].active) return;
+    if (W(g)->dn[slot].down) return;
+    dbg_log("weapon: slot %d goes over -- %s", slot, why ? why : "knocked down");
+    knock_down(g, slot);
+}
+
+// --- boss --- Straight back up, wind refilled. get_up already does exactly this; the only reason
+// it is exported under another name is that "revive" through the front door means a mate holding E
+// for a second and a half, and this is not that.
+void weapons_revive_now(Game *g, int slot, const char *why) {
+    if (slot < 0 || slot >= NET_MAX_PLAYERS || !g->net.slots[slot].active) return;
+    get_up(g, slot, why ? why : "put back on its feet");
+}
+
 // Host only. Wind down, shove back, and over you go when it runs out.
 void weapons_hurt_player(Game *g, int slot, float damage, Vec3 dir, float knock) {
     if (slot < 0 || slot >= NET_MAX_PLAYERS || !g->net.slots[slot].active) return;
@@ -386,6 +425,15 @@ void weapons_hurt_player(Game *g, int slot, float damage, Vec3 dir, float knock)
     p->c.flash = 1.0f;
     if (W(g)->dn[slot].down) return;                  // already on the floor: the shove is enough
     w->wind -= damage;
+    // --- boss --- Being hit has to be unmissable, and it has to say WHERE from. One event does
+    // that for every source of damage there is -- a bullet in the back, a shockwave, a fireball --
+    // so there is exactly one place that decides what getting hurt looks like. See boss_hurt_fx.
+    if (damage > 0.5f) {
+        Vec3 src = v3_sub(p->c.pos, v3_scale(v3_norm(v3(dir.x, 0, dir.z)), 3.0f));
+        FireEvent he = { .slot = (uint8_t)slot, .kind = FE_HURT, .hit = FH_NONE,
+                         .pellets = (uint8_t)clampf(damage, 1, 255), .from = src, .to = p->c.pos };
+        weapons_event(g, &he);
+    }
     if (w->wind <= 0.01f) knock_down(g, slot);
     else character_set_anim(&p->c, damage >= 45.0f ? ANIM_HURT_HEAVY : ANIM_HURT);
 }
@@ -482,8 +530,9 @@ static void resolve_fire(Game *g, int slot, Vec3 origin, Vec3 dir) {
         RayHit h = weapons_trace(g, slot, origin, rd, range);
         if (p == 0) first = h;
         if (h.kind == FH_NONE) continue;
-        if (any_hit == FH_NONE || h.kind == FH_PLAYER) any_hit = (uint8_t)h.kind;
+        if (any_hit == FH_NONE || h.kind == FH_PLAYER || h.kind == FH_BOSS) any_hit = (uint8_t)h.kind;
         if (h.kind == FH_PLAYER) weapons_hurt_player(g, h.idx, per, rd, d->knock);
+        else if (h.kind == FH_BOSS) boss_hurt(g, slot, per, rd, h.point);   // --- boss ---
         else if (h.kind == FH_ITEM) weapons_hurt_item(g, h.idx, rd, d->knock, h.point);
     }
     if (any_hit != FH_NONE) ws->hits++; else ws->misses++;

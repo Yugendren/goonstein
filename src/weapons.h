@@ -78,8 +78,22 @@ enum { FE_SWING = 0, FE_SHOT = 1, FE_CLICK = 2, FE_RELOAD = 3, FE_DOWN = 4, FE_U
        // not, so the host sends this after the fact and the shooter gets a hit marker out of it.
        // It carries feedback only -- the damage was applied on the host, and the dust and the thud
        // were played by each machine's own copy of the projectile when it died.
-       FE_IMPACT = 7 };
-enum { FH_NONE = 0, FH_ITEM = 1, FH_PLAYER = 2, FH_WORLD = 3 };
+       FE_IMPACT = 7,
+       // --- boss --- The cave fight's five, all of them one frame of feedback and no state, which
+       // is why they ride this channel rather than the snapshot. See src/boss.h.
+       //   FE_BOSS_ROAR    slot = move id, hit = BossMoveKind (or 200 "hit a wall", 201 "phase two")
+       //   FE_BOSS_HIT     slot = who did it, pellets = damage, hit = 1 when it opened a stagger
+       //   FE_BOSS_STAGGER from = where it stopped
+       //   FE_BOSS_DIE     from = where it fell
+       //   FE_HURT         slot = the goon hurt, pellets = damage, from = where it came from
+       FE_BOSS_ROAR = 8, FE_BOSS_HIT = 9, FE_BOSS_STAGGER = 10, FE_BOSS_DIE = 11, FE_HURT = 12 };
+// --- boss --- FH_BOSS is a fourth thing a ray can meet. It is deliberately last so the three
+// numbers already on the wire keep their meanings.
+enum { FH_NONE = 0, FH_ITEM = 1, FH_PLAYER = 2, FH_WORLD = 3, FH_BOSS = 4 };
+// --- boss --- The "slot" a boss-owned projectile claims. Not a player, never seated, and outside
+// 0..3 so nothing that loops over players ever finds it -- but inside the three bits a projectile's
+// owner gets on the wire (see netgame.c), which is why it is 7 and not 255.
+#define WEAP_BOSS_SLOT 7
 typedef struct FireEvent {
     uint8_t slot, kind, hit, pellets;   // pellets: 1 for a pistol, several for a shotgun
     Vec3    from, to;                   // tracer ends; from == to for anything that is not a shot
@@ -250,6 +264,13 @@ WeapHit weapons_trace(struct Game *g, int shooter, Vec3 from, Vec3 dir, float ra
 // grenade going off nearby. Same wind pool, same knockdown, same no-gore rules as a bullet, so
 // there is exactly one place that decides what being hit means.
 void weapons_hurt_player(struct Game *g, int slot, float damage, Vec3 dir, float knock);
+// --- boss --- Over you go, whatever your wind says. A charge and a shockwave knock you down
+// because that is what they do, not because they happened to empty the pool; this is the same
+// knockdown a bullet causes, reached a different way. A no-op on a goon already on the floor.
+void weapons_force_down(struct Game *g, int slot, const char *why);
+// --- boss --- Back on your feet now, wind refilled: what a solo respawn does instead of waiting
+// out WEAP_DOWN_TIME with nobody there to hold E.
+void weapons_revive_now(struct Game *g, int slot, const char *why);
 void weapons_hurt_item(struct Game *g, int item, Vec3 dir, float knock, Vec3 at);
 
 // ---- bot (weaponbot.c) ----------------------------------------------------------------------

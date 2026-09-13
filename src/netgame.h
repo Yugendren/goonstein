@@ -137,5 +137,9 @@ void netgame_send_weapon_fire(struct Game *g, Vec3 origin, Vec3 dir);
 void netgame_send_weapon_reload(struct Game *g);
 void netgame_send_weapon_swap(struct Game *g);
 void netgame_send_weapon_revive(struct Game *g, int target, bool holding);
+// --- boss --- Host -> every client, reliable: everybody is going through the door to levels/NAME.
+// Reliable because a dropped level change would leave one goon standing in an empty cutting while
+// the other three fight a boss. Only the host ever sends it; see game_level_change.
+void netgame_send_level(struct Game *g, const char *name);
 // Bot client: wander so a screenshot shows movement.
 void netgame_bot_wander(struct Game *g, Input *in);

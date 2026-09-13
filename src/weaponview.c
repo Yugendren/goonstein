@@ -794,6 +794,15 @@ void weapons_event_apply(Game *g, const FireEvent *e) {
     int slot = e->slot < NET_MAX_PLAYERS ? (int)e->slot : -1;
     const ItemDef *d = slot >= 0 ? weap_def(g, ws->w[slot].item) : NULL;
 
+    // --- boss --- The cave fight's own kinds ride this channel; boss.c owns what they look like.
+    // It returns false for anything that is not one of its five, so this is a filter and not a
+    // branch that has to be kept in step with two lists of enum names.
+    if (boss_event_apply(g, e)) {
+        // A hit on the boss is still a hit: the shooter gets the marker they would get off a goon.
+        if (e->kind == FE_BOSS_HIT && slot == g->local) { ws->vm.hitmark = 0.34f; ws->vm.hitmark_solid = true; }
+        return;
+    }
+
     // --- projectiles --- An impact is feedback and nothing else: the machine that owned the
     // projectile already drew the dust and played the thud when it died, and doubling those is
     // worse than missing them. All that is left is the one thing only the host knew.
