@@ -11,13 +11,14 @@
 #
 #     z -152 .. -122   Slack Tide Cove, the west beach                 (trigger cove)
 #     z -118 .. -106   Pelican Pier, the stone mole and the boat       (trigger dock, intro)
+#     z -113 .. -105   the Culvert mouth, cut into the bluff behind it (trigger door:cave)
 #     z -100 ..  -84   Pad One, the helipad on the bluff               (trigger helipad)
 #     z  -84 ..  -56   Villa Ambergris and its courtyard               (trigger compound)
 #     z  -64 ..  -32   The Oval, the pool house and Cabana Row         (trigger pool)
 #     z  -45 ..  -20   The Bunkhouse, staff quarters                   (trigger bunkhouse)
 #     z  -14 ..    6   the saddle and the Cistern water tower          (trigger cistern)
 #     z   34 ..   58   Windward Point, the cliff lookout               (trigger lookout)
-#     z   78 ..  100   Utility Two and the Culvert cutting             (trigger culvert, tunnel)
+#     z   78 ..  100   Utility Two and the Culvert cutting, the back way (trigger culvert, tunnel)
 #     z  102 ..  124   the Court, a bermed rectangle nobody explains   (trigger court)
 #     z  112 ..  140   the Music Room, the striped pavilion            (trigger temple)
 #
@@ -113,6 +114,81 @@ prop models/polyhaven/wooden_lantern_01/wooden_lantern_01_1k.gltf -77.6 1.72 -11
 prop models/polyhaven/ocean_buoy/ocean_buoy_1k.gltf -66 -1.10 -120.4 30 1.0
 prop models/polyhaven/street_lamp_01/street_lamp_01_1k.gltf -58.5 1.39 -114.2 200 1.0 glow 0.30 0.24 0.12
 
+# ================================================================ THE CULVERT MOUTH
+# The seaward end of the Culvert, forty paces off the boat.
+#
+# The tunnel under Goonstein Island has two ends. This is the one you find: a stone-lined cutting
+# driven into the bluff behind the mole, ten metres from where the boat ties up and very nearly
+# straight ahead of where you are looking when you step off it. The other end is the concrete
+# service cutting behind Utility Two, three hundred metres up the island, and it still works -- it
+# is the same door into levels/cave.txt -- but nobody has to walk there any more.
+#
+# The ground is not terrain here: tools/island_terrain.py cuts a 6 x 6.6 m notch out of the bluff
+# down to y = 4.05 (see CUTS, "pier_culvert", which is dug AFTER the roads for the same reason a
+# real one is). Everything below stands on that flat, and the hill closes back over the door in the
+# two and a half metres behind it, which is why nothing is built beyond it. You walk up to the door
+# and the screen fades; what is on the other side is levels/cave.txt.
+
+# the floor: a concrete slab five centimetres over the cut, so the cutting does not have a lawn in it
+block -53.0 3.95 -108.5  6.4 0.30 6.0  concrete_rough  0.96 0.98 1.00 0.5 solid
+# the lining: dressed quay stone either side, the same stone the mole is faced with, because
+# whoever cut this cut it with what was on the barge
+block -53.0 5.60 -111.0  6.4 3.0 1.4  quay_stone  1.18 1.26 1.30 0.55 solid
+block -53.0 5.60 -106.0  6.4 3.0 1.4  quay_stone  1.15 1.24 1.32 0.55 solid
+# a slab roof over the inner four metres. The first two are open to the sky: that gap is what lets
+# the evening in far enough to show you there is a hole here at all.
+block -52.4 7.40 -108.5  5.2 0.6 5.0  quay_stone  0.92 0.99 1.05 0.55 solid
+
+# ---- the rock face, built rather than sculpted ----
+# The bluff here is only four metres of terrain and a heightfield cannot be undercut, so the face
+# the cutting is driven into is blocks: two shoulders of coral rock either side of the opening and a
+# span across the top of it. Tinted apart block to block so it does not read as one grey wall.
+block -55.8 5.40 -112.6  2.2 8.0 3.4  coral_wall  0.80 0.77 0.66 0.45 solid
+block -55.8 6.40 -104.4  2.2 8.0 3.4  coral_wall  0.76 0.73 0.62 0.42 solid
+block -55.8 8.40 -108.5  2.2 2.6 5.0  coral_wall  0.78 0.74 0.63 0.48 solid
+# and the hill over the door, for the same reason: the real ground behind the back wall is a metre
+# and a half of rock and the doorway is three metres tall
+block -48.8 6.60 -108.5  3.0 5.4 6.0  coral_wall  0.74 0.72 0.63 0.44 solid
+
+# ---- the end of the cutting: two jambs, a lintel, and a doorway that is not a doorway ----
+block -50.6 5.60 -110.0  1.2 3.0 0.6  concrete_wall  1.06 1.20 1.32 0.6 solid
+block -50.6 5.60 -107.0  1.2 3.0 0.6  concrete_wall  1.06 1.20 1.32 0.6 solid
+block -50.6 7.35 -108.5  1.2 0.5 2.4  concrete_wall  1.00 1.14 1.26 0.6 solid
+# what is in the doorway: black. Not a wall you can read as concrete, not a hole you can see
+# through -- a flat dark panel the light dies against, so the only thing it tells you is that it is
+# deeper than the lanterns reach. The same panel stands in the doorway at the other end.
+block -50.9 5.60 -108.5  0.5 3.0 2.4  flat  0.020 0.018 0.024 1 solid
+# the steel door itself, swung back against the jamb and clearly not shut any more
+prop models/shapes/box.obj -50.3 4.10 -110.1 -52 1 stretch 0.2 3.0 2.4 tint 0.86 0.58 0.44 tex corrugated 1.5
+prop models/shapes/box.obj -50.6 5.70 -109.5 -52 1 stretch 0.1 0.3 2.0 tint 0.55 0.42 0.26
+
+# ---- the sign ----
+# A 1 m square painted board on the rock beside the opening (tools/make_sign.py). One metre square
+# on integer world coordinates at one repeat per metre is not a coincidence: a block takes its uvs
+# from world space, so a board from z -112 to -111 and y 5 to 6 lands exactly one copy of the
+# texture on its face, with no wrap and nothing cut off.
+block -57.0 5.50 -111.5  0.12 1.0 1.0  sign_culvert  1 1 1 1 pass
+
+# ---- lanterns, and the thing down there that is warm ----
+prop models/polyhaven/wooden_lantern_01/wooden_lantern_01_1k.gltf -55.1 5.90 -110.2 20 1.3 glow 0.75 0.42 0.12
+prop models/polyhaven/wooden_lantern_01/wooden_lantern_01_1k.gltf -55.1 5.90 -106.8 -30 1.3 glow 0.75 0.42 0.12
+light -55.1 6.30 -110.2  1.00 0.62 0.30  9 1.15 flicker 0.28
+light -55.1 6.30 -106.8  1.00 0.62 0.30  9 1.15 flicker 0.28
+light -52.6 5.80 -108.5  0.90 0.80 0.70  8 0.70 flicker 0.10
+light -50.4 5.40 -108.5  1.20 0.42 0.14  7 0.95 flicker 0.40
+emitter ember -50.8 4.60 -108.5  0.4 1.0 1.0  3.0  2.20 0.70 0.20 0.05 2.2
+emitter smoke -51.6 4.40 -108.5  1.2 0.5 1.0  1.6  0.45 0.40 0.38 0.45 3.0
+emitter mist  -53.6 4.40 -108.5  2.2 0.8 2.2  3.0  0.50 0.55 0.60 0.45 4.0
+
+# ---- and the rubbish nobody carried back to the boat ----
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -56.6 3.20 -113.4 40 1.8 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_d.gltf -56.4 4.05 -105.0 200 1.5 tint 0.92 0.88 0.78
+prop models/polyhaven/concrete_road_barrier/concrete_road_barrier_1k.glb -55.6 4.05 -109.9 8 1.0
+prop models/polyhaven/barrel_03/barrel_03_1k.gltf -52.2 4.10 -110.2 -25 1.0
+prop models/polyhaven/wooden_military_crate/wooden_military_crate_1k.gltf -53.4 4.10 -106.6 15 1.0
+prop models/polyhaven/metal_jerrycan/metal_jerrycan_1k.gltf -54.6 4.10 -106.9 130 1.0
+prop models/polyhaven/wooden_ladder/wooden_ladder_1k.gltf -51.2 4.10 -106.6 250 1.0
+
 # ================================================================ PAD ONE, the helipad
 prop models/shapes/cylinder.obj -48 9.96 -92 0 1 stretch 25 0.30 25 tint 0.36 0.38 0.47 tex concrete_rough 0.35
 prop models/shapes/cylinder.obj -48 10.25 -92 0 1 stretch 22 0.06 22 tint 0.44 0.46 0.57 tex concrete_rough 0.4
@@ -123,7 +199,7 @@ prop models/shapes/box.obj -48 10.29 -92 0 1 stretch 6.0 0.06 1.1 tint 0.90 0.90
 # pad edge lights
 prop models/shapes/sphere.obj -60.4 10.21 -92 0 1 stretch 0.3 0.3 0.3 tint 1 1 1 glow 1.8 0.9 0.3
 prop models/shapes/sphere.obj -35.6 10.69 -92 0 1 stretch 0.3 0.3 0.3 tint 1 1 1 glow 1.8 0.9 0.3
-prop models/shapes/sphere.obj -48 10.00 -104.4 0 1 stretch 0.3 0.3 0.3 tint 1 1 1 glow 1.8 0.9 0.3
+prop models/shapes/sphere.obj -48 9.67 -104.4 0 1 stretch 0.3 0.3 0.3 tint 1 1 1 glow 1.8 0.9 0.3
 prop models/shapes/sphere.obj -48 9.9 -79.6 0 1 stretch 0.3 0.3 0.3 tint 1 1 1 glow 1.8 0.9 0.3
 light -48 13.01 -92 1.0 0.70 0.30 20 0.8
 # two blue-roof sheds beside the pad
@@ -472,30 +548,23 @@ npc Bunny goon_d -74 1.60 -112.5 75 island_bunny.txt 3
 
 # ================================================================ THE WALK TO THE CULVERT
 # `route NAME x z ...` is a walkable line through the level, written down (see assets/levels/
-# README.md). This one is the way from the boat to the steel door, and the reason it exists is that
-# the straight line is a trap: the Culvert is cut into the north-east hill, and walking at the door
-# from the pier climbs that hill and puts you ON TOP of the cutting's roof slab, two metres over the
-# doorway and outside the trigger. The way in is round the front and up the island.
+# README.md): not navigation, not a path-finder, just the answer to "which way round does a person
+# actually go", kept in the file that knows. It is named after the trigger it leads to, which is how
+# src/bossbot.c finds it.
 #
-# It is named after the door it leads to (`door:cave`), which is how src/bossbot.c finds it. It was
-# solved rather than guessed: an A* over the heightmap with every solid block, collider and prop
-# collider in this file treated as a wall, the golf-cart roads as cheap ground and steep ground as
-# dear, then thinned to the points where the straight line between them stops being clear. 269 m,
-# nothing in the way, and no step that needs a mantle -- terrain in this engine has no step limit at
-# all (game_ground_character just plants the feet on the heightfield), so every rise on it is walked.
+# It used to be 269 metres long, because the only way into the Culvert was the service cutting
+# behind Utility Two at the far end of the island, and the straight line to it climbs the hill and
+# puts you on TOP of the cutting's roof slab, two metres over the doorway and outside the trigger.
+# That walk was the bug: nobody could find the cave. The cave now opens in the bluff behind the mole
+# (see THE CULVERT MOUTH above) and the route is four points and about fourteen metres of beach
+# gravel. The old door still works -- it is the same `door:cave` -- but it is the back way in now,
+# and the back way in does not need a line written down for it: a route leads to the door you are
+# meant to find, and the objective (src/map.h) points at whichever `door:` trigger is nearer.
 #
-# Legs: off Pelican Pier and up the mole, west of the villa and its wing, north past the Bunkhouse
-# and over the saddle, up the east flank to Windward Point, across to Utility Two's yard, and in
-# through the service shed and down the cutting to the door.
-route door:cave -66 -112  -60 -111  -54 -107                    # off the pier and up the mole
-route door:cave -41 -76  -39 -55  -34 -49  -28 -46              # west of the villa, past the Oval
-route door:cave -20 -35  -14 -29  2 -7                          # past the Bunkhouse and over the saddle
-route door:cave 12 42  18 55  24 63                             # up the east flank to Windward Point
-route door:cave 26 69  27 77  32 80  37 84                      # across to Utility Two's yard
-# The shed is walled on three sides -- its own colliders at z 84.6 and z 94.4 leave one gap, facing
-# east -- so the last approach comes round to x 38 and goes in along z 89.5. Cutting the corner from
-# the yard walks into the south wall, which is exactly what the first version of this route did.
-route door:cave 38 89.5  32 89.5  25 89.5  18 89.5  13 89.5     # in through the shed, down the cutting
+# Legs: off the end of the quay, up the lip of the cut, in between the stone lining, and up to
+# the black panel at the far end.
+route door:cave -62.5 -111.5  -58.5 -110.0                      # off the quay and up the lip of the cut
+route door:cave -54.5 -108.5  -51.5 -108.5                      # in between the lining, up to the door
 
 
 # ================================================================ triggers
@@ -513,6 +582,12 @@ trigger culvert 26 14.76 80 46 33.05 100 once
 # --- boss --- Through the steel door and down: the last two and a half metres of the cutting, in
 # front of the doorway rather than beyond it. Not `once`: coming back up and going down again is
 # allowed, and the cave's own `door:island` trigger is the other half of it.
+#
+# There are TWO of these, both named `door:cave`, because the tunnel has two ends and both of them
+# are a way in. The pier mouth is listed first, so anything that wants "the door" without caring
+# which one -- src/bossbot.c's trigger scan -- gets the near one; the objective and the compass do
+# better than that and point at whichever is nearer to the goon asking (see game_objective).
+trigger door:cave -53.0 4.1 -109.7 -50.9 8.0 -107.3
 trigger door:cave 10.4 16.9 88.3 13.2 21.5 90.7
 trigger tunnel 9 18.50 86 27 27.26 93 once
 trigger court 20 16.93 102 46 28.13 124 once
@@ -575,6 +650,7 @@ prop models/own/palm_b.part 46.32 1.35 -63.08 307.9 1.11
 prop models/own/palm_c.part 12.49 14.49 -84.04 308.1 0.86
 prop models/own/palm_b.part 36.15 1.36 -117.82 224.4 0.90
 prop models/own/palm_a.part 11.12 2.42 -135.52 47.1 1.04
+prop models/own/palm_c.part -16.27 14.64 -96.14 352.6 0.96
 prop models/own/palm_c.part 23.15 16.60 -56.19 346.1 0.81
 prop models/own/palm_a.part -21.62 1.93 12.50 242.3 0.88
 prop models/own/palm_b.part -30.81 1.96 -16.97 293.6 1.03
@@ -589,11 +665,11 @@ prop models/own/palm_a.part 31.42 4.21 -101.25 346.7 1.06
 prop models/own/palm_c.part -5.58 15.73 26.22 14.7 0.99
 prop models/own/palm_a.part 45.69 1.48 -73.51 50.9 0.95
 prop models/own/palm_c.part -18.68 12.13 -27.05 56.9 0.99
-prop models/own/palm_c.part 24.19 17.00 91.31 32.0 0.92
 prop models/own/palm_a.part 20.00 10.47 -77.40 196.4 1.03
 prop models/own/palm_b.part 31.13 2.27 13.27 99.9 1.03
 prop models/own/palm_b.part 4.34 1.37 -142.46 98.0 0.99
 prop models/own/palm_c.part 21.39 16.60 -47.60 241.8 0.99
+prop models/own/palm_b.part -25.56 3.98 -8.51 37.7 0.91
 prop models/own/palm_b.part 10.68 3.92 -128.50 266.3 1.05
 prop models/own/palm_b.part -43.58 1.24 -64.16 71.7 0.96
 prop models/own/palm_c.part -9.22 14.20 -98.79 143.7 0.87
@@ -607,7 +683,6 @@ prop models/own/palm_c.part -15.11 12.07 -104.42 344.5 0.91
 prop models/own/palm_b.part 38.03 1.29 -7.00 324.7 1.04
 prop models/own/palm_c.part 19.91 16.59 -33.14 68.6 0.91
 prop models/own/palm_a.part 9.45 14.54 7.80 264.2 1.05
-prop models/own/palm_a.part -26.14 4.47 -12.53 57.9 1.05
 prop models/own/palm_c.part 41.22 17.00 91.15 82.3 1.03
 prop models/own/palm_c.part -2.48 15.26 -17.82 4.7 0.86
 prop models/own/palm_a.part -1.19 7.91 -120.98 256.7 0.90
@@ -626,18 +701,20 @@ prop models/own/palm_a.part 20.19 7.56 -111.12 146.8 0.96
 prop models/own/palm_b.part 21.82 3.63 -119.83 53.8 1.05
 prop models/own/palm_c.part -6.44 11.93 -105.96 152.8 1.05
 prop models/own/palm_c.part 12.25 16.46 -31.57 209.2 1.03
-prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_h.gltf 25.40 16.48 57.51 329.6 2.02
-prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_a.gltf -15.26 17.14 -38.66 271.2 3.96
+prop models/own/palm_a.part 32.55 16.60 -35.72 179.1 0.96
+prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_a.gltf 15.86 12.93 27.77 175.2 2.83
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf 18.20 18.44 50.75 235.4 3.03
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_a.gltf 9.73 24.76 62.96 358.7 3.32
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf 17.74 9.62 -17.88 146.3 2.62
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_a.gltf 12.92 16.12 33.12 61.1 3.85
+prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_i.gltf 26.58 16.71 59.77 127.0 2.38
+prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_h.gltf 8.48 29.82 97.86 24.5 3.16
+prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_a.gltf 2.97 10.09 -112.24 131.4 2.88
+prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_h.gltf 18.37 9.12 17.84 340.1 3.47
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_i.gltf 27.34 17.89 74.90 163.8 2.61
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_i.gltf -9.69 26.65 74.46 66.6 3.07
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_h.gltf -1.49 18.71 36.49 297.4 3.33
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_a.gltf -14.58 29.79 97.73 153.8 2.48
-prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_h.gltf 20.22 7.83 25.80 105.0 2.08
-prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_h.gltf -12.22 17.28 -32.42 335.9 2.59
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf -9.26 22.07 53.60 42.9 2.24
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_i.gltf 2.38 18.29 -42.97 11.9 2.88
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_a.gltf 32.44 12.75 70.42 273.3 3.12
@@ -646,38 +723,58 @@ prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_a.gltf 11.58
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_h.gltf -18.21 7.78 -5.93 266.1 3.42
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf 12.85 30.49 106.23 30.3 2.41
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_i.gltf 31.33 11.58 55.46 233.3 2.63
+prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_a.gltf -15.26 16.47 -36.91 72.2 2.72
+prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_d.gltf -9.39 18.45 38.64 331.4 2.26
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_i.gltf -13.42 10.32 -112.38 215.1 2.89
-prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf 16.36 10.21 20.17 71.6 2.61
+prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_a.gltf -8.60 12.80 8.27 204.2 3.82
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf 18.75 23.98 67.62 208.7 2.84
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf 11.21 10.95 -109.11 100.5 2.44
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_i.gltf 19.12 14.67 41.59 256.9 1.84
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf 14.20 9.84 -104.95 241.3 2.59
-prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_i.gltf 3.77 10.48 -110.73 75.9 3.11
-prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_i.gltf 13.85 27.01 81.91 331.2 3.00
+prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf -3.83 23.72 61.89 349.4 2.29
+prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf -4.60 9.88 -113.54 208.8 2.54
+prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_h.gltf -20.61 7.61 -13.29 162.6 3.58
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf -31.27 11.33 -101.83 350.0 2.87
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_h.gltf -24.63 12.54 -43.50 217.8 2.04
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_i.gltf 10.66 13.74 -18.25 329.9 3.05
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_i.gltf -15.45 30.05 106.48 318.2 2.20
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_d.gltf -23.91 14.60 -48.95 170.7 2.68
 prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf -11.55 8.95 -118.86 103.0 2.44
-prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_i.gltf -11.22 25.63 68.97 168.7 1.94
-prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_g.gltf 10.51 13.24 -12.97 28.5 3.12
-prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_d.gltf -10.76 11.28 5.73 164.7 2.87
-prop models/polyhaven/cheiridopsis_succulent/cheiridopsis_succulent_d.gltf 22.33 20.52 62.86 171.1 2.91
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf 38.15 0.13 17.75 281.4 1.12 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf -30.58 -0.06 -139.32 230.6 1.58 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_d.gltf -12.64 14.02 27.61 106.5 0.95 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf -30.83 -1.39 128.77 146.6 1.31 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf 8.32 24.20 92.31 66.5 1.33 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_e.gltf 47.18 -0.27 -110.58 47.7 1.34 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_e.gltf -45.77 0.92 -121.38 100.9 1.85 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_d.gltf 42.07 -1.26 15.45 358.2 1.40 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_e.gltf -50.00 1.27 -70.34 10.6 2.07 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -23.12 -0.37 36.20 118.0 1.77 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf 15.37 1.65 143.57 44.6 1.90 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_e.gltf -25.70 -0.09 132.80 59.1 1.36 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -27.96 1.21 124.55 163.5 1.32 tint 0.92 0.88 0.78
+prop models/polyhaven/boulder_01/boulder_01_1k.glb -25.11 7.61 119.46 24.3 1.58 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf 24.45 3.70 139.22 322.6 1.52 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf -19.63 1.60 27.52 101.6 1.23 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -6.34 -0.82 151.46 317.2 1.74 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_e.gltf -57.15 0.07 -65.58 78.0 1.63 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -36.87 -1.42 88.11 74.0 1.65 tint 0.92 0.88 0.78
+prop models/polyhaven/boulder_01/boulder_01_1k.glb 52.00 -0.24 -73.12 46.9 1.59 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf 47.91 -0.62 -29.42 100.0 1.19 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf -48.74 0.32 -48.18 208.7 1.13 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf -39.03 -1.57 -12.70 85.3 1.47 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf -71.99 -0.71 -117.10 165.2 1.14 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf -55.45 2.05 -114.19 291.6 1.31 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf -25.20 -0.88 27.09 111.4 1.62 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf 40.38 0.21 5.33 286.4 1.57 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_d.gltf -29.41 0.94 -125.21 260.2 1.34 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf -30.24 0.45 -2.97 109.8 1.92 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_d.gltf 10.16 -1.89 -151.36 332.1 1.13 tint 0.92 0.88 0.78
+prop models/polyhaven/boulder_01/boulder_01_1k.glb -25.54 0.10 57.35 306.9 2.32 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf -33.14 -0.95 -139.17 30.8 1.51 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf -53.97 0.18 -58.18 339.5 1.51 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf -31.57 11.84 -94.38 133.4 1.74 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_e.gltf 53.65 -0.78 -59.17 16.3 1.21 tint 0.92 0.88 0.78
-prop models/polyhaven/boulder_01/boulder_01_1k.glb -24.24 0.48 60.35 300.6 2.01 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf -23.29 0.20 23.58 58.1 1.01 tint 0.92 0.88 0.78
-prop models/polyhaven/boulder_01/boulder_01_1k.glb 49.43 -1.09 -33.44 347.4 2.49 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf -39.36 -1.11 -17.48 109.0 1.30 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf 50.17 12.09 91.00 165.3 1.49 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_d.gltf -48.74 3.64 -71.39 27.9 1.00 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf 44.51 2.42 71.90 355.2 1.74 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf -64.90 3.75 -99.44 9.7 1.79 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf -34.84 -1.17 109.22 18.0 1.79 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf 32.27 0.38 -125.70 43.9 1.32 tint 0.92 0.88 0.78
-prop models/polyhaven/boulder_01/boulder_01_1k.glb -31.41 0.45 -6.51 237.2 1.60 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf 45.45 1.99 71.67 252.9 1.11 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf -29.61 -1.23 64.07 328.7 1.33 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf 41.22 -1.33 25.34 9.6 1.72 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf 26.72 0.04 -133.59 168.8 1.79 tint 0.92 0.88 0.78
@@ -687,53 +784,42 @@ prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf 43.25 0.12 44.17 
 prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf 2.03 -0.97 -155.10 33.9 1.72 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf -10.60 -0.99 -154.97 163.8 1.43 tint 0.92 0.88 0.78
 prop models/polyhaven/boulder_01/boulder_01_1k.glb -31.20 1.10 90.14 94.3 2.50 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_d.gltf -14.39 9.58 38.21 218.6 1.41 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf -6.37 -0.03 150.24 289.5 1.67 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf -58.72 -0.46 -69.16 227.8 1.57 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf -22.49 -0.91 138.97 223.5 1.13 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf 49.23 -0.51 114.18 34.5 1.10 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf 32.52 16.74 126.78 57.4 1.41 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf -30.24 -0.37 102.36 115.6 1.70 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf 22.31 23.44 99.08 101.4 1.96 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf -20.58 16.84 99.17 307.3 1.59 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf 46.62 0.19 -105.92 221.5 1.45 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -48.82 -0.66 -123.59 225.0 1.17 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf -34.09 5.59 -121.87 337.6 1.21 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf 42.68 -1.18 10.34 149.7 1.51 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf -22.95 18.26 84.37 47.3 1.85 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf -59.87 -0.83 -73.25 133.5 1.98 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_e.gltf 28.63 4.92 -23.51 3.5 1.92 tint 0.92 0.88 0.78
-prop models/polyhaven/boulder_01/boulder_01_1k.glb 16.66 1.78 143.27 311.9 1.60 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf 29.72 -1.37 141.13 347.7 1.96 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf 52.50 -0.45 -74.53 256.8 1.29 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -10.85 0.28 145.45 259.8 1.85 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -15.25 4.07 137.51 179.3 1.04 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf -29.39 -0.90 70.08 100.1 1.81 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_d.gltf 45.79 -1.70 -7.18 153.3 1.34 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf -18.64 14.87 124.41 116.9 1.43 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -35.30 -1.29 121.98 29.4 1.07 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -15.79 17.00 62.47 135.0 1.98 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf 53.52 1.56 95.65 167.9 1.82 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf 44.61 20.43 108.50 132.4 1.65 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf -12.96 8.32 11.09 273.7 1.61 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_e.gltf 43.48 -1.55 0.51 215.5 2.04 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf 40.39 0.53 -12.58 285.2 1.54 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -25.41 -1.77 136.54 284.6 1.30 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_d.gltf 48.47 -2.15 -114.61 9.7 1.16 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_d.gltf 27.39 11.14 -66.75 322.3 1.44 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_e.gltf -17.76 3.29 17.55 241.5 1.62 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf -17.08 4.11 38.58 323.1 1.62 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -27.95 -1.78 52.26 252.4 1.34 tint 0.92 0.88 0.78
 prop models/polyhaven/boulder_01/boulder_01_1k.glb 50.70 -1.35 64.14 235.9 1.54 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf 39.35 2.91 -49.67 329.3 1.32 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -6.11 -2.02 -159.82 276.4 1.47 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf 23.52 0.30 142.21 132.4 1.62 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf 24.38 9.76 39.59 0.8 1.01 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf -14.52 23.01 112.20 221.0 1.06 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf -51.35 0.24 -52.20 257.7 1.38 tint 0.92 0.88 0.78
+prop models/polyhaven/boulder_01/boulder_01_1k.glb 56.74 -2.10 103.67 78.2 2.48 tint 0.92 0.88 0.78
+prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf -39.05 -0.73 -18.73 306.7 1.70 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf -21.01 13.47 79.12 295.8 2.01 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_a.gltf -26.20 6.82 109.07 358.1 1.64 tint 0.92 0.88 0.78
 prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf 55.99 -2.19 -86.96 251.0 1.50 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf 38.72 2.51 48.03 6.2 2.18 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_d.gltf -28.36 -0.50 12.03 190.4 0.89 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf -29.11 2.83 95.62 357.0 1.10 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_e.gltf 18.06 -0.01 -142.09 23.4 1.30 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf -21.97 14.16 104.98 50.8 1.86 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_c.gltf -50.56 0.62 -65.22 214.2 1.70 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_a.gltf -47.35 -1.33 -35.25 346.5 1.78 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_01/rock_moss_set_01_f.gltf 49.53 -1.92 126.43 280.7 1.15 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_e.gltf -30.77 -0.09 80.68 295.4 1.78 tint 0.92 0.88 0.78
-prop models/polyhaven/boulder_01/boulder_01_1k.glb -21.18 3.18 129.27 72.1 1.78 tint 0.92 0.88 0.78
-prop models/polyhaven/rock_moss_set_02/rock_moss_set_02_g.gltf -63.71 7.16 -92.51 174.8 1.07 tint 0.92 0.88 0.78
+prop models/own/bush_a.glb 19.13 24.67 79.83 357.8 0.75
+prop models/own/bush_c.glb -37.77 7.20 -50.61 72.5 1.00
+prop models/own/bush_c.glb 11.66 23.25 54.58 103.0 1.05
+prop models/own/bush_c.glb 20.32 20.61 61.38 3.6 1.09
+prop models/own/bush_b.glb -10.24 17.58 -33.26 149.2 0.75
+prop models/polyhaven/shrub_02/shrub_02_d.gltf 8.10 14.50 -6.23 312.0 1.58
+prop models/own/bush_c.glb -8.89 30.89 107.42 169.3 0.91
+prop models/own/bush_b.glb -17.79 5.81 2.28 174.1 0.90
+prop models/own/bush_b.glb 23.46 20.74 65.41 159.0 0.86
+prop models/own/bush_b.glb -3.68 30.87 106.69 167.9 1.04
 prop models/own/bush_c.glb -8.91 29.72 96.11 14.4 0.86
 prop models/own/bush_c.glb 12.99 31.31 117.69 182.7 1.10
 prop models/own/bush_c.glb -42.86 4.12 -113.18 289.7 0.75
@@ -741,11 +827,10 @@ prop models/own/bush_c.glb 16.43 23.97 62.23 249.9 0.81
 prop models/own/bush_a.glb -36.66 15.20 -30.38 149.5 0.89
 prop models/own/bush_c.glb -11.52 30.11 117.09 205.5 0.99
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -0.60 29.99 97.48 162.0 1.90
-prop models/own/bush_b.glb -3.45 22.68 58.94 310.1 0.90
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 0.21 14.93 10.55 66.1 1.05
-prop models/own/bush_c.glb 10.48 15.61 15.28 358.6 1.03
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 47.68 16.73 89.49 13.4 1.34
 prop models/own/bush_c.glb -2.22 19.15 -46.36 103.7 0.81
-prop models/own/bush_b.glb -15.98 18.19 -43.97 7.7 1.03
+prop models/own/bush_a.glb -10.09 11.33 15.10 51.7 1.01
+prop models/own/bush_b.glb 2.87 30.88 108.07 3.6 0.98
 prop models/own/bush_b.glb -18.46 18.75 -50.39 62.6 0.78
 prop models/own/bush_b.glb -3.95 18.39 51.91 173.2 0.84
 prop models/own/bush_b.glb 6.38 17.85 31.11 250.5 0.99
@@ -753,52 +838,46 @@ prop models/polyhaven/shrub_02/shrub_02_c.gltf 5.41 30.95 109.60 246.7 1.32
 prop models/own/bush_b.glb 14.55 24.35 60.27 240.7 0.92
 prop models/own/bush_c.glb 26.93 18.19 66.87 25.3 1.14
 prop models/own/bush_b.glb 25.26 6.10 -18.05 230.1 0.94
-prop models/own/bush_b.glb -17.56 9.62 -15.47 14.7 0.99
-prop models/own/bush_b.glb 7.67 30.43 102.40 62.5 0.97
 prop models/own/bush_b.glb 13.80 29.47 98.55 27.2 0.78
 prop models/own/bush_b.glb -13.18 28.92 90.71 339.3 0.83
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 7.13 16.87 22.42 46.4 1.68
 prop models/own/bush_a.glb -10.00 23.27 59.20 115.2 0.84
-prop models/own/bush_a.glb 8.01 29.84 97.51 108.4 0.75
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -7.76 31.00 132.49 158.0 1.51
 prop models/own/bush_c.glb -15.99 28.37 83.83 75.7 0.84
 prop models/own/bush_a.glb 11.42 9.41 -114.62 352.8 0.90
 prop models/own/bush_b.glb -18.08 19.69 47.04 115.0 0.79
 prop models/own/bush_c.glb -6.81 30.32 100.38 177.8 0.94
-prop models/own/bush_c.glb 9.26 13.90 -4.28 334.1 0.78
+prop models/own/bush_c.glb 13.59 12.63 22.07 187.7 0.92
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 34.33 16.45 76.88 258.0 1.42
 prop models/polyhaven/shrub_02/shrub_02_b.gltf -0.44 17.83 30.59 31.2 1.03
-prop models/polyhaven/shrub_02/shrub_02_c.gltf -28.20 16.07 -92.04 244.0 1.32
-prop models/own/bush_c.glb -15.49 28.78 89.00 245.0 1.03
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -6.51 18.69 40.69 71.7 1.19
-prop models/own/bush_b.glb -33.31 8.37 -113.79 124.1 0.71
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 4.63 16.27 20.75 10.0 1.20
+prop models/polyhaven/shrub_02/shrub_02_b.gltf 28.97 17.00 93.40 27.2 1.57
+prop models/own/bush_a.glb 34.16 9.53 62.72 99.9 1.08
+prop models/own/bush_a.glb 12.92 12.81 17.40 25.2 0.90
 prop models/own/bush_b.glb -19.65 18.15 -54.94 125.8 1.07
 prop models/polyhaven/shrub_02/shrub_02_b.gltf 3.79 17.82 31.95 330.1 1.15
-prop models/own/bush_b.glb -10.47 19.13 -50.55 83.8 0.84
+prop models/own/bush_b.glb -13.71 9.62 -1.76 125.8 0.85
 prop models/own/bush_b.glb 3.99 15.26 12.37 11.6 0.97
 prop models/own/bush_a.glb -8.65 18.36 -43.92 169.5 0.79
 prop models/own/bush_a.glb -39.67 4.65 -117.24 57.9 0.72
-prop models/own/bush_b.glb -22.81 4.22 -3.65 77.1 0.83
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -33.82 17.79 -63.59 273.9 1.05
 prop models/polyhaven/shrub_02/shrub_02_c.gltf -38.40 15.20 -28.03 21.6 1.16
 prop models/own/bush_c.glb 20.67 22.56 125.18 330.6 0.86
 prop models/own/bush_a.glb -2.97 17.96 -86.13 35.4 1.09
-prop models/own/bush_a.glb -23.80 20.50 47.87 136.8 0.71
-prop models/own/bush_c.glb 29.13 5.67 -69.92 74.3 1.01
+prop models/own/bush_c.glb -37.63 4.47 -120.96 213.8 0.96
+prop models/own/bush_a.glb -9.63 25.39 67.48 225.0 0.78
 prop models/own/bush_b.glb -17.83 28.55 87.53 339.3 0.77
 prop models/polyhaven/shrub_02/shrub_02_a.gltf 24.72 22.00 118.49 335.0 1.45
 prop models/own/bush_a.glb 2.60 18.12 -71.42 326.0 0.90
-prop models/own/bush_a.glb -14.64 18.97 -51.12 165.1 1.03
+prop models/own/bush_b.glb -10.08 19.09 -49.85 75.9 1.04
 prop models/own/bush_b.glb 25.33 22.00 106.68 82.0 0.75
 prop models/own/bush_c.glb 15.88 11.98 -71.92 84.2 0.92
 prop models/polyhaven/shrub_02/shrub_02_b.gltf -1.67 18.00 -82.42 213.3 1.49
 prop models/own/bush_a.glb 7.43 31.00 117.00 157.3 0.98
 prop models/polyhaven/shrub_02/shrub_02_c.gltf 10.47 26.11 74.27 144.2 0.95
 prop models/own/bush_c.glb 40.50 2.60 -66.14 92.2 0.97
-prop models/own/bush_c.glb -19.21 8.44 -13.05 312.4 1.11
-prop models/own/bush_b.glb -5.53 14.85 8.54 266.2 0.84
+prop models/own/bush_c.glb 8.57 15.52 13.76 196.3 0.88
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -4.81 18.00 -76.39 168.4 1.18
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 34.22 22.00 119.37 98.1 1.00
+prop models/own/bush_b.glb 33.87 7.89 49.40 35.5 0.90
 prop models/polyhaven/shrub_02/shrub_02_b.gltf -9.81 19.51 46.79 302.3 1.50
 prop models/own/bush_c.glb -32.92 7.57 -46.14 60.2 0.82
 prop models/own/bush_b.glb -9.19 29.03 90.61 33.4 0.99
@@ -806,34 +885,27 @@ prop models/own/bush_a.glb -24.98 14.74 -37.15 158.6 1.09
 prop models/polyhaven/shrub_02/shrub_02_a.gltf -43.86 10.00 -103.19 121.3 1.41
 prop models/polyhaven/shrub_02/shrub_02_a.gltf 2.53 30.68 103.87 75.2 1.25
 prop models/polyhaven/shrub_02/shrub_02_b.gltf 3.53 18.03 -66.88 41.4 1.34
-prop models/own/bush_b.glb 26.55 5.06 33.70 44.0 0.96
-prop models/own/bush_c.glb -8.74 30.85 106.68 125.2 0.75
-prop models/own/bush_b.glb -19.45 4.10 4.91 327.7 0.98
+prop models/own/bush_c.glb -15.12 18.99 -50.36 107.4 0.77
 prop models/own/bush_c.glb -36.33 6.98 -114.57 154.5 1.02
-prop models/own/bush_b.glb -51.62 8.56 -106.44 223.7 0.96
+prop models/own/bush_b.glb 10.12 27.08 79.76 197.1 0.94
 prop models/polyhaven/shrub_02/shrub_02_b.gltf 19.18 22.46 108.14 228.4 1.19
 prop models/own/bush_a.glb 6.78 21.54 49.30 128.4 0.97
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 4.39 28.18 84.76 89.2 1.57
 prop models/own/bush_b.glb 32.99 10.99 65.18 7.8 1.07
 prop models/own/bush_a.glb 2.14 20.40 45.82 65.6 0.95
-prop models/polyhaven/shrub_02/shrub_02_a.gltf 30.41 21.97 124.20 222.4 1.23
+prop models/own/bush_c.glb -11.71 10.56 1.55 160.7 0.84
 prop models/own/bush_b.glb 39.98 2.55 -62.26 216.9 0.77
-prop models/own/bush_b.glb -7.03 18.94 -48.85 271.9 0.81
-prop models/polyhaven/shrub_02/shrub_02_c.gltf 17.86 26.16 75.40 302.9 1.33
-prop models/own/bush_b.glb -5.30 25.53 67.69 158.5 0.96
-prop models/own/bush_b.glb 37.56 22.00 113.32 27.9 0.89
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -36.27 5.91 -44.66 204.6 1.49
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -0.05 31.00 116.09 82.9 1.15
+prop models/own/bush_b.glb 24.70 5.94 33.01 127.0 1.02
+prop models/own/bush_b.glb 25.52 14.23 50.23 181.0 0.79
 prop models/own/bush_b.glb -57.49 10.00 -93.54 324.1 0.97
-prop models/own/bush_a.glb 11.96 22.88 53.24 340.0 0.90
+prop models/own/bush_c.glb -17.53 16.67 -42.01 101.4 1.14
+prop models/polyhaven/shrub_02/shrub_02_b.gltf -27.48 17.12 -54.86 84.1 1.56
 prop models/own/bush_c.glb -8.66 18.83 32.50 286.7 1.10
-prop models/own/bush_c.glb 11.32 29.86 99.63 332.4 0.93
-prop models/own/bush_b.glb -25.42 2.93 -3.22 108.9 1.00
 prop models/own/bush_c.glb 2.69 18.08 -82.07 318.9 0.89
 prop models/polyhaven/shrub_02/shrub_02_a.gltf 11.72 31.16 111.53 263.4 0.96
 prop models/own/bush_b.glb -5.60 17.86 -86.05 304.8 0.71
 prop models/own/bush_b.glb 15.90 14.86 37.36 99.8 0.75
-prop models/polyhaven/shrub_02/shrub_02_c.gltf -59.91 9.99 -99.73 356.8 1.02
+prop models/own/bush_a.glb 6.63 30.67 103.85 24.1 1.00
 prop models/own/bush_a.glb -4.42 30.36 98.69 118.8 0.79
 prop models/polyhaven/shrub_02/shrub_02_a.gltf -0.96 27.94 81.62 103.4 1.17
 prop models/own/bush_c.glb -11.95 18.15 -43.31 78.2 0.98
@@ -842,15 +914,20 @@ prop models/own/bush_a.glb 14.02 29.88 101.34 347.2 0.99
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 32.17 16.60 -46.04 295.8 1.32
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 4.16 17.38 -63.60 335.2 1.35
 prop models/own/bush_b.glb 11.74 11.66 2.22 207.5 0.95
+prop models/own/bush_a.glb 8.63 14.20 -3.65 110.9 0.81
+prop models/own/bush_a.glb 16.60 2.10 -131.56 296.9 1.02
 prop models/own/bush_a.glb 25.89 13.12 47.31 250.2 0.94
 prop models/polyhaven/shrub_02/shrub_02_d.gltf 4.19 22.52 54.60 232.9 1.65
 prop models/own/bush_a.glb -2.64 25.84 68.70 310.3 1.10
-prop models/own/bush_c.glb 6.96 14.47 -6.16 197.5 1.12
+prop models/polyhaven/shrub_02/shrub_02_d.gltf -36.77 5.64 -44.68 179.7 1.50
+prop models/own/bush_a.glb -15.81 6.50 5.52 289.3 0.77
 prop models/own/bush_b.glb 14.45 12.35 -97.07 184.4 0.96
 prop models/polyhaven/shrub_02/shrub_02_d.gltf 32.07 22.00 116.71 29.1 1.53
+prop models/own/bush_b.glb -17.22 17.70 -45.19 57.7 0.87
 prop models/polyhaven/shrub_02/shrub_02_a.gltf 4.76 23.08 58.36 139.2 1.50
 prop models/own/bush_c.glb -20.72 17.75 -84.55 86.8 0.87
-prop models/own/bush_a.glb 13.15 12.35 14.76 256.8 1.04
+prop models/own/bush_b.glb -24.71 4.86 -17.70 225.8 0.75
+prop models/own/bush_b.glb 8.00 30.95 109.24 152.5 1.00
 prop models/own/bush_c.glb 11.82 22.11 49.95 91.1 1.15
 prop models/polyhaven/shrub_02/shrub_02_d.gltf 16.18 26.19 72.46 308.9 1.47
 prop models/own/bush_c.glb -5.59 6.40 -125.99 225.3 1.14
@@ -858,9 +935,10 @@ prop models/own/bush_b.glb 5.69 16.09 18.18 319.0 0.81
 prop models/own/bush_c.glb 9.95 16.34 23.20 135.1 0.91
 prop models/own/bush_a.glb 15.73 16.60 -37.86 288.9 0.86
 prop models/polyhaven/shrub_02/shrub_02_b.gltf 2.74 21.38 48.55 49.7 1.45
-prop models/own/bush_b.glb 33.95 9.63 61.82 9.6 0.86
+prop models/own/bush_c.glb 4.22 2.26 -135.10 82.5 1.09
 prop models/own/bush_c.glb -31.69 15.20 -35.69 224.1 1.07
-prop models/own/bush_b.glb -13.95 28.50 86.30 284.2 0.74
+prop models/own/bush_a.glb -7.25 18.83 -51.19 24.7 1.03
+prop models/own/bush_b.glb -11.22 30.49 103.78 30.5 0.94
 prop models/polyhaven/shrub_02/shrub_02_d.gltf -13.51 18.34 -54.07 250.9 1.08
 prop models/polyhaven/shrub_02/shrub_02_c.gltf 0.90 18.00 -78.66 108.3 0.89
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -21.49 13.53 -39.30 156.0 1.30
@@ -868,41 +946,35 @@ prop models/polyhaven/shrub_02/shrub_02_a.gltf 27.50 21.80 101.35 131.2 1.20
 prop models/own/bush_b.glb 43.36 17.00 79.28 61.1 0.82
 prop models/own/bush_b.glb 2.16 16.54 22.70 234.2 1.05
 prop models/own/bush_c.glb 28.48 10.16 44.44 87.4 1.11
-prop models/own/bush_b.glb -13.78 9.75 -2.77 104.3 0.87
+prop models/own/bush_a.glb -11.39 17.94 -40.55 77.5 1.07
 prop models/polyhaven/shrub_02/shrub_02_d.gltf 29.74 16.60 -43.77 245.2 1.28
-prop models/own/bush_a.glb 34.86 21.97 123.25 337.6 0.92
+prop models/own/bush_a.glb -60.20 10.00 -90.85 107.9 0.91
 prop models/own/bush_a.glb -7.53 18.00 -72.00 172.9 0.89
-prop models/own/bush_c.glb 24.28 15.35 51.85 92.6 0.85
-prop models/own/bush_c.glb -6.24 18.07 -37.78 3.5 0.97
 prop models/own/bush_a.glb -30.52 10.28 -112.08 14.6 1.10
 prop models/own/bush_c.glb -25.29 18.00 -60.19 11.3 1.06
-prop models/own/bush_b.glb -17.49 6.67 0.81 78.2 1.05
-prop models/polyhaven/shrub_02/shrub_02_b.gltf 7.67 30.81 107.83 31.0 1.34
-prop models/own/bush_b.glb -37.82 6.77 -112.23 192.4 0.77
+prop models/own/bush_a.glb 1.56 18.00 -74.43 30.3 0.85
 prop models/own/bush_a.glb 14.38 16.60 -45.58 221.3 0.98
 prop models/own/bush_b.glb -50.39 9.92 -99.06 77.1 0.99
 prop models/own/bush_a.glb -28.03 15.20 -36.52 319.9 1.06
 prop models/polyhaven/shrub_02/shrub_02_d.gltf 4.85 19.30 38.74 331.6 1.53
 prop models/own/bush_a.glb -10.93 28.19 82.58 173.3 1.08
-prop models/own/bush_a.glb 8.18 10.16 -113.98 357.2 0.70
+prop models/own/bush_a.glb 22.10 16.73 54.00 189.0 0.85
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -1.64 18.00 -68.61 90.0 1.66
 prop models/own/bush_a.glb -6.02 18.81 -44.19 38.3 0.70
-prop models/polyhaven/shrub_02/shrub_02_c.gltf 2.90 18.08 -84.70 318.4 1.28
-prop models/own/bush_a.glb -42.62 1.83 -122.09 200.6 1.03
+prop models/polyhaven/shrub_02/shrub_02_c.gltf -12.35 18.00 -78.20 291.3 1.26
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 41.18 21.96 123.18 150.2 1.40
 prop models/own/bush_b.glb -7.95 18.07 -40.98 126.8 0.89
 prop models/own/bush_a.glb 24.21 17.88 84.27 175.3 0.97
-prop models/own/bush_c.glb -4.82 24.48 63.99 301.8 0.83
+prop models/own/bush_b.glb -34.18 8.42 -49.25 325.6 0.93
 prop models/own/bush_c.glb 30.54 9.61 48.04 30.3 0.77
-prop models/own/bush_a.glb -57.53 2.37 -113.76 194.2 1.01
-prop models/own/bush_b.glb -8.30 19.04 36.89 40.6 0.77
-prop models/polyhaven/shrub_02/shrub_02_c.gltf 4.37 17.02 26.51 166.6 1.00
 prop models/own/bush_a.glb 21.72 7.41 -2.88 150.2 0.95
-prop models/own/bush_a.glb -12.99 27.88 80.17 42.2 0.76
+prop models/own/bush_b.glb 4.26 18.04 -85.35 9.7 0.96
 prop models/own/bush_b.glb 25.94 22.00 116.01 104.8 0.88
 prop models/own/bush_b.glb 34.32 22.00 111.14 301.4 0.87
-prop models/own/bush_c.glb 0.26 18.00 -75.28 255.7 0.90
+prop models/own/bush_a.glb -18.84 6.22 -0.42 128.1 0.71
+prop models/polyhaven/shrub_02/shrub_02_c.gltf 24.15 21.89 125.74 1.1 1.32
 prop models/own/bush_a.glb -3.85 19.07 42.78 275.6 1.01
-prop models/own/bush_c.glb 15.11 12.66 25.64 300.5 0.88
+prop models/own/bush_c.glb -12.17 28.50 86.81 334.2 0.85
 prop models/own/bush_b.glb -42.53 8.60 -106.46 212.7 0.92
 prop models/own/bush_a.glb -9.06 24.64 63.37 203.2 1.09
 prop models/own/bush_b.glb 31.75 8.36 45.64 268.9 1.10
@@ -910,556 +982,507 @@ prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -55.46 10.0
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 8.27 31.00 123.99 163.4 1.52
 prop models/own/bush_c.glb -6.74 29.58 93.39 292.5 0.81
 prop models/own/bush_c.glb -17.23 18.00 -80.18 213.9 0.77
-prop models/own/bush_b.glb -5.42 15.68 32.58 206.3 0.87
+prop models/own/bush_a.glb 37.79 22.00 114.91 29.3 0.81
 prop models/polyhaven/shrub_02/shrub_02_a.gltf 10.56 16.60 -39.68 282.2 1.40
 prop models/polyhaven/shrub_02/shrub_02_b.gltf -21.43 13.20 -34.25 52.2 1.03
 prop models/own/bush_a.glb -48.06 9.99 -97.14 236.5 1.02
-prop models/own/bush_c.glb 11.10 14.01 18.41 3.2 1.03
-prop models/own/bush_b.glb -19.65 16.50 -89.47 300.9 0.90
-prop models/own/bush_c.glb -1.50 30.81 106.25 304.9 0.82
+prop models/own/bush_c.glb -19.45 4.09 4.75 0.4 0.97
 prop models/own/bush_a.glb 31.90 22.00 112.48 3.4 1.08
 prop models/own/bush_a.glb 10.80 12.22 -1.06 205.2 1.00
 prop models/own/bush_c.glb -8.82 18.23 -54.26 21.1 0.72
 prop models/own/bush_a.glb -48.42 10.00 -93.53 25.2 0.70
-prop models/polyhaven/shrub_02/shrub_02_b.gltf 6.97 15.47 13.49 308.3 1.32
-prop models/own/bush_c.glb 13.30 23.44 55.57 238.3 0.91
-prop models/own/bush_b.glb 29.19 22.00 120.67 223.7 0.75
-prop models/own/bush_c.glb -40.58 6.69 -109.48 76.0 1.14
+prop models/polyhaven/shrub_02/shrub_02_b.gltf -61.89 2.54 -107.51 312.9 1.25
 prop models/own/bush_a.glb -5.85 27.80 79.78 179.6 1.04
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 1.99 26.70 75.62 170.2 1.68
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 5.62 25.51 67.96 185.5 1.40
-prop models/own/bush_c.glb -5.66 29.14 90.07 350.2 1.09
+prop models/own/bush_a.glb 12.80 23.98 58.22 335.3 0.94
+prop models/own/bush_b.glb -53.55 10.00 -82.21 141.2 1.02
+prop models/own/bush_a.glb 6.45 11.41 -106.66 65.9 0.81
 prop models/own/bush_a.glb 8.18 19.10 36.49 119.3 1.01
-prop models/own/bush_b.glb -7.99 30.40 109.46 33.6 0.93
-prop models/own/bush_a.glb -6.36 22.26 58.17 196.2 0.86
-prop models/own/bush_c.glb -35.43 7.20 -47.89 308.3 0.81
 prop models/own/bush_a.glb -50.32 10.00 -85.93 148.0 1.08
-prop models/own/bush_c.glb -1.50 9.90 -112.67 208.2 1.01
-prop models/own/bush_a.glb 4.13 31.00 121.48 111.5 0.92
 prop models/own/bush_a.glb -2.53 18.90 -41.92 276.0 0.74
 prop models/own/bush_a.glb -9.65 28.40 85.74 61.0 0.74
 prop models/own/bush_b.glb -4.36 26.66 74.21 356.8 0.86
-prop models/own/bush_b.glb -24.45 4.95 -18.38 308.7 0.88
 prop models/own/bush_a.glb -21.20 17.98 -80.21 316.3 0.73
-prop models/own/bush_a.glb 4.55 17.48 -59.87 320.7 0.76
+prop models/own/bush_a.glb 25.01 14.94 54.61 172.1 1.07
+prop models/polyhaven/shrub_02/shrub_02_a.gltf 0.98 19.93 41.40 26.4 0.99
+prop models/own/bush_a.glb 21.88 6.88 24.54 56.7 0.95
+prop models/own/bush_a.glb 32.06 5.06 -69.76 159.6 1.09
+prop models/own/bush_b.glb 2.34 11.12 -106.66 0.6 0.97
 prop models/own/bush_a.glb -0.51 11.21 -107.38 218.9 0.91
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 7.49 19.58 40.15 15.2 1.16
-prop models/own/bush_a.glb 23.11 22.10 70.98 100.3 0.99
+prop models/own/bush_c.glb 8.31 14.87 -13.36 193.6 0.95
 prop models/own/bush_c.glb 1.66 17.32 28.35 264.8 1.00
-prop models/own/bush_a.glb -37.36 7.62 -51.26 102.5 1.02
+prop models/own/bush_b.glb 0.50 15.00 11.53 32.8 0.88
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -20.12 18.00 -76.82 238.7 1.57
+prop models/polyhaven/shrub_02/shrub_02_b.gltf 0.31 18.05 -84.51 169.7 1.35
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -9.63 18.00 -74.26 15.9 1.61
 prop models/polyhaven/shrub_02/shrub_02_a.gltf 23.02 22.00 121.59 248.2 1.17
 prop models/own/bush_b.glb -5.79 28.52 85.87 339.6 1.09
 prop models/own/bush_b.glb -10.16 29.44 93.42 293.8 0.98
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -1.16 17.99 -63.72 20.2 1.38
 prop models/own/bush_c.glb 40.61 2.69 -59.13 286.1 0.83
-prop models/own/bush_c.glb -16.36 10.11 -13.14 154.5 0.76
-prop models/own/bush_b.glb -17.99 13.76 -34.28 63.4 0.82
 prop models/polyhaven/shrub_02/shrub_02_a.gltf -24.61 17.74 -55.39 330.6 1.28
 prop models/own/bush_b.glb -39.27 2.32 -124.08 242.5 0.87
-prop models/own/bush_c.glb -39.70 10.00 -102.83 99.9 0.98
-prop models/polyhaven/shrub_02/shrub_02_c.gltf -46.19 10.00 -84.64 164.9 0.96
+prop models/own/bush_b.glb 8.21 14.75 -9.60 236.6 0.80
 prop models/own/bush_b.glb 23.11 14.51 46.43 25.3 1.07
-prop models/own/bush_b.glb -57.63 10.00 -90.68 219.0 1.06
-prop models/own/bush_a.glb 21.95 22.00 109.86 111.5 0.90
-prop models/own/bush_a.glb -33.95 17.73 -71.29 169.4 0.98
-prop models/own/bush_b.glb -16.06 18.97 -48.64 294.2 0.96
+prop models/own/bush_a.glb -40.85 5.98 -110.59 55.2 1.10
+prop models/own/bush_c.glb -5.45 25.49 67.43 127.4 0.91
+prop models/own/bush_c.glb -38.43 6.34 -112.72 204.5 1.02
+prop models/own/bush_b.glb -2.50 30.71 102.84 164.1 0.91
+prop models/own/bush_a.glb -5.74 29.23 90.48 29.9 1.10
 prop models/own/bush_c.glb -14.23 18.00 -75.32 103.4 1.15
 prop models/own/bush_b.glb 23.54 7.12 -20.06 313.3 0.74
 prop models/own/bush_c.glb 38.66 17.00 83.64 255.7 0.72
 prop models/own/bush_b.glb 28.34 17.04 96.27 149.1 0.72
 prop models/own/bush_a.glb -17.48 18.00 -60.33 224.7 0.80
+prop models/own/bush_c.glb 21.64 7.18 28.43 95.9 0.76
+prop models/own/bush_b.glb 1.06 31.00 120.70 302.2 0.83
 prop models/own/bush_c.glb -41.99 10.00 -100.85 20.5 1.14
-prop models/own/bush_a.glb -16.31 6.17 5.51 258.5 0.91
-prop models/own/bush_b.glb -0.91 21.94 52.00 100.7 0.97
 prop models/own/bush_c.glb -12.77 17.70 49.77 125.3 0.86
-prop models/own/bush_c.glb 9.81 23.25 55.71 210.9 0.73
-prop models/own/bush_c.glb 6.04 20.02 43.63 276.4 1.11
-prop models/polyhaven/shrub_02/shrub_02_b.gltf -7.27 19.17 46.01 359.8 1.22
-prop models/own/bush_a.glb -42.43 2.92 -119.13 224.7 1.05
-prop models/polyhaven/shrub_02/shrub_02_c.gltf 32.90 17.02 79.42 42.9 1.20
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 32.40 17.04 83.02 3.1 1.63
-prop models/polyhaven/shrub_02/shrub_02_c.gltf 5.22 29.77 94.87 113.8 1.32
+prop models/polyhaven/shrub_02/shrub_02_c.gltf 23.22 22.00 112.25 317.6 1.04
+prop models/own/bush_a.glb -31.70 8.39 -117.19 357.6 1.09
 prop models/own/bush_a.glb 36.74 6.78 57.46 157.2 1.09
+prop models/own/bush_c.glb -13.12 28.00 80.84 328.1 1.02
 prop models/own/bush_b.glb 16.45 23.39 57.86 232.7 1.09
 prop models/own/bush_c.glb -26.54 17.97 -78.13 69.5 0.81
 prop models/own/bush_a.glb -25.00 13.94 -30.37 249.6 1.01
 prop models/own/bush_a.glb -28.94 11.14 -48.70 131.0 1.09
+prop models/own/bush_c.glb 24.36 5.29 26.65 327.1 0.81
+prop models/own/bush_c.glb 2.68 27.18 78.52 325.0 0.95
 prop models/own/bush_c.glb 29.71 7.89 41.76 259.2 1.11
 prop models/polyhaven/shrub_02/shrub_02_c.gltf 29.72 21.99 104.73 323.7 0.94
-prop models/own/bush_c.glb -6.03 18.54 -53.01 180.4 0.77
 prop models/own/bush_c.glb -9.27 17.82 -36.80 204.5 0.76
-prop models/own/bush_a.glb -3.38 30.76 103.18 39.4 0.94
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -2.06 31.00 119.22 201.4 1.50
 prop models/own/bush_a.glb 22.97 22.00 115.24 305.4 0.80
 prop models/own/bush_b.glb -28.03 10.80 -111.26 119.6 0.83
 prop models/own/bush_a.glb 19.68 10.96 35.35 32.4 1.00
 prop models/polyhaven/shrub_02/shrub_02_b.gltf 2.84 30.96 138.23 137.2 1.24
 prop models/own/bush_c.glb -44.40 4.44 -110.14 332.4 0.89
+prop models/own/bush_b.glb 9.49 15.59 16.92 291.4 0.76
+prop models/own/bush_b.glb -33.17 15.20 -33.38 252.2 1.07
 prop models/polyhaven/shrub_02/shrub_02_c.gltf -3.04 19.25 46.91 66.8 1.24
-prop models/polyhaven/shrub_02/shrub_02_d.gltf -21.46 14.67 -96.84 196.6 1.07
+prop models/own/bush_c.glb -5.99 18.91 -48.54 351.9 0.74
+prop models/own/bush_b.glb -5.91 18.00 -82.14 36.1 0.88
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -5.94 15.00 -3.48 279.8 1.10
 prop models/own/bush_b.glb 24.63 20.27 68.27 137.3 0.81
 prop models/polyhaven/shrub_02/shrub_02_d.gltf 26.93 18.83 81.31 293.0 1.54
-prop models/polyhaven/shrub_02/shrub_02_a.gltf 0.16 18.09 -85.97 207.2 1.31
-prop models/own/bush_c.glb -3.52 18.18 -36.73 49.6 1.14
-prop models/own/bush_a.glb 32.93 16.60 -36.33 143.5 0.92
-prop models/own/bush_b.glb 18.58 11.04 -83.42 132.6 0.98
+prop models/own/bush_c.glb 9.32 17.31 26.85 176.6 0.97
 prop models/own/bush_c.glb -9.38 27.85 79.94 162.7 0.86
-prop models/own/bush_a.glb -20.13 5.48 -1.28 173.5 0.71
 prop models/own/bush_b.glb 5.64 18.25 34.06 36.4 1.07
 prop models/own/bush_c.glb 12.57 14.16 -73.49 146.4 1.09
-prop models/own/bush_b.glb -55.33 6.93 -105.38 203.0 0.95
+prop models/own/bush_c.glb -17.05 28.89 90.23 183.1 0.84
 prop models/own/bush_b.glb -8.56 30.44 103.44 148.2 0.93
-prop models/own/bush_b.glb 11.87 31.30 115.26 307.8 1.08
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -5.51 30.95 107.28 260.9 1.74
-prop models/own/bush_a.glb -3.13 25.38 66.10 339.4 0.75
+prop models/polyhaven/shrub_02/shrub_02_d.gltf -21.02 17.04 -88.10 26.4 1.32
+prop models/own/bush_b.glb -55.70 9.94 -98.30 63.5 0.88
+prop models/polyhaven/shrub_02/shrub_02_d.gltf 5.24 31.00 136.27 139.2 1.29
+prop models/own/bush_a.glb 37.34 21.98 123.02 249.6 1.07
 prop models/own/bush_a.glb 2.43 26.03 71.91 41.1 0.96
 prop models/own/bush_b.glb -30.72 18.00 -66.26 260.1 1.08
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 1.84 24.83 64.56 160.3 1.61
-prop models/polyhaven/shrub_02/shrub_02_a.gltf 2.91 20.07 42.66 46.4 1.55
+prop models/polyhaven/shrub_02/shrub_02_a.gltf -1.53 27.06 74.60 21.1 1.04
+prop models/own/bush_c.glb -15.01 28.63 86.92 55.1 1.08
+prop models/own/bush_c.glb -4.94 15.67 32.76 30.8 0.84
 prop models/polyhaven/shrub_02/shrub_02_d.gltf 4.94 31.00 129.30 129.8 1.17
 prop models/own/bush_a.glb -6.15 29.97 96.69 9.1 0.93
-prop models/own/bush_b.glb 4.69 16.04 -20.24 64.6 0.96
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 5.01 29.35 91.70 291.2 1.49
-prop models/own/bush_c.glb -11.33 18.00 -77.62 17.9 0.80
-prop models/own/bush_a.glb -13.87 9.30 -0.07 96.6 0.74
-prop models/own/bush_c.glb -3.97 26.08 71.05 284.5 1.14
-prop models/own/bush_c.glb -5.02 18.96 -46.99 42.9 1.12
-prop models/own/bush_b.glb 8.48 16.20 18.53 325.0 0.97
-prop models/own/bush_b.glb 16.56 2.09 -131.67 66.8 0.96
+prop models/polyhaven/shrub_02/shrub_02_c.gltf 28.34 22.00 121.88 225.2 1.26
+prop models/own/bush_a.glb 25.09 17.33 94.17 6.5 0.92
+prop models/own/bush_c.glb -5.14 25.86 70.27 295.2 1.02
+prop models/own/bush_a.glb -4.04 18.00 -79.02 172.4 1.00
+prop models/own/bush_b.glb 1.96 17.74 -55.38 157.4 1.03
+prop models/own/bush_a.glb 19.75 25.56 76.95 153.1 1.05
+prop models/own/bush_a.glb -5.42 18.18 -54.27 2.5 0.80
+prop models/own/bush_b.glb -2.33 18.00 -74.41 285.3 1.04
+prop models/polyhaven/shrub_02/shrub_02_b.gltf -9.77 28.71 109.91 21.9 1.29
 prop models/own/bush_a.glb -28.65 14.97 -25.29 102.8 0.85
-prop models/own/bush_c.glb -6.20 9.74 -114.51 218.8 1.07
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -1.02 26.70 73.14 132.0 1.79
+prop models/own/bush_a.glb -0.74 22.96 55.40 335.6 0.89
 prop models/own/bush_a.glb -12.89 18.92 -47.57 174.3 0.90
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 6.67 25.98 72.01 113.6 1.54
-prop models/own/bush_c.glb -19.87 8.18 -16.92 307.4 0.89
-prop models/polyhaven/shrub_02/shrub_02_d.gltf 20.00 25.43 78.61 153.9 1.57
-prop models/polyhaven/shrub_02/shrub_02_d.gltf 31.12 17.01 93.34 41.8 1.60
+prop models/own/bush_a.glb 23.70 7.02 -104.82 275.5 1.01
+prop models/own/bush_a.glb -14.60 18.19 -43.07 91.1 1.03
+prop models/own/bush_c.glb 23.27 16.60 -62.62 209.9 0.74
 prop models/polyhaven/shrub_02/shrub_02_a.gltf 1.34 25.70 69.26 241.3 1.21
-prop models/own/bush_c.glb 4.96 27.29 78.03 63.3 0.80
-prop models/own/bush_a.glb 31.93 4.98 -69.97 180.4 0.93
-prop models/polyhaven/shrub_02/shrub_02_b.gltf -29.14 17.52 -55.49 111.2 1.04
-prop models/polyhaven/shrub_02/shrub_02_c.gltf -9.64 18.00 -58.65 111.7 1.23
-prop models/own/bush_c.glb 0.24 24.22 60.42 262.4 1.09
+prop models/own/bush_c.glb 0.84 30.78 106.43 80.6 1.01
+prop models/own/bush_a.glb 21.87 23.37 72.04 19.5 0.89
 prop models/own/bush_b.glb 26.70 16.60 -40.63 116.3 0.94
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -15.31 18.00 -66.58 226.5 1.58
-prop models/own/bush_c.glb -19.46 15.66 -92.76 297.2 0.74
-prop models/own/bush_c.glb 25.90 4.69 30.92 84.6 0.74
-prop models/own/bush_c.glb -16.60 18.00 -70.66 110.9 1.09
-prop models/polyhaven/shrub_02/shrub_02_a.gltf -0.14 31.00 121.04 308.6 1.33
+prop models/polyhaven/shrub_02/shrub_02_d.gltf 6.61 25.49 66.97 74.9 1.14
+prop models/own/bush_a.glb 32.94 17.05 91.89 94.9 1.08
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -16.21 7.85 -122.12 68.0 1.36
+prop models/own/bush_b.glb 29.36 17.01 88.27 110.0 0.79
 prop models/own/bush_c.glb 4.11 16.98 -51.11 63.0 0.86
-prop models/own/bush_b.glb 6.34 17.34 -85.34 358.2 1.06
+prop models/polyhaven/shrub_02/shrub_02_b.gltf 33.00 17.50 94.57 55.7 1.34
 prop models/own/bush_c.glb 9.12 31.14 113.48 88.3 0.80
+prop models/own/bush_a.glb -16.54 18.90 -47.94 187.1 1.00
+prop models/polyhaven/shrub_02/shrub_02_b.gltf 4.16 15.67 -17.62 269.7 1.06
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -35.08 11.13 -88.01 327.9 1.07
 prop models/own/bush_a.glb -3.93 17.99 -56.70 150.7 0.90
 prop models/own/bush_b.glb -22.10 20.50 50.21 191.8 1.06
-prop models/own/bush_b.glb 3.64 29.87 97.08 133.7 0.93
-prop models/polyhaven/shrub_02/shrub_02_b.gltf 34.42 21.92 107.14 328.2 1.14
-prop models/own/bush_a.glb 19.64 22.31 115.69 220.0 0.88
-prop models/own/bush_a.glb 9.80 17.34 27.54 197.8 0.94
-prop models/own/bush_c.glb -6.83 18.00 -79.17 320.7 0.82
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 33.73 21.45 102.97 271.2 1.57
-prop models/own/bush_c.glb 6.00 30.38 100.21 52.9 0.91
-prop models/own/bush_a.glb -33.18 10.55 -92.80 292.5 0.82
-prop models/own/bush_a.glb 25.72 4.65 27.15 95.3 0.87
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -11.56 30.96 128.83 123.7 1.15
 prop models/polyhaven/shrub_02/shrub_02_d.gltf -12.66 14.73 -25.06 1.6 1.07
 prop models/own/bush_a.glb -22.66 13.50 -31.76 149.3 0.92
-prop models/own/bush_b.glb -7.37 18.00 -81.89 246.3 1.01
+prop models/own/bush_b.glb -25.63 15.78 -93.44 245.6 0.89
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 6.65 31.00 126.20 268.8 1.11
 prop models/own/bush_b.glb -58.73 8.85 -102.06 353.1 1.02
 prop models/polyhaven/shrub_02/shrub_02_c.gltf -29.33 15.11 -28.16 119.3 1.22
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -23.76 16.57 -91.13 34.2 1.32
 prop models/polyhaven/shrub_02/shrub_02_b.gltf 30.74 21.43 100.94 8.0 1.49
 prop models/own/bush_c.glb -33.34 17.97 -68.15 99.4 0.82
-prop models/own/bush_b.glb 8.09 14.06 -1.56 285.4 1.07
-prop models/own/bush_a.glb -23.49 4.78 -7.11 218.0 0.85
-prop models/own/bush_c.glb 27.35 12.39 50.34 355.0 0.78
+prop models/own/bush_b.glb -32.32 18.00 -73.23 143.0 0.99
+prop models/polyhaven/shrub_02/shrub_02_d.gltf -10.23 18.00 -83.17 217.7 1.14
+prop models/polyhaven/shrub_02/shrub_02_d.gltf -4.96 18.63 48.92 296.2 1.35
+prop models/own/bush_c.glb 25.18 10.04 41.44 48.1 1.07
 prop models/own/bush_a.glb -25.21 18.00 -67.55 175.8 0.90
 prop models/own/bush_a.glb 1.14 16.97 25.54 163.2 0.71
 prop models/polyhaven/shrub_02/shrub_02_b.gltf 8.38 30.91 134.90 27.9 1.53
 prop models/polyhaven/shrub_02/shrub_02_a.gltf -34.44 15.20 -26.37 71.8 1.09
-prop models/own/bush_b.glb -7.27 23.95 61.10 97.5 0.87
+prop models/own/bush_b.glb 11.02 14.28 20.51 179.4 1.01
+prop models/polyhaven/shrub_02/shrub_02_d.gltf 41.18 19.83 100.60 10.8 1.45
+prop models/own/bush_a.glb -16.01 18.10 -55.36 145.0 0.80
 prop models/polyhaven/shrub_02/shrub_02_d.gltf -48.17 9.28 -78.65 237.3 1.38
-prop models/own/bush_c.glb 3.75 30.86 106.45 327.1 0.78
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 1.91 30.90 109.69 108.2 1.48
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 38.03 22.00 116.60 19.1 1.33
-prop models/own/bush_a.glb -19.39 16.26 -45.71 148.4 0.77
-prop models/own/bush_c.glb -2.16 24.70 63.17 9.9 0.71
+prop models/own/bush_b.glb 46.76 17.00 82.88 25.6 0.71
+prop models/own/bush_a.glb 38.82 22.00 110.10 99.0 0.94
+prop models/polyhaven/shrub_02/shrub_02_a.gltf -19.44 18.00 -57.79 211.2 1.25
 prop models/own/bush_a.glb 36.05 19.72 100.69 115.3 0.77
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 9.48 31.00 119.59 291.6 1.42
+prop models/own/bush_a.glb 6.90 17.13 -86.25 149.0 0.84
 prop models/polyhaven/shrub_02/shrub_02_c.gltf -41.96 10.33 -86.52 158.9 0.87
-prop models/polyhaven/shrub_02/shrub_02_c.gltf 8.35 31.05 110.65 334.9 1.18
-prop models/own/bush_a.glb -11.33 28.60 87.74 155.6 1.01
-prop models/own/bush_a.glb -31.68 8.61 -116.30 79.1 0.84
+prop models/own/bush_b.glb -11.12 18.68 -52.87 50.9 1.07
+prop models/own/bush_c.glb 27.11 22.00 104.61 169.3 1.06
+prop models/own/bush_a.glb -3.36 18.42 -38.42 160.3 0.80
+prop models/polyhaven/shrub_02/shrub_02_c.gltf -23.74 20.50 44.61 28.2 1.37
+prop models/own/bush_c.glb -13.17 27.49 78.10 59.4 0.90
+prop models/own/bush_a.glb -3.04 17.77 -33.82 254.1 0.72
 prop models/own/bush_c.glb 13.86 13.87 -77.35 210.4 0.95
 prop models/own/bush_c.glb 16.76 28.14 98.75 80.8 0.86
-prop models/own/bush_a.glb -12.28 30.36 102.55 225.4 0.81
-prop models/polyhaven/shrub_02/shrub_02_c.gltf -27.87 17.81 -84.81 329.6 1.15
-prop models/own/bush_a.glb -4.67 27.44 77.24 218.2 0.78
-prop models/own/bush_b.glb -16.49 18.39 -53.77 56.4 1.00
-prop models/own/bush_a.glb 3.61 17.66 -56.68 244.8 0.81
+prop models/own/bush_b.glb 19.35 10.50 -84.09 60.1 0.70
+prop models/own/bush_a.glb -15.86 7.89 0.30 158.3 0.79
+prop models/polyhaven/shrub_02/shrub_02_c.gltf -7.42 19.15 44.58 83.4 0.91
+prop models/own/bush_a.glb -0.51 17.98 -58.13 163.0 0.92
 prop models/own/bush_b.glb 40.08 22.00 119.91 206.1 0.73
+prop models/own/bush_c.glb 20.19 22.18 113.83 63.8 0.83
+prop models/own/bush_a.glb 13.51 25.67 67.05 32.0 0.89
 prop models/polyhaven/shrub_02/shrub_02_c.gltf -54.16 10.00 -95.31 171.8 1.13
+prop models/own/bush_a.glb -7.76 18.00 -77.84 179.5 0.73
+prop models/own/bush_b.glb 29.43 16.60 -49.48 2.8 0.89
 prop models/own/bush_b.glb 26.76 22.00 111.49 193.2 0.73
 prop models/own/bush_b.glb 14.39 26.21 75.23 50.4 0.96
-prop models/own/bush_a.glb 42.74 22.00 119.00 318.0 0.89
+prop models/own/bush_c.glb -35.67 6.52 -117.39 339.0 0.79
+prop models/own/bush_a.glb 4.33 17.10 27.12 168.0 0.93
+prop models/own/bush_b.glb 1.56 23.37 58.77 105.5 0.81
+prop models/polyhaven/shrub_02/shrub_02_b.gltf -1.95 29.16 89.77 103.9 1.54
+prop models/own/bush_c.glb 13.26 22.44 52.24 53.2 1.03
+prop models/polyhaven/shrub_02/shrub_02_d.gltf 11.22 30.55 133.18 163.0 1.28
+prop models/own/bush_b.glb -2.63 31.00 125.61 57.7 0.79
 prop models/polyhaven/shrub_02/shrub_02_c.gltf -38.03 15.20 -34.77 18.4 1.21
 prop models/polyhaven/shrub_02/shrub_02_a.gltf -26.11 14.81 -97.56 345.5 1.48
 prop models/own/bush_b.glb -7.97 28.16 82.26 339.1 0.96
 prop models/polyhaven/shrub_02/shrub_02_b.gltf 8.75 22.63 53.07 346.8 1.43
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 5.49 15.18 -15.77 147.9 1.81
-prop models/polyhaven/shrub_02/shrub_02_a.gltf 2.19 22.98 57.05 189.2 1.01
-prop models/own/bush_a.glb -27.79 18.00 -69.18 218.7 0.94
+prop models/own/bush_a.glb -17.17 18.00 -72.99 233.9 0.97
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -2.87 31.00 134.06 219.4 1.26
 prop models/own/bush_c.glb -4.16 29.84 94.12 186.1 1.11
-prop models/own/bush_a.glb -18.73 28.84 93.02 18.4 0.71
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -34.64 15.20 -32.62 200.7 1.19
+prop models/own/bush_a.glb -13.20 10.26 -4.43 77.7 0.77
 prop models/own/bush_a.glb 3.63 18.78 35.85 56.8 0.86
 prop models/polyhaven/shrub_02/shrub_02_a.gltf 30.30 17.20 81.17 206.8 1.53
 prop models/own/bush_c.glb 11.73 19.24 38.80 85.8 0.70
-prop models/own/bush_c.glb 6.76 17.13 25.43 60.3 0.91
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 43.15 22.00 116.90 259.9 1.48
 prop models/polyhaven/shrub_02/shrub_02_d.gltf -2.54 14.86 5.76 181.3 1.25
-prop models/own/bush_b.glb 23.99 21.98 124.70 184.1 1.09
-prop models/own/bush_b.glb 43.28 22.00 115.29 149.7 1.09
-prop models/polyhaven/shrub_02/shrub_02_d.gltf -0.54 30.53 102.37 147.4 1.45
-prop models/own/bush_b.glb 20.80 22.04 104.99 242.1 0.83
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -37.32 10.00 -97.53 343.4 1.57
+prop models/own/bush_a.glb -22.16 6.46 -18.77 335.0 0.98
+prop models/own/bush_b.glb -25.49 13.30 -27.20 186.1 0.79
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 34.48 17.01 83.73 71.9 1.55
 prop models/own/bush_a.glb -13.70 18.00 -80.66 17.5 1.04
+prop models/own/bush_b.glb -22.96 4.03 -2.96 65.9 0.72
+prop models/own/bush_a.glb -0.12 29.56 94.47 90.1 0.89
 prop models/own/bush_c.glb 26.98 21.75 124.71 58.5 0.79
 prop models/own/bush_c.glb -6.51 31.04 113.84 61.7 0.85
+prop models/own/bush_c.glb 7.93 16.45 19.86 275.3 1.03
+prop models/own/bush_a.glb -37.21 6.19 -47.29 154.5 0.79
+prop models/own/bush_c.glb 4.84 19.86 42.42 176.0 0.78
 prop models/own/bush_a.glb -23.07 18.00 -58.58 78.8 0.87
-prop models/polyhaven/shrub_02/shrub_02_b.gltf 2.43 15.37 14.81 12.9 1.30
+prop models/own/bush_a.glb 14.47 23.13 55.10 233.1 0.96
+prop models/own/bush_c.glb 3.24 29.91 97.46 195.3 0.77
 prop models/polyhaven/shrub_02/shrub_02_b.gltf -4.33 14.95 -7.73 288.5 1.02
 prop models/polyhaven/shrub_02/shrub_02_d.gltf -44.53 10.01 -92.39 286.3 1.35
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 2.62 27.73 81.51 200.0 1.66
-prop models/own/bush_c.glb 31.22 21.94 107.42 99.0 1.12
-prop models/own/bush_b.glb 27.15 22.00 104.08 333.9 0.95
-prop models/own/bush_b.glb 29.14 22.00 114.28 129.7 0.94
+prop models/own/bush_a.glb 6.93 27.58 78.91 216.7 1.01
+prop models/own/bush_a.glb 16.74 10.41 22.62 49.7 1.03
+prop models/own/bush_c.glb -12.39 16.94 -31.60 246.6 0.88
+prop models/own/bush_c.glb -39.66 9.88 -104.59 82.0 0.77
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -0.62 19.79 47.92 316.2 1.31
 prop models/own/bush_b.glb -27.84 18.00 -59.26 263.7 0.76
 prop models/own/bush_b.glb 29.27 22.00 117.76 173.4 0.94
-prop models/own/bush_b.glb -15.34 13.97 -98.13 174.6 0.87
-prop models/own/bush_c.glb -52.53 9.11 -103.18 3.2 0.73
+prop models/own/bush_c.glb -60.29 10.00 -93.51 168.0 0.73
+prop models/own/bush_b.glb 19.62 22.26 104.00 96.7 0.91
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -19.83 9.01 -120.21 335.9 1.27
 prop models/polyhaven/shrub_02/shrub_02_c.gltf -14.71 18.99 47.41 145.0 0.99
 prop models/own/bush_a.glb 12.33 31.04 121.20 201.5 0.72
 prop models/own/bush_b.glb 7.20 31.00 121.56 233.0 0.96
-prop models/own/bush_b.glb -18.96 15.90 -42.11 117.5 1.08
-prop models/own/bush_b.glb -17.04 14.79 -95.56 81.6 0.78
-prop models/own/bush_b.glb 33.29 16.57 -52.64 36.7 0.94
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -19.99 10.00 -112.62 232.0 1.20
+prop models/own/bush_c.glb 6.18 26.87 75.24 225.5 0.87
+prop models/own/bush_c.glb -12.28 25.58 68.78 59.5 1.10
+prop models/own/bush_c.glb -15.94 10.43 -11.49 124.6 0.74
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 24.15 21.74 79.42 105.3 1.03
+prop models/own/bush_b.glb 6.42 17.13 -83.42 284.8 0.80
+prop models/polyhaven/shrub_02/shrub_02_d.gltf -50.16 10.00 -83.05 40.4 1.54
 prop models/own/bush_b.glb -2.91 14.92 8.93 294.7 0.90
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -11.39 18.00 -83.29 94.8 1.45
-prop models/own/bush_c.glb -20.28 13.50 -99.43 121.9 1.02
-prop models/own/bush_b.glb 32.15 8.98 50.19 137.5 1.01
-prop models/polyhaven/shrub_02/shrub_02_c.gltf 29.00 16.60 -51.95 308.4 1.06
+prop models/own/bush_a.glb -42.38 3.85 -115.88 359.0 0.98
+prop models/own/bush_b.glb -29.56 9.13 -45.57 327.5 0.73
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 33.09 16.60 -48.75 328.7 1.89
-prop models/polyhaven/shrub_02/shrub_02_a.gltf 6.56 26.94 75.16 337.7 1.07
-prop models/own/bush_b.glb 13.52 26.09 70.05 191.5 0.86
-prop models/polyhaven/shrub_02/shrub_02_b.gltf 21.75 23.96 74.28 39.3 1.29
+prop models/own/bush_a.glb 16.56 26.20 82.20 292.1 0.97
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 14.11 31.12 112.97 69.8 1.37
 prop models/own/bush_b.glb 16.65 2.53 -126.84 314.8 0.72
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf 27.52 16.60 -35.76 329.6 1.47
+prop models/own/bush_b.glb -5.99 18.08 -37.51 149.7 0.90
+prop models/own/bush_c.glb -8.95 14.75 -4.52 324.2 0.74
+prop models/own/bush_a.glb 2.03 28.59 88.64 314.4 0.79
 prop models/own/bush_c.glb 4.90 4.13 -131.26 281.7 0.75
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -33.41 17.93 -76.83 120.7 1.66
-prop models/own/bush_c.glb 15.65 13.32 28.92 26.1 1.09
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -25.45 20.50 47.17 23.9 1.40
+prop models/own/bush_a.glb -15.56 5.46 12.37 233.8 0.84
 prop models/own/bush_c.glb -20.12 18.00 -68.66 176.1 0.96
-prop models/own/bush_a.glb 7.24 27.67 79.93 235.1 0.99
-prop models/own/bush_a.glb 20.34 8.43 15.23 160.8 0.78
-prop models/own/bush_a.glb 24.39 6.69 -104.12 21.3 0.82
-prop models/own/bush_c.glb -9.37 18.88 -47.32 287.2 1.02
+prop models/own/bush_c.glb 29.40 5.50 38.75 218.9 0.92
+prop models/own/bush_b.glb -1.20 16.08 -23.76 256.8 0.82
 prop models/polyhaven/shrub_02/shrub_02_a.gltf 8.73 16.60 -48.40 207.9 1.16
-prop models/polyhaven/shrub_02/shrub_02_d.gltf -32.43 18.00 -63.79 282.5 1.33
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -32.91 10.47 -95.42 40.2 1.16
-prop models/own/bush_c.glb -48.75 9.86 -101.97 347.0 1.02
-prop models/polyhaven/shrub_02/shrub_02_a.gltf -56.74 9.99 -97.95 320.4 1.22
-prop models/own/bush_b.glb -5.38 31.00 134.90 73.2 1.04
+prop models/polyhaven/shrub_02/shrub_02_d.gltf -20.80 10.36 -111.25 111.1 1.15
+prop models/own/bush_b.glb -8.25 18.85 -46.77 303.4 1.00
+prop models/own/bush_b.glb -25.99 17.96 -81.77 35.0 0.77
 prop models/own/bush_a.glb -23.47 17.61 -86.19 262.9 0.73
+prop models/own/bush_a.glb -34.51 5.84 -121.00 81.2 1.08
 prop models/own/bush_b.glb 4.15 21.99 51.32 312.8 0.82
 prop models/own/bush_a.glb 7.12 22.95 56.48 53.7 0.89
-prop models/polyhaven/shrub_02/shrub_02_d.gltf -30.59 18.00 -59.95 67.4 1.11
+prop models/polyhaven/shrub_02/shrub_02_b.gltf 4.79 16.32 21.14 97.5 1.40
 prop models/own/bush_c.glb -33.37 15.13 -39.52 49.6 0.93
 prop models/own/bush_b.glb 18.17 8.83 -3.37 354.8 0.99
-prop models/own/bush_b.glb -13.75 27.38 77.54 65.4 0.94
-prop models/own/bush_a.glb 1.73 29.59 94.84 44.2 1.04
 prop models/own/bush_a.glb -58.87 10.00 -96.21 240.1 0.87
-prop models/own/bush_c.glb 20.63 18.18 55.28 272.1 1.06
-prop models/own/bush_b.glb -7.38 13.90 10.58 50.9 0.91
 prop models/polyhaven/shrub_02/shrub_02_d.gltf -3.22 18.00 -61.13 57.7 1.26
-prop models/own/bush_c.glb -34.22 8.93 -50.53 95.3 0.75
-prop models/polyhaven/shrub_02/shrub_02_c.gltf 5.27 30.76 103.76 70.9 1.35
+prop models/polyhaven/shrub_02/shrub_02_a.gltf -21.03 18.00 -71.32 3.6 1.43
+prop models/own/bush_c.glb 4.94 16.05 -20.26 339.5 1.00
 prop models/polyhaven/shrub_02/shrub_02_c.gltf -19.79 18.00 -65.90 324.2 0.87
-prop models/own/bush_a.glb -8.86 9.94 -114.59 339.5 0.90
-prop models/polyhaven/shrub_02/shrub_02_b.gltf 20.28 22.16 112.99 119.3 1.06
 prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 4.88 20.64 46.82 324.7 1.20
-prop models/own/bush_c.glb -7.74 8.10 -122.35 50.0 0.81
-prop models/own/bush_c.glb -17.71 18.00 -63.68 113.9 1.15
+prop models/own/bush_b.glb 27.38 3.88 28.28 206.9 0.96
+prop models/polyhaven/shrub_02/shrub_02_b.gltf 47.55 16.81 93.86 175.0 1.23
 prop models/own/bush_c.glb 43.51 21.57 102.18 228.7 1.11
-prop models/polyhaven/shrub_02/shrub_02_c.gltf -46.66 9.68 -105.22 157.0 1.10
-prop models/own/bush_a.glb -8.00 28.60 87.88 144.5 1.06
+prop models/own/bush_c.glb -10.20 18.00 -60.25 226.3 1.10
+prop models/own/bush_c.glb -31.06 10.56 -50.25 339.2 0.99
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf 2.94 14.93 9.10 132.5 1.85
 prop models/polyhaven/shrub_02/shrub_02_d.gltf -2.45 15.00 -3.74 39.1 1.45
-prop models/own/bush_a.glb -39.34 4.98 -45.89 178.9 0.74
-prop models/own/bush_b.glb -28.19 14.85 -31.04 124.4 1.07
-prop models/own/bush_c.glb 34.88 17.08 91.42 248.3 0.76
+prop models/own/bush_b.glb 0.95 30.91 110.60 97.6 0.96
+prop models/own/bush_c.glb -4.58 18.00 -72.89 169.0 0.73
+prop models/own/bush_c.glb -36.24 10.00 -98.14 184.6 0.80
 prop models/own/bush_c.glb -6.24 14.97 0.18 203.8 0.77
-prop models/polyhaven/shrub_02/shrub_02_a.gltf -56.99 3.74 -109.28 188.5 1.40
-prop models/own/bush_a.glb 2.97 15.81 17.74 211.8 0.86
+prop models/own/bush_c.glb -9.49 30.00 98.68 338.2 0.70
+prop models/polyhaven/shrub_02/shrub_02_c.gltf -24.13 18.00 -63.23 113.5 1.06
+prop models/own/bush_a.glb 12.19 27.15 81.44 346.3 0.79
 prop models/own/bush_a.glb -30.24 15.15 -39.00 78.4 1.00
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -0.40 30.97 113.75 165.5 1.07
+prop models/own/bush_c.glb 6.63 30.76 106.69 24.6 1.08
 prop models/own/bush_c.glb 11.38 26.27 76.92 257.3 0.99
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -59.89 2.58 -112.35 91.5 1.36
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -2.45 27.53 77.56 229.9 1.89
 prop models/own/bush_b.glb -17.16 18.00 -83.54 292.7 0.84
-prop models/polyhaven/shrub_02/shrub_02_d.gltf 14.55 30.94 123.32 27.7 1.29
-prop models/polyhaven/shrub_02/shrub_02_c.gltf -26.10 18.00 -63.77 135.5 1.22
+prop models/own/bush_a.glb 20.91 19.73 58.12 181.9 0.97
+prop models/own/bush_c.glb 36.99 17.00 86.83 313.1 0.77
 prop models/own/bush_c.glb -53.05 10.00 -87.15 5.6 1.05
-prop models/own/bush_c.glb -24.63 20.50 44.59 298.0 1.10
-prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -1.37 29.76 94.88 148.9 1.63
-prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -17.92 9.44 -117.46 209.8 1.15
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 12.98 13.58 24.07 117.8 1.22
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -27.93 1.58 123.63 83.2 1.34
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 25.42 5.79 -5.97 352.5 1.88
-prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -1.46 18.64 -39.42 110.0 1.45
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 23.52 7.13 33.85 3.6 2.00
-prop models/polyhaven/fern_02/fern_02_c.gltf 5.32 16.63 -48.05 191.8 1.40
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -6.81 3.64 -129.21 53.7 1.46
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -28.82 18.00 -71.87 132.8 1.61
-prop models/polyhaven/fern_02/fern_02_c.gltf -7.27 17.72 -34.07 267.5 1.68
-prop models/polyhaven/fern_02/fern_02_c.gltf -21.04 1.55 18.53 126.3 1.12
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 20.68 7.98 30.90 352.8 2.15
-prop models/polyhaven/fern_02/fern_02_a.gltf 39.46 22.00 110.54 169.9 1.62
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 30.42 16.60 -38.49 195.9 1.66
-prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -16.93 4.37 16.37 31.2 1.74
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 31.29 12.23 63.01 242.2 1.96
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 0.27 28.61 87.66 9.3 2.36
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 21.46 16.40 -63.83 216.3 1.98
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 2.42 11.21 -105.63 309.6 2.22
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 4.35 28.78 88.34 351.5 1.47
-prop models/polyhaven/fern_02/fern_02_a.gltf -8.63 14.87 -2.12 317.7 1.23
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -32.77 12.67 -88.51 219.4 1.77
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 31.60 17.75 96.54 47.1 2.47
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -16.16 28.97 92.63 94.4 1.54
-prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -22.73 18.00 -62.67 214.2 1.05
-prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -18.30 3.04 20.00 302.3 1.77
-prop models/polyhaven/fern_02/fern_02_c.gltf 27.97 3.47 29.24 105.2 0.93
-prop models/polyhaven/fern_02/fern_02_c.gltf 9.13 13.67 1.25 292.5 1.64
+prop models/polyhaven/shrub_02/shrub_02_b.gltf -19.44 18.00 -63.09 312.9 1.33
+prop models/own/bush_a.glb 6.36 17.06 25.34 220.6 1.09
+prop models/polyhaven/shrub_02/shrub_02_b.gltf 1.07 17.96 -65.07 54.2 1.57
+prop models/own/bush_c.glb 5.32 16.63 -48.05 56.0 0.76
+prop models/polyhaven/shrub_02/shrub_02_b.gltf 5.10 17.53 -57.43 148.9 1.34
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_b.gltf -30.08 18.00 -68.95 274.3 1.83
+prop models/own/bush_c.glb -33.90 17.76 -70.69 167.4 1.05
+prop models/polyhaven/pachira_aquatica_01/pachira_aquatica_01_c.gltf -53.06 9.60 -101.49 315.6 1.53
+prop models/own/bush_a.glb -16.43 5.72 8.60 279.0 0.91
+prop models/polyhaven/shrub_02/shrub_02_c.gltf -26.64 18.00 -70.02 194.9 0.96
+prop models/polyhaven/shrub_02/shrub_02_a.gltf -4.19 31.00 121.29 98.3 1.08
+prop models/own/bush_a.glb 35.20 21.83 106.26 328.9 0.76
+prop models/polyhaven/shrub_02/shrub_02_d.gltf -33.88 17.71 -57.59 240.5 1.58
+prop models/polyhaven/fern_02/fern_02_a.gltf 27.09 12.85 52.39 202.9 1.51
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -31.77 17.08 -81.33 290.1 2.26
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 37.01 3.96 46.44 240.4 1.39
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -6.22 17.63 -33.51 210.4 1.00
+prop models/polyhaven/fern_02/fern_02_c.gltf -17.11 1.53 137.77 200.7 1.26
+prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 36.35 7.09 52.74 140.1 1.32
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -39.52 4.76 -45.37 119.6 1.22
+prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 25.06 10.15 132.96 170.2 1.35
+prop models/polyhaven/fern_02/fern_02_c.gltf 0.25 22.67 52.52 183.9 1.65
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -34.54 17.48 -78.28 84.4 2.07
+prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 0.37 14.85 8.00 96.6 1.04
+prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -0.09 28.58 87.12 283.2 1.39
+prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -19.70 1.95 133.05 45.0 1.25
 prop models/polyhaven/fern_02/fern_02_c.gltf -39.73 9.85 -71.62 237.3 1.07
-prop models/polyhaven/fern_02/fern_02_c.gltf -3.80 17.57 -33.06 126.0 1.58
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -35.88 10.16 -93.44 334.5 1.89
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 34.27 22.00 114.90 186.3 1.76
-prop models/polyhaven/fern_02/fern_02_c.gltf -30.01 14.19 -95.75 128.0 1.58
-prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -14.09 6.88 17.30 103.6 1.07
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -14.58 2.27 -125.86 169.0 1.71
+prop models/polyhaven/fern_02/fern_02_c.gltf -12.67 8.25 12.83 308.0 1.28
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -5.07 28.22 82.44 357.1 1.51
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 23.04 8.53 35.75 232.3 1.92
+prop models/polyhaven/fern_02/fern_02_a.gltf -29.16 17.53 -85.28 293.1 1.66
 prop models/polyhaven/fern_02/fern_02_a.gltf 21.67 16.60 -39.90 83.8 0.98
 prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 26.54 1.80 -124.21 320.6 2.06
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 19.14 20.82 58.35 326.8 1.68
+prop models/polyhaven/fern_02/fern_02_c.gltf -7.89 28.61 87.97 27.8 1.14
 prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -12.22 18.00 -57.48 137.3 1.86
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 6.15 11.43 -105.70 355.6 1.11
-prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 29.91 4.82 38.14 75.3 1.73
-prop models/polyhaven/fern_02/fern_02_a.gltf 0.22 29.16 91.56 219.1 1.38
+prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 23.22 16.60 -38.48 306.2 1.96
 prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -11.85 9.00 17.89 61.2 1.96
 prop models/polyhaven/fern_02/fern_02_c.gltf 36.65 7.12 61.22 15.0 1.36
-prop models/polyhaven/fern_02/fern_02_c.gltf -29.97 2.02 113.20 19.6 1.64
-prop models/polyhaven/fern_02/fern_02_c.gltf -30.13 1.79 118.42 93.2 1.06
+prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -18.26 9.74 -115.92 13.5 1.31
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 18.12 11.37 32.35 254.5 2.24
+prop models/polyhaven/fern_02/fern_02_a.gltf -18.54 10.00 -112.85 315.4 1.02
+prop models/polyhaven/fern_02/fern_02_c.gltf -8.03 25.67 69.55 257.3 1.25
+prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 2.56 17.86 -59.26 356.7 1.29
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -17.98 28.96 93.02 291.7 1.64
+prop models/polyhaven/fern_02/fern_02_a.gltf -27.67 18.00 -64.68 189.6 1.49
 prop models/polyhaven/fern_02/fern_02_c.gltf -31.44 15.63 -84.99 257.5 0.97
-prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 0.52 14.85 6.89 232.5 1.83
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 28.77 16.37 -32.00 344.2 1.58
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 40.64 22.00 116.98 356.5 2.15
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -53.72 10.00 -81.75 151.9 1.25
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -28.23 2.40 121.44 176.5 2.57
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 3.50 14.94 8.86 353.9 1.81
 prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -51.58 9.89 -80.26 342.2 2.00
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -49.40 10.00 -83.00 229.5 1.43
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 24.79 16.36 -63.79 246.1 1.34
-prop models/polyhaven/fern_02/fern_02_a.gltf 25.51 9.81 133.10 193.0 1.34
+prop models/polyhaven/fern_02/fern_02_a.gltf -30.05 2.12 116.75 166.6 1.39
+prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -10.30 16.42 22.39 286.7 1.38
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -27.02 17.62 -86.33 305.2 2.03
 prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -31.18 15.07 -24.38 231.7 2.18
 prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -20.50 20.26 45.06 222.0 1.64
 prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 28.05 16.60 -46.27 309.7 2.47
 prop models/polyhaven/fern_02/fern_02_a.gltf 37.59 8.13 67.65 170.7 1.04
-prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 23.47 15.16 49.16 340.5 1.21
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -19.47 1.53 28.22 331.5 1.45
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 10.37 1.86 145.13 232.6 2.11
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -42.24 3.78 -116.35 70.2 1.97
-prop models/polyhaven/fern_02/fern_02_a.gltf 19.02 24.22 81.25 103.1 1.53
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -16.39 4.01 18.68 25.8 1.40
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -32.09 15.20 -29.87 97.2 1.89
+prop models/polyhaven/fern_02/fern_02_a.gltf -3.19 2.31 146.67 357.2 1.21
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -46.32 9.85 -104.78 210.6 1.04
+prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 27.04 6.40 37.16 326.0 1.14
 prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 36.88 7.48 64.32 300.5 1.99
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 23.76 22.00 109.22 157.7 1.20
 prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -45.38 10.02 -88.44 54.6 1.47
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -33.74 8.02 -115.06 57.5 1.53
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 25.62 8.18 38.76 223.5 1.40
 prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -25.30 17.15 -89.01 298.4 1.45
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 13.79 25.61 66.83 302.6 1.11
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -5.14 27.34 76.81 126.5 1.62
 prop models/polyhaven/fern_02/fern_02_a.gltf 16.09 12.80 -68.66 346.4 1.47
 prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 31.95 6.01 -84.02 112.1 1.20
 prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 37.97 17.00 79.58 253.7 1.32
+prop models/polyhaven/fern_02/fern_02_a.gltf -30.48 18.00 -59.74 220.6 1.04
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 40.07 1.60 50.49 127.4 1.83
+prop models/polyhaven/fern_02/fern_02_c.gltf 12.22 26.07 70.97 263.8 1.56
 prop models/polyhaven/fern_02/fern_02_a.gltf -12.00 3.34 -125.58 256.4 1.64
 prop models/polyhaven/fern_02/fern_02_a.gltf -10.54 1.72 -128.80 257.0 0.96
 prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -28.99 16.10 -89.28 44.7 1.43
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 24.31 16.60 -37.43 130.5 1.19
-prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -1.33 29.05 89.39 48.2 1.75
+prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 38.54 2.67 47.92 61.6 1.27
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -13.74 7.81 10.47 3.4 2.19
 prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 46.78 18.74 99.78 352.3 2.19
 prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 8.48 27.57 83.19 129.6 1.96
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 25.29 6.82 35.68 10.1 2.21
 prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -40.87 10.61 -83.61 127.5 1.90
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -0.49 19.52 43.52 98.9 2.03
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 18.21 16.60 -39.26 118.9 1.05
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -29.85 9.09 -44.28 119.7 1.38
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -2.02 29.36 91.30 290.1 2.14
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -19.20 18.00 -58.34 135.1 1.90
-prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 12.39 16.60 -42.48 212.7 1.67
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 11.78 16.60 -45.88 159.5 1.53
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -4.38 28.25 82.89 104.2 2.01
-prop models/polyhaven/fern_02/fern_02_c.gltf -34.63 17.45 -61.95 332.0 1.59
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -20.46 18.00 -72.12 145.5 1.63
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 42.05 1.70 -95.30 178.0 1.37
+prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 18.24 26.02 74.79 202.0 1.39
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 3.48 15.73 16.63 273.3 1.54
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 15.96 26.10 79.42 11.9 2.37
+prop models/polyhaven/fern_02/fern_02_c.gltf -9.73 4.66 -125.45 157.7 1.59
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -6.37 14.68 3.49 9.1 2.32
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 25.92 16.60 -34.04 182.5 1.80
+prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -37.30 10.08 -93.13 97.2 1.99
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -2.95 26.33 71.69 72.0 2.44
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -45.21 10.01 -84.24 95.5 1.26
+prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 32.02 17.05 78.88 340.9 1.55
 prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -2.23 28.57 85.49 244.2 1.22
 prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 43.12 17.00 84.91 299.6 1.08
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -8.51 17.93 -84.77 21.5 1.85
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -13.84 18.00 -68.98 147.2 1.09
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -55.29 4.36 -111.77 187.6 2.19
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 7.39 17.00 -57.08 299.0 1.02
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -39.33 15.15 -32.13 259.8 1.85
 prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 39.87 3.43 -56.14 71.4 1.96
 prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 32.10 16.60 -41.77 197.1 2.06
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -39.86 3.60 -120.66 290.0 1.32
 prop models/polyhaven/fern_02/fern_02_a.gltf -38.26 12.04 -85.15 325.1 1.33
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 24.65 6.37 -15.50 16.3 2.10
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 1.41 17.93 -60.26 336.9 1.50
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 11.40 14.07 21.00 225.0 2.04
+prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 0.24 17.72 -87.17 71.0 1.88
+prop models/polyhaven/fern_02/fern_02_c.gltf 14.27 10.48 -2.12 275.9 1.11
+prop models/polyhaven/fern_02/fern_02_c.gltf -17.59 18.59 -52.95 177.7 1.57
+prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 21.84 7.43 32.05 40.2 1.30
 prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -34.76 17.40 -74.36 48.8 1.49
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -31.57 10.65 -50.90 16.6 1.59
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -15.17 7.68 2.94 48.5 2.38
+prop models/polyhaven/fern_02/fern_02_a.gltf -30.08 1.80 113.06 179.2 1.09
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -12.98 17.91 42.67 225.4 1.43
 prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 29.89 17.04 85.52 221.5 1.80
 prop models/polyhaven/fern_02/fern_02_a.gltf -59.06 3.06 -107.61 198.0 1.12
 prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 12.55 16.60 -50.27 272.1 1.79
 prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -25.14 15.01 -33.38 35.5 2.26
-prop models/polyhaven/fern_02/fern_02_a.gltf -5.87 18.00 -66.77 241.2 1.24
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 46.79 17.01 96.29 350.2 1.35
+prop models/polyhaven/fern_02/fern_02_a.gltf 31.73 17.06 84.07 145.2 1.41
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 39.93 17.00 79.37 321.5 1.81
 prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 9.92 25.98 70.66 49.8 1.78
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -49.48 10.00 -81.02 38.4 1.84
 prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 13.41 16.60 -40.45 345.1 2.12
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 2.44 28.90 90.47 111.6 2.11
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 35.20 22.00 115.80 106.2 1.68
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 28.14 16.60 -52.81 73.1 1.54
 prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 13.67 16.60 -54.75 85.2 1.42
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -26.57 15.01 -94.60 359.5 0.93
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -28.67 12.90 -51.69 153.4 1.43
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -52.15 10.00 -83.75 231.4 1.87
+prop models/polyhaven/fern_02/fern_02_c.gltf -12.87 18.00 -62.85 49.6 1.62
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -13.56 18.00 -83.52 113.4 1.78
+prop models/polyhaven/fern_02/fern_02_a.gltf 7.86 10.12 -113.94 125.9 1.19
+prop models/polyhaven/fern_02/fern_02_c.gltf 4.75 24.45 64.01 298.6 0.90
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 25.21 16.60 -36.23 74.5 1.27
 prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 8.95 16.60 -43.52 324.1 1.33
-prop models/polyhaven/fern_02/fern_02_a.gltf -62.71 1.91 -109.06 60.2 1.62
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -34.50 17.44 -59.01 252.5 2.00
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 21.99 7.46 32.31 306.9 1.96
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 29.93 17.01 87.67 190.8 1.77
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf 22.88 7.05 -16.57 203.1 1.67
+prop models/polyhaven/fern_02/fern_02_a.gltf -28.90 15.19 -33.12 122.2 1.51
 prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 44.16 17.00 83.28 231.1 1.84
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -4.36 10.09 -112.14 107.5 2.09
-prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -10.25 19.33 43.14 260.4 1.52
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -16.08 1.80 -129.92 182.4 2.24
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -12.21 10.11 4.63 301.3 1.44
 prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 21.76 22.62 80.65 36.2 1.44
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 0.64 18.00 -66.82 340.4 1.30
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -17.04 12.64 -20.95 106.7 1.43
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -15.28 7.05 -122.66 327.2 1.31
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -0.49 27.35 77.50 336.7 1.15
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -6.66 19.47 49.13 213.1 1.64
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -30.01 2.79 115.62 296.7 1.69
-prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -53.55 2.06 -74.52 209.1 1.28
-prop models/polyhaven/fern_02/fern_02_a.gltf -34.47 15.50 -82.38 106.4 1.45
-prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -0.20 16.30 -25.31 268.6 2.08
-prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 22.31 21.82 127.20 120.3 0.98
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 27.06 16.60 -43.23 359.9 1.37
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -8.12 4.99 -126.62 64.5 1.58
+prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 11.38 14.07 14.34 90.9 1.90
 prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -10.65 18.00 -63.36 339.6 1.61
-prop models/polyhaven/fern_02/fern_02_c.gltf 7.72 15.83 16.03 22.6 1.09
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -46.58 9.97 -100.28 255.3 1.48
-prop models/polyhaven/fern_02/fern_02_a.gltf 31.50 11.71 60.94 112.5 1.69
-prop models/polyhaven/fern_02/fern_02_a.gltf 13.81 11.83 -99.85 188.1 1.63
-prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 23.59 5.76 29.66 226.9 1.97
+prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 4.94 28.73 87.37 169.5 2.10
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -4.81 18.00 -65.58 279.3 1.92
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 4.60 27.73 81.17 338.4 2.10
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -1.50 17.09 -88.72 247.4 1.09
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -0.61 18.51 -38.49 316.2 1.36
+prop models/polyhaven/fern_02/fern_02_a.gltf 31.42 22.00 119.50 36.7 1.70
 prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 37.55 8.56 70.23 338.8 1.23
-prop models/own/palm_far.glb -184.44 3.60 -121.50 58.1 1.23
-prop models/own/palm_far.glb -151.88 8.35 -135.44 322.9 1.04
-prop models/own/palm_far.glb -227.80 2.79 -180.81 223.2 0.86
-prop models/own/palm_far.glb -161.55 24.57 -155.42 337.1 1.23
-prop models/own/palm_far.glb -172.27 4.79 -210.43 339.4 0.93
-prop models/own/palm_far.glb -163.66 14.89 -196.42 201.3 0.90
-prop models/own/palm_far.glb -234.20 4.30 -160.62 127.2 1.12
-prop models/own/palm_far.glb -229.71 5.32 -172.00 234.3 0.96
-prop models/own/palm_far.glb -221.66 5.79 -159.12 126.0 1.01
-prop models/own/palm_far.glb -239.05 4.44 -177.66 83.5 1.22
-prop models/own/palm_far.glb -183.70 14.50 -135.97 312.6 1.04
-prop models/own/palm_far.glb -136.07 9.99 -165.97 339.3 1.21
-prop models/own/palm_far.glb -189.15 14.00 -201.65 69.5 0.88
-prop models/own/palm_far.glb -202.71 16.34 -148.62 354.0 0.93
-prop models/own/palm_far.glb -147.86 6.37 -198.51 104.0 0.86
-prop models/own/palm_far.glb -234.77 3.46 -150.21 145.7 1.09
-prop models/own/palm_far.glb -202.88 5.14 -202.83 10.9 1.20
-prop models/own/palm_far.glb -192.88 23.38 -188.07 267.6 0.95
-prop models/own/palm_far.glb -148.10 19.57 -171.07 306.7 1.09
-prop models/own/palm_far.glb -159.55 18.98 -185.86 53.1 1.03
-prop models/own/palm_far.glb -135.78 3.71 -143.54 143.3 0.85
-prop models/own/palm_far.glb -215.64 7.85 -150.13 290.2 1.11
-prop models/own/palm_far.glb -205.65 6.32 -129.58 214.2 1.11
-prop models/own/palm_far.glb -133.36 5.77 -177.15 341.6 0.92
-prop models/own/palm_far.glb -142.97 4.92 -132.40 133.0 1.11
-prop models/own/palm_far.glb -175.63 24.97 -187.53 284.0 1.15
-prop models/own/palm_far.glb -140.31 10.90 -155.06 22.9 1.20
-prop models/own/palm_far.glb -144.08 12.75 -184.73 359.0 0.85
-prop models/own/palm_far.glb -157.23 23.89 -174.91 243.6 1.19
-prop models/own/palm_far.glb -182.88 22.75 -145.27 211.0 1.08
-prop models/own/palm_far.glb -175.77 14.24 -199.00 125.1 1.21
-prop models/own/palm_far.glb -151.03 20.14 -159.38 41.4 1.13
-prop models/own/palm_far.glb -197.33 22.75 -157.44 351.3 1.05
-prop models/own/palm_far.glb -197.40 11.05 -134.93 42.2 0.86
-prop models/own/palm_far.glb -217.12 4.67 -137.28 293.3 0.99
-prop models/own/palm_far.glb -203.01 18.61 -178.45 55.7 0.97
-prop models/own/palm_far.glb -217.87 4.71 -179.34 252.8 1.17
-prop models/own/palm_far.glb -221.00 5.25 -169.32 81.3 1.07
-prop models/own/palm_far.glb -171.89 24.80 -148.73 21.0 1.02
-prop models/own/palm_far.glb -209.79 4.44 -192.86 202.1 0.98
-prop models/own/palm_far.glb -181.36 5.50 -211.29 11.3 0.98
-prop models/own/palm_far.glb -144.97 9.90 -146.16 71.2 0.99
-prop models/own/palm_far.glb -160.27 5.56 -130.79 305.6 0.96
-prop models/own/palm_far.glb -209.51 12.27 -156.95 22.9 1.12
-prop models/own/palm_far.glb -150.52 2.92 -124.85 46.4 1.13
-prop models/own/palm_far.glb -160.50 13.74 -141.42 34.3 1.17
-
-# ================================================================ weapons and ammo
-# --- weapons --- Every goon lands with the pistol (their character file's `spawn`
-# line), so what the island has to provide is the other gun and the rounds for both.
-# Four rifles, one per area a goon might reach first, and thirty boxes of ammunition
-# scattered wide enough that nobody has to go back the way they came for them. Ammo is
-# picked up by walking over it -- no prompt, no button -- so these are deliberately on
-# the paths between things rather than tucked behind them. y values are snapped to the
-# terrain by tools/island_snap.py; the `~+0.4` they were authored with means "forty
-# centimetres above the ground", which is enough for the body to settle rather than
-# start inside the sand.
-
-item rifle -66 2.10 -111 20  # on the mole, by the mooring line
-item rifle -48 10.50 -92 200  # Pad One, leaning on the windsock
-item rifle -18 18.50 -70 110  # the villa courtyard
-item rifle -30 15.70 -32 340  # the bunkhouse porch
-
-# Pelican Pier
-item ammo_pistol -65.6 2.00 -113.2 0
-item ammo_pistol -73.3 2.00 -109.4 47
-item ammo_rifle -60.9 2.18 -115.5 94
-item ammo_pistol -68.6 2.00 -111.7 141
-# Pad One
-item ammo_pistol -56.2 10.40 -85.4 188
-item ammo_rifle -43.8 10.40 -95.3 235
-item ammo_pistol -51.5 10.40 -89.2 282
-# the compound
-item ammo_pistol -1.8 18.40 -80.7 329
-item ammo_rifle -14.0 18.40 -71.5 16
-item ammo_pistol -26.2 18.40 -62.3 63
-item ammo_pistol -6.5 18.40 -77.2 110
-item ammo_rifle -18.7 18.40 -68.0 157
-item ammo_pistol -30.9 18.40 -58.8 204
-item ammo_pistol -11.1 18.40 -73.7 251
-item ammo_rifle -23.3 18.40 -64.5 298
-item ammo_pistol -3.6 18.40 -79.3 345
-item ammo_pistol -15.8 18.40 -70.2 32
-# the Oval
-item ammo_rifle 11.0 19.01 -39.2 79
-item ammo_pistol 25.8 18.24 -55.3 126
-item ammo_pistol 16.7 19.61 -45.4 173
-item ammo_rifle 31.5 18.38 -61.4 220
-item ammo_pistol 22.3 18.76 -51.5 267
-item ammo_pistol 13.2 19.32 -41.6 314
-# the bunkhouse
-item ammo_rifle -24.7 14.15 -38.7 1
-item ammo_pistol -30.8 15.60 -31.0 48
-item ammo_pistol -36.9 10.57 -23.4 95
-item ammo_rifle -27.0 15.60 -35.7 142
-item ammo_pistol -33.1 15.60 -28.1 189
-# the cistern
-item ammo_pistol 4.8 15.25 -10.8 236
-item ammo_rifle -1.3 15.38 -4.7 283
+prop models/polyhaven/fern_02/fern_02_c.gltf 9.77 2.26 144.68 298.7 1.68
+prop models/polyhaven/fern_02/fern_02_c.gltf 21.48 18.64 85.18 324.3 1.48
+prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf 7.91 16.81 -60.86 11.6 1.22
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -53.87 2.00 -74.69 288.8 2.30
+prop models/polyhaven/grass_medium_02/grass_medium_02_d.gltf -0.40 19.53 43.73 141.0 1.94
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 19.81 16.60 -40.88 217.5 0.94
+prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf -4.81 19.74 56.22 277.1 1.29
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -38.10 10.16 -89.74 270.4 2.19
+prop models/polyhaven/fern_02/fern_02_c.gltf -4.78 4.14 -129.57 309.3 1.55
+prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 11.65 14.82 -25.13 76.7 1.67
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 25.26 11.93 44.33 137.4 1.73
+prop models/polyhaven/fern_02/fern_02_a.gltf 9.19 25.92 67.98 168.5 1.31
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 45.06 17.00 86.31 160.3 1.39
+prop models/polyhaven/fern_02/fern_02_a.gltf -17.40 1.93 -127.60 149.7 1.17
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 2.55 27.81 82.28 138.3 1.47
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf -5.24 18.53 -41.34 162.2 2.34
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -24.64 1.57 66.92 180.3 2.34
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf 30.58 18.68 97.97 118.8 1.08
+prop models/polyhaven/fern_02/fern_02_c.gltf 14.24 11.82 14.97 119.8 1.48
+prop models/polyhaven/fern_02/fern_02_c.gltf 19.19 22.50 116.39 323.5 0.97
+prop models/polyhaven/weed_plant_02/weed_plant_02_a.gltf -30.74 17.29 -55.35 147.4 1.49
+prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 30.93 12.69 63.56 65.5 1.82
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf -15.66 1.51 139.76 160.0 2.19
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_e.gltf 32.91 16.60 -53.49 211.1 1.31
+prop models/polyhaven/grass_medium_02/grass_medium_02_b.gltf -9.91 18.00 -65.80 14.8 1.76
+prop models/polyhaven/grass_medium_02/grass_medium_02_e.gltf 25.68 22.00 121.96 29.9 1.57
+prop models/polyhaven/crystalline_iceplant/crystalline_iceplant_a.gltf 27.01 4.08 31.20 196.4 2.00
+prop models/own/palm_far.glb -141.82 8.86 -147.89 175.7 1.16
+prop models/own/palm_far.glb -151.34 7.10 -197.65 288.2 1.13
+prop models/own/palm_far.glb -197.30 23.89 -171.56 101.7 0.86
+prop models/own/palm_far.glb -217.74 5.36 -169.73 174.1 0.91
+prop models/own/palm_far.glb -206.74 11.75 -141.47 223.2 1.21
+prop models/own/palm_far.glb -156.66 17.22 -186.40 44.0 1.17
+prop models/own/palm_far.glb -183.24 2.60 -217.47 157.9 1.23
+prop models/own/palm_far.glb -140.59 4.23 -135.56 196.5 1.05
+prop models/own/palm_far.glb -234.37 3.11 -148.86 351.2 1.11
+prop models/own/palm_far.glb -168.34 11.31 -202.13 146.7 1.06
+prop models/own/palm_far.glb -141.83 11.98 -163.39 343.2 1.03
+prop models/own/palm_far.glb -225.58 4.13 -161.78 267.7 0.88
+prop models/own/palm_far.glb -182.30 22.73 -145.21 352.2 1.23
+prop models/own/palm_far.glb -152.80 19.47 -153.35 338.7 0.93
+prop models/own/palm_far.glb -180.34 5.18 -123.71 346.4 0.94
+prop models/own/palm_far.glb -196.16 23.32 -156.61 26.5 1.01
+prop models/own/palm_far.glb -182.59 13.26 -203.39 337.2 0.93
+prop models/own/palm_far.glb -152.60 22.13 -173.44 253.7 1.10
+prop models/own/palm_far.glb -221.43 3.97 -148.90 215.0 1.03
+prop models/own/palm_far.glb -154.91 3.09 -207.84 187.8 1.11
+prop models/own/palm_far.glb -207.81 14.16 -153.93 232.7 0.94
+prop models/own/palm_far.glb -132.52 3.59 -147.73 41.2 0.99
+prop models/own/palm_far.glb -224.35 3.87 -178.61 78.1 1.12
+prop models/own/palm_far.glb -183.65 23.95 -192.10 355.7 0.90
+prop models/own/palm_far.glb -190.26 22.95 -149.68 256.5 1.08
+prop models/own/palm_far.glb -172.33 22.54 -145.88 57.0 1.19
+prop models/own/palm_far.glb -237.04 3.98 -167.64 318.6 1.11
+prop models/own/palm_far.glb -194.62 21.56 -189.40 315.2 0.95
+prop models/own/palm_far.glb -146.31 2.86 -127.25 357.0 0.99
+prop models/own/palm_far.glb -193.95 2.53 -125.35 346.3 1.01
+prop models/own/palm_far.glb -238.48 4.15 -178.12 291.7 1.24
+prop models/own/palm_far.glb -153.93 6.94 -132.29 25.4 0.90
+prop models/own/palm_far.glb -153.53 11.21 -142.87 343.4 0.87
+prop models/own/palm_far.glb -215.86 4.40 -139.85 67.3 1.15
+prop models/own/palm_far.glb -191.70 13.55 -200.93 21.9 1.20
+prop models/own/palm_far.glb -205.14 3.14 -124.50 227.2 0.98
+prop models/own/palm_far.glb -164.53 13.98 -139.89 42.8 0.88
+prop models/own/palm_far.glb -147.36 14.26 -184.62 346.2 0.88
+prop models/own/palm_far.glb -127.00 3.51 -160.57 304.0 1.13
+prop models/own/palm_far.glb -173.04 22.79 -189.36 178.8 0.93
+prop models/own/palm_far.glb -208.33 14.26 -177.95 271.2 0.97
+prop models/own/palm_far.glb -133.77 8.94 -169.32 141.7 1.13
+prop models/own/palm_far.glb -173.08 2.99 -213.08 330.7 1.01
+prop models/own/palm_far.glb -200.64 9.69 -133.48 122.9 1.24
+prop models/own/palm_far.glb -209.75 4.36 -193.10 275.0 0.94
+prop models/own/palm_far.glb -235.43 5.91 -158.32 192.8 1.07
