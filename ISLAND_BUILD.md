@@ -37,13 +37,14 @@ acreage) and it walks end to end in about 95 s at the player's 3.2 m/s, 55 s spr
 |---|---|---|---|
 | 1 | **Slack Tide Cove**, the only landable beach, a burnt-out fire and somebody's abandoned skiff | -14, -140 | `cove` |
 | 2 | **Pelican Pier**, a stone mole with a timber dock house, bollards, fender piles and the goons' motor boat | -68, -112 | `dock`, `intro` |
+| 2a | **The Culvert mouth**, a stone-lined cutting in the bluff behind the mole with a steel door at the end of it: the way into the cave, thirteen metres off the boat | -52, -108 | `door:cave` |
 | 3 | **Pad One**, the helipad on the bluff, two blue-roofed sheds and a wind sock | -48, -92 | `helipad` |
 | 4 | **Villa Ambergris**, colonnaded, turquoise-roofed, two wings closing a courtyard round a lit basin | -16, -68 | `compound` |
 | 5 | **The Oval**, an oval pool, a three-arched pool house, four cabanas, loungers and parasols | 16, -48 | `pool` |
 | 6 | **The Bunkhouse**, staff quarters: four identical doors, air conditioners, a washing line | -32, -32 | `bunkhouse` |
 | 7 | **The Cistern**, a galvanised water tower on the saddle | -2, -4 | `cistern` |
 | 8 | **Windward Point**, a parapet on the north cliff, 20 m of air below it, a telescope and a bench | -22, 46 | `lookout` |
-| 9 | **Utility Two** and **the Culvert**: a half-buried concrete shed whose doorway is the mouth of a 17 m cutting into the hill that dead-ends at a door nobody has opened | 30, 89 | `culvert`, `tunnel` |
+| 9 | **Utility Two** and **the Culvert**: a half-buried concrete shed whose doorway is the mouth of a 17 m cutting into the hill, ending at a steel door. The back way into the cave | 30, 89 | `culvert`, `tunnel` |
 | 10 | **The Court**, a bermed rectangle with nothing in it and no explanation | 32, 113 | `court` |
 | 11 | **The Music Room**, the blue-and-white striped pavilion on the eastern high point, roof open where the dome used to be, two gold birds still bolted on, a sealed hatch inside | 0, 126 | `temple` |
 | 12 | **Great Goonstein**, the empty neighbour across the cut — scenery only | -178, -168 | — |
@@ -116,7 +117,11 @@ windward (east and south) side. Height inland from the waterline is `min(crest, 
 slope)`; offshore it falls away exponentially to about -26 m. `BEACHES` widens the apron at the
 cove, the north beach and the dock shelf; `HARD_SHORE` doubles the slope where cliffs are wanted.
 `PADS` levels the built ground (circles and rectangles, each with its own blend); `PATHS` samples
-the ground along each golf-cart road, smooths the profile and cuts the corridor in. Then
+the ground along each golf-cart road, smooths the profile and cuts the corridor in. `CUTS` comes
+LAST, after both -- a pad is ground levelled before anything was built on it, a cutting is a trench
+dug into whatever is there, roads included, and the order is not cosmetic: the only two flat strips
+near Pelican Pier are the quay and the dock road, and a trench the road then grades back over is not
+a trench. One entry today, `pier_culvert`, the notch the Culvert mouth stands in. Then
 `--scatter` rejection-samples 104 palms (three variants by height and slope), 480 bushes, 38
 agaves, 70 boulders and 150 tufts of ground cover by height, slope, moisture noise and distance
 from roads and pads, plus 46 palm imposters on the empty neighbour island.
@@ -125,7 +130,8 @@ from roads and pads, plus 46 palm imposters on the empty neighbour island.
         --scatter-into assets/levels/island.txt
 
 `--report` prints the ground height at every named site; `--preview` writes a hill-shaded
-top-down map. `--scatter-into` replaces the block below the `vegetation` banner in a level file
+top-down map; `--map` writes the hand-drawn paper map the player holds up in game
+(`assets/textures/map_island.png` and its `region` sidecar -- see README, "The map"). `--scatter-into` replaces the block below the `vegetation` banner in a level file
 in place (`--scatter FILE` still just writes it out); `--out-dir` puts the three terrain files
 somewhere else, for A/B runs. After any run that changes the heights, follow it with
 `tools/island_resnap.py` (section 6).

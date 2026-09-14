@@ -6,6 +6,8 @@ Writes, relative to the repo root:
     assets/levels/island_terrain_h.png   257x257 RGBA8, 16-bit height packed as R<<8|G
     assets/levels/island_terrain_c.png   257x257 RGBA8, vertex colours
     assets/levels/island_terrain.txt     sidecar: cell / origin / water
+    assets/textures/map_island.png       1024x640 RGBA8, the hand-drawn paper map (--map)
+    assets/textures/map_island.txt       sidecar: the world rectangle the map image covers (--map)
 
 and prints (with --scatter) a block of level `prop` lines for the vegetation and rocks, and
 (with --report) the terrain height at every named site so props can be placed on the ground.
@@ -30,6 +32,7 @@ Usage:
     python3 tools/island_terrain.py --report        # + height at every named site
     python3 tools/island_terrain.py --scatter FILE  # + write prop lines to FILE
     python3 tools/island_terrain.py --preview FILE  # + write a top-down PNG to eyeball
+    python3 tools/island_terrain.py --map           # + write the paper map the player holds up
 """
 
 import argparse
@@ -390,11 +393,25 @@ PATHS = [
 ]
 
 
+# Cuttings, dug AFTER the roads. A pad is ground that was levelled before anything was built on
+# it; a cutting is a trench dug into whatever is already there, roads included, and the order
+# matters because the only two flat strips near Pelican Pier are the quay and the dock road, and a
+# trench that the road then graded back over is not a trench. (x0, x1, z0, z1), floor, falloff.
+CUTS = [
+    # The Culvert's seaward mouth: a 6 x 6.8 m notch in the bluff behind the mole, floor at 4.05,
+    # so the stone lining in island.txt has flat ground to stand on and the hill closes back over
+    # the door in the two and a half metres behind it. See assets/levels/island.txt, "THE CULVERT
+    # MOUTH". The dock road clips its outer corner by about a metre, which is what a road passing
+    # a culvert mouth looks like.
+    ("pier_culvert", (-56.0, -50.0, -112.4, -105.8), 4.05, 1.8),
+]
+
+
 MARKS = [
     ("Slack Tide Cove", -14, -140), ("Pelican Pier", -70, -112), ("Pad One", -48, -92),
     ("Villa Ambergris", -16, -68), ("The Oval", 16, -48), ("Cabana Row", 30, -48),
     ("The Bunkhouse", -32, -32), ("The Cistern", -2, -4), ("Windward Point", -22, 46),
-    ("Utility Two", 34, 89), ("the Culvert", 14, 89), ("The Court", 32, 113),
+    ("Utility Two", 34, 89), ("the Culvert", 14, 89), ("Culvert Mouth", -52, -108), ("The Court", 32, 113),
     ("The Music Room", 0, 126), ("Great Goonstein", -178, -168),
 ]
 
@@ -484,6 +501,21 @@ def build():
             if best_t > 0:
                 h[zi][xi] = lerp(h[zi][xi], best_h, best_t * 0.92)
                 road_mask[zi][xi] = best_t
+
+    # --- cuttings: dug last, into whatever the pads and the roads left ---
+    for _name, (x0, x1, z0, z1), floor, fall in CUTS:
+        for zi in range(N):
+            wz = ORIGIN[2] + zi * CELL
+            if wz < z0 - fall - CELL or wz > z1 + fall + CELL:
+                continue
+            for xi in range(N):
+                wx = ORIGIN[0] + xi * CELL
+                dx = max(x0 - wx, 0.0, wx - x1)
+                dz = max(z0 - wz, 0.0, wz - z1)
+                t = 1.0 - smoothstep(0.0, fall, math.hypot(dx, dz))
+                if t > 0:
+                    h[zi][xi] = lerp(h[zi][xi], floor, t)
+                    road_mask[zi][xi] *= 1.0 - t      # no tarmac painted down a rock cutting
 
     return h, road_mask
 
@@ -629,6 +661,16 @@ def encode(hv):
 
 
 OUT_DIR = os.path.join(ROOT, "assets/levels")
+TEX_DIR = os.path.join(ROOT, "assets/textures")
+
+# The paper map (--map) is a second, independent projection of the same heightfield: a fixed
+# 1024x640 image over a fixed world rectangle, chosen to comfortably frame the whole island
+# inside the card with a little sea margin (the terrain itself runs to +/-224). See `write_map`
+# for the why of north-up and the sidecar.
+MAP_W, MAP_H = 2048, 1280   # 0.172 m per pixel: the card shows about a third of the island at a time
+                            # (src/map.c MAP_ZOOM_MIN), so the print has to hold up magnified
+MAP_X0, MAP_X1 = -110.0, 110.0
+MAP_Z0, MAP_Z1 = -176.0, 176.0
 
 
 def write_terrain(h, col):
@@ -741,6 +783,249 @@ def write_preview(h, col, path, annotate=True):
     d.text((8, 8), "GOONSTEIN ISLAND   %d x %d m   summit %.0f m   sea level 0"
            % (302, 114, max(max(r) for r in h)), fill=(250, 250, 250))
     im.save(path)
+
+
+# --------------------------------------------------------------------------- paper map
+
+# The player-held map is a completely different picture of the same island: hand-drawn ink on
+# aged paper instead of a hill-shaded render, and it lives in assets/textures (a game texture)
+# rather than assets/levels (terrain data), because at runtime it is just a quad the viewmodel
+# paints, not something the terrain loader touches.
+#
+# Its projection is fixed and north-up -- world -X is island north, so column = world Z (east to
+# the right) and row = world X (south downward) -- rather than reusing the terrain's own N/CELL/
+# ORIGIN grid, because a paper card is a real-world object with a fixed size and a fixed idea of
+# "up": it does not resize when TERRAIN_N changes, and it should not have to. The one thing that
+# has to be exact is that the C renderer and this script agree on which world rectangle the image
+# covers, and a two-line sidecar (map_island.txt) is cheaper and less error-prone than keeping
+# four magic numbers in sync in two languages -- the C side reads them back instead of hard-coding
+# a copy that could quietly drift out of step with the art.
+MAP_PAPER_LIGHT = (236, 224, 198)
+MAP_PAPER_DARK = (206, 190, 158)
+MAP_PAPER_MID = tuple((MAP_PAPER_LIGHT[i] + MAP_PAPER_DARK[i]) // 2 for i in range(3))
+MAP_INK_HATCH = (60, 52, 44)
+MAP_INK_COAST = (38, 32, 26)
+MAP_INK_ECHO = (120, 110, 96)
+MAP_INK_ROAD = (96, 84, 68)
+MAP_INK_LABEL = (48, 40, 32)
+
+# (height, hatch spacing in px). Below ~4 m the spacing is so wide the per-cell draw probability
+# (see `write_map`) rounds to nothing; by 10 m it is a sparse cross-country hatch, by 22 m it is
+# dense, and past that the ground is steep enough that a second 135-degree pass cross-hatches it.
+MAP_HATCH_SPACING = [(4.0, 420.0), (7.0, 40.0), (10.0, 7.0), (16.0, 4.5), (22.0, 3.0), (30.0, 2.3)]
+
+
+def map_uv(wx, wz):
+    """World -> map-image pixel. World +Z runs right (column), world +X runs down (row) -- see
+    the block comment above `MAP_PAPER_LIGHT` for why the map is a fixed, independent, north-up
+    projection rather than a view onto the terrain grid."""
+    u = (wz - MAP_Z0) / (MAP_Z1 - MAP_Z0) * MAP_W
+    v = (wx - MAP_X0) / (MAP_X1 - MAP_X0) * MAP_H
+    return u, v
+
+
+def map_world(u, v):
+    """Map-image pixel -> world. The inverse of `map_uv`."""
+    wz = MAP_Z0 + u / MAP_W * (MAP_Z1 - MAP_Z0)
+    wx = MAP_X0 + v / MAP_H * (MAP_X1 - MAP_X0)
+    return wx, wz
+
+
+def mix255(a, b, t):
+    return tuple(int(round(lerp(a[i], b[i], t))) for i in range(3))
+
+
+def map_wobble(seed, a, b):
+    """A deterministic +/-1.2 px low-frequency jitter, a function of smooth position rather than
+    per-pixel noise, so a run of neighbouring ink marks wobbles together the way a drawn line
+    does instead of scattering into salt-and-pepper static."""
+    return (fbm(seed, a / 16.0, b / 16.0, 2) - 0.5) * 2.4
+
+
+def map_contour_marks(hgrid, level):
+    """Every pixel where the sign of (height - level) differs from its right or below neighbour:
+    the cheap, robust way to trace a height contour on a regular grid without marching squares."""
+    marks = []
+    for v in range(MAP_H - 1):
+        row, rown = hgrid[v], hgrid[v + 1]
+        for u in range(MAP_W - 1):
+            hh = row[u]
+            if (hh - level) * (row[u + 1] - level) < 0 or (hh - level) * (rown[u] - level) < 0:
+                marks.append((u, v))
+    return marks
+
+
+def map_rect_perimeter(x0, y0, x1, y1, step):
+    """Points walking clockwise around a rectangle at roughly `step` px apart, for drawing it as
+    a polyline (and therefore wobbling it) instead of PIL's dead-straight `rectangle`."""
+    pts = []
+    n = max(2, int((x1 - x0) / step))
+    pts += [(x0 + (x1 - x0) * i / n, y0) for i in range(n)]
+    n = max(2, int((y1 - y0) / step))
+    pts += [(x1, y0 + (y1 - y0) * i / n) for i in range(n)]
+    n = max(2, int((x1 - x0) / step))
+    pts += [(x1 - (x1 - x0) * i / n, y1) for i in range(n)]
+    n = max(2, int((y1 - y0) / step))
+    pts += [(x0, y1 - (y1 - y0) * i / n) for i in range(n)]
+    return pts
+
+
+def draw_dashed(draw, pts, colour, dash=4.0, gap=4.0, step=0.75):
+    """A polyline drawn as single-pixel dashes: walk it at `step` px and toggle on/off by
+    distance travelled, rather than trying to fit whole dashes to each segment."""
+    total = 0.0
+    for i in range(len(pts) - 1):
+        (x0, y0), (x1, y1) = pts[i], pts[i + 1]
+        seg = math.hypot(x1 - x0, y1 - y0)
+        if seg < 1e-6:
+            continue
+        n = max(1, int(seg / step))
+        for s in range(n + 1):
+            t = s / n
+            if (total % (dash + gap)) < dash:
+                draw.point((lerp(x0, x1, t), lerp(y0, y1, t)), fill=colour)
+            total += seg / n
+
+
+def write_map(h):
+    """The hand-held paper map: ink on aged paper, drawn once from the same heightfield as the
+    terrain, at a fixed independent projection (see the block comment above `MAP_PAPER_LIGHT`).
+    Order matters -- each pass below draws over the last, paper first and the border last."""
+    from PIL import ImageDraw, ImageFont
+
+    rng = random.Random(SEED ^ 0x4D415021)          # "MAP!", kept apart from the terrain's RNG uses
+
+    # Pixel-resolution heightfield, computed once: every later pass is an O(1) lookup into this
+    # instead of a repeat bilinear sample of the 257x257 terrain grid.
+    wz_of_u = [MAP_Z0 + (u + 0.5) / MAP_W * (MAP_Z1 - MAP_Z0) for u in range(MAP_W)]
+    hgrid = []
+    for v in range(MAP_H):
+        wx = MAP_X0 + (v + 0.5) / MAP_H * (MAP_X1 - MAP_X0)
+        hgrid.append([sample(h, wx, wz) for wz in wz_of_u])
+
+    # --- 1. paper ---
+    paper_path = os.path.join(TEX_DIR, "paper.png")
+    if os.path.exists(paper_path):
+        tile = Image.open(paper_path).convert("L")
+        grey = Image.new("L", (MAP_W, MAP_H))
+        for ty in range(0, MAP_H, tile.height):
+            for tx in range(0, MAP_W, tile.width):
+                grey.paste(tile, (tx, ty))
+        lo, hi = grey.getextrema()
+        if hi <= lo:
+            hi = lo + 1
+        luts = []
+        for c in range(3):
+            dark, light = MAP_PAPER_DARK[c], MAP_PAPER_LIGHT[c]
+            luts.append([int(clamp(round(dark + (light - dark) * (v - lo) / (hi - lo)), 0, 255))
+                         for v in range(256)])
+        card = Image.merge("RGB", (grey.point(luts[0]), grey.point(luts[1]), grey.point(luts[2])))
+    else:
+        card = Image.new("RGB", (MAP_W, MAP_H), MAP_PAPER_LIGHT)
+        px = card.load()
+        for v in range(MAP_H):
+            for u in range(MAP_W):
+                n = rng.randint(-14, 14)
+                px[u, v] = tuple(clamp(c + n, 0, 255) for c in MAP_PAPER_LIGHT)
+
+    # --- 2. sea: the paper itself, pushed a touch cool and darker -- never a flat blue slab ---
+    px = card.load()
+    for v in range(MAP_H):
+        row = hgrid[v]
+        for u in range(MAP_W):
+            if row[u] < WATER:
+                r, g, b = px[u, v]
+                px[u, v] = (int(r * 0.90), int(g * 0.91), int(min(255, b * 0.94 + 10)))
+
+    draw = ImageDraw.Draw(card)
+
+    # --- 3. land shading: jittered-grid hatching, spacing tightening with height ---
+    step = 2
+    for v in range(0, MAP_H, step):
+        for u in range(0, MAP_W, step):
+            hh = hgrid[min(v, MAP_H - 1)][min(u, MAP_W - 1)]
+            if hh < WATER:
+                continue
+            spacing = curve(MAP_HATCH_SPACING, hh)
+            prob = clamp((step / spacing) ** 2, 0.0, 1.0)
+            if prob <= 0.0 or rng.random() > prob:
+                continue
+            x = u + rng.uniform(0, step)
+            y = v + rng.uniform(0, step)
+            length = rng.uniform(3.0, 5.0)
+            r_ = length * 0.5 / math.sqrt(2.0)
+            colour = mix255(MAP_PAPER_MID, MAP_INK_HATCH, rng.uniform(0.55, 0.75))
+            draw.line([(x - r_, y + r_), (x + r_, y - r_)], fill=colour)          # 45 degrees
+            if hh >= 26.0:
+                colour2 = mix255(MAP_PAPER_MID, MAP_INK_HATCH, rng.uniform(0.55, 0.75))
+                draw.line([(x - r_, y - r_), (x + r_, y + r_)], fill=colour2)     # 135: summit cross-hatch
+
+    # --- 4. coastline: the h == WATER contour, thickened and wobbled off machine-clean ---
+    px = card.load()
+    for u, v in map_contour_marks(hgrid, WATER):
+        x = int(clamp(u + round(map_wobble(SEED + 701, u, v)), 0, MAP_W - 1))
+        y = int(clamp(v + round(map_wobble(SEED + 702, u + 500, v + 500)), 0, MAP_H - 1))
+        for ox, oy in ((0, 0), (1, 0), (0, 1)):
+            if x + ox < MAP_W and y + oy < MAP_H:
+                px[x + ox, y + oy] = MAP_INK_COAST
+
+    # --- 5. two echo lines in the sea, parallel to the coast: the nautical-chart look ---
+    for level in (-2.5, -5.5):
+        for u, v in map_contour_marks(hgrid, level):
+            x = int(clamp(u + round(map_wobble(SEED + 703, u, v)), 0, MAP_W - 1))
+            y = int(clamp(v + round(map_wobble(SEED + 704, u + 500, v + 500)), 0, MAP_H - 1))
+            px[x, y] = MAP_INK_ECHO
+
+    # --- 6. roads: every golf-cart path, dashed ---
+    for _name, pts, _width in PATHS:
+        draw_dashed(draw, [map_uv(x, z) for x, z in pts], MAP_INK_ROAD)
+
+    # --- 7. labels: a tick-dot and a name for every mark inside the region ---
+    font_path = os.path.join(ROOT, "assets/fonts/VT323-Regular.ttf")
+    try:
+        font = ImageFont.truetype(font_path, 22) if os.path.exists(font_path) else ImageFont.load_default()
+    except OSError:
+        font = ImageFont.load_default()
+    for name, mx, mz in MARKS:
+        u, v = map_uv(mx, mz)
+        if not (0 <= u < MAP_W and 0 <= v < MAP_H):
+            continue
+        draw.ellipse([u - 1.5, v - 1.5, u + 1.5, v + 1.5], fill=MAP_INK_LABEL)
+        bbox = draw.textbbox((0, 0), name, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        tx = u + 7
+        if tx + tw > MAP_W - 12:
+            tx = u - 7 - tw
+        tx = clamp(tx, 12, MAP_W - 12 - tw)
+        ty = clamp(v - th / 2.0, 12, MAP_H - 12 - th)
+        draw.text((tx, ty), name, font=font, fill=MAP_INK_LABEL)
+
+    # --- 8. a hand-drawn border: two wobbled rectangles ---
+    for inset, width, seedbase in ((10, 2, SEED + 801), (14, 1, SEED + 803)):
+        pts = map_rect_perimeter(inset, inset, MAP_W - inset, MAP_H - inset, 4.0)
+        wpts = [(px_ + map_wobble(seedbase, i, 0), py_ + map_wobble(seedbase + 1, i, 17))
+                for i, (px_, py_) in enumerate(pts)]
+        wpts.append(wpts[0])
+        draw.line(wpts, fill=MAP_INK_LABEL, width=width)
+
+    # --- 9. two fold creases: the card is a folded map ---
+    px = card.load()
+    for cx in (MAP_W // 3, 2 * MAP_W // 3):
+        for v in range(MAP_H):
+            r, g, b = px[cx, v]
+            px[cx, v] = (int(r * 0.90), int(g * 0.90), int(b * 0.90))
+            r2, g2, b2 = px[cx + 1, v]
+            px[cx + 1, v] = (min(255, int(r2 * 1.08)), min(255, int(g2 * 1.08)), min(255, int(b2 * 1.08)))
+
+    os.makedirs(TEX_DIR, exist_ok=True)
+    png_path = os.path.join(TEX_DIR, "map_island.png")
+    txt_path = os.path.join(TEX_DIR, "map_island.txt")
+    card.convert("RGBA").save(png_path)
+    with open(txt_path, "w") as f:
+        f.write("# generated by tools/island_terrain.py --map, do not hand-edit\n")
+        f.write("region %d %d %d %d\n" % (int(MAP_X0), int(MAP_X1), int(MAP_Z0), int(MAP_Z1)))
+        f.write("size %d %d\n" % (MAP_W, MAP_H))
+    print("map: %s (%dx%d)  %s" % (png_path, MAP_W, MAP_H, txt_path))
 
 
 # --------------------------------------------------------------------------- scatter
@@ -858,6 +1143,9 @@ def near_pad(wx, wz, extra=0.0):
 # in the doorway with its trunk collider blocking the way through.
 KEEPOUT = [
     ("culvert_cutting", (8.5, 28.0, 85.5, 93.5)),
+    # the same argument at the pier mouth: the cutting behind the mole is stone-lined and roofed,
+    # and a palm growing in the doorway is a tree standing in the way of the door
+    ("pier_culvert", (-58.5, -46.5, -113.5, -103.5)),
 ]
 
 
@@ -1061,6 +1349,7 @@ def main():
     ap.add_argument("--report", action="store_true")
     ap.add_argument("--scatter", metavar="FILE")
     ap.add_argument("--preview", metavar="FILE")
+    ap.add_argument("--map", action="store_true", help="+ write the paper map (assets/textures/map_island.png/.txt)")
     ap.add_argument("--out-dir", metavar="DIR", help="write the three terrain files somewhere else (A/B runs)")
     ap.add_argument("--scatter-into", metavar="LEVEL",
                     help="replace the vegetation block at the end of a level file in place")
@@ -1082,6 +1371,9 @@ def main():
     if args.preview:
         write_preview(h, col, args.preview)
         print("preview: " + args.preview)
+
+    if args.map:
+        write_map(h)
 
     if args.report:
         print("\n%-26s %8s %8s %8s" % ("site", "x", "z", "ground y"))
