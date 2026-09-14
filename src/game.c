@@ -538,6 +538,59 @@ void game_snap_camera(Game *g) {
     else camera_snap_behind(&g->cam, PLAYER(g).c.pos, PLAYER(g).c.yaw, &g->level);
 }
 
+// --- map --- What the local player is supposed to be doing right now, on this level. It is
+// deliberately three lines of "if": on the island, walk to whichever `door:` trigger is nearest,
+// unless the boss is already dead, in which case walk to the boat instead; in the culvert, kill the
+// boss, unless it is already dead, in which case walk back out through `door:island`. Everything
+// this needs to answer that -- who is playing, which level they are standing in, whether the boss
+// in it is alive -- game.c already owns, which is the whole reason this lives here instead of in
+// map.c: a quest log would need its own state to track, and this needs none at all.
+Objective game_objective(const Game *g) {
+    if (g->state != GS_EXPLORE) return (Objective){0};
+    if (boss_present(g)) {
+        if (boss_alive(g)) {
+            Objective o = { .kind = OBJ_BOSS, .pos = g->cave.b.c.pos, .has_pos = true };
+            snprintf(o.text, sizeof o.text, "BEAT THE THING IN THE CULVERT");
+            return o;
+        }
+        // Boss dead: the way out is the cave's one `door:` trigger (`door:island`).
+        for (int i = 0; i < g->level.ntriggers; i++) {
+            const Trigger *t = &g->level.triggers[i];
+            if (strncmp(t->name, "door:", 5) != 0) continue;
+            Objective o = { .kind = OBJ_OUT, .pos = v3_scale(v3_add(t->vmin, t->vmax), 0.5f), .has_pos = true };
+            snprintf(o.text, sizeof o.text, "GET OUT");
+            SDL_strlcpy(o.route, t->name, sizeof o.route);
+            return o;
+        }
+        return (Objective){0};   // no door trigger on this level: nothing to point at
+    }
+    // The island.
+    if (g->boss_beaten) {
+        Objective o = { .kind = OBJ_BOAT, .pos = g->level.spawn, .has_pos = true };
+        for (int i = 0; i < g->level.nprops; i++)
+            if (!strcmp(g->level.props[i].name, "boat")) { o.pos = g->level.props[i].pos; break; }
+        snprintf(o.text, sizeof o.text, "BACK TO THE BOAT");
+        return o;
+    }
+    // Not beaten yet: the NEAREST `door:` trigger, because the island now has two ways into the
+    // same tunnel and the compass should point at the one that is actually walkable from here.
+    Vec3 me = PLAYER(g).c.pos;
+    int best = -1; float best_d = 0;
+    for (int i = 0; i < g->level.ntriggers; i++) {
+        const Trigger *t = &g->level.triggers[i];
+        if (strncmp(t->name, "door:", 5) != 0) continue;
+        Vec3 c = v3_scale(v3_add(t->vmin, t->vmax), 0.5f);
+        float d = hypotf(me.x - c.x, me.z - c.z);
+        if (best < 0 || d < best_d) { best = i; best_d = d; }
+    }
+    if (best < 0) return (Objective){0};
+    const Trigger *t = &g->level.triggers[best];
+    Objective o = { .kind = OBJ_CAVE, .pos = v3_scale(v3_add(t->vmin, t->vmax), 0.5f), .has_pos = true };
+    snprintf(o.text, sizeof o.text, "FIND THE CULVERT");
+    SDL_strlcpy(o.route, t->name, sizeof o.route);
+    return o;
+}
+
 // Puts players[slot] at the level spawn, spread out so seated players don't stack.
 // --- boss --- Four goons cannot all stand on one point, so a slot's spawn is the level's spawn
 // stepped sideways. Exported because a solo respawn in the cave needs the same answer.
@@ -685,6 +738,7 @@ static void warp_now(Game *g) {
     if (!load_defs(g)) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "level %s failed to load; staying where we are", path);
     world_textures_create(&g->gfx, &g->wt);   // the new level's `look texcap` applies to these too
     projectiles_reset(g);                     // nothing in the air survives a door
+    map_unload(g);                            // --- map --- the last level's printed map does not survive it either
     setup_level_content(g);
     reset_to_start(g);
     snprintf(g->net.level_name, sizeof g->net.level_name, "%s", g->warp.to);   // late joiners get told the truth
@@ -998,8 +1052,10 @@ static void tick_explore(Game *g, const Input *in, float dt) {
         if (d < np->radius && g->talk_npc < 0) g->talk_npc = i;
     }
     items_tick(g, in, dt);   // after the camera: the hold point hangs off this tick's view
+    map_tick(g, in, dt);        // --- map --- before weapons_tick, so the weapon knows this tick that it is being lowered
     weapons_tick(g, in, dt);   // --- weapons --- after the items: the thing just picked up is already in hand
     boss_tick(g, dt);          // --- boss --- after the weapons: this tick's damage is already applied
+    if (boss_present(g) && g->cave.b.state == BS_DEAD) g->boss_beaten = true;   // --- map --- the objective turns round for good
     // Hands full, or loot in view: E belongs to the item, not to the conversation.
     if (g->talk_npc >= 0 && in->interact && g->state == GS_EXPLORE && !g->no_scenes
         && g->items.carry[g->local].item < 0 && g->items.look_at < 0 && !g->weapons.prompt[0])
@@ -1778,13 +1834,16 @@ static void draw_hud(Game *g, Platform *pf) {
     // --- boss --- Under the item and weapon HUDs so the numbers stay readable through it, and
     // above everything the world drew so it reads as the screen rather than as fog.
     draw_hurt_vignette(x, g->hurt_flash, g->hurt_dir);
+    if (g->state == GS_EXPLORE) map_draw_hud(g);       // --- map --- the compass strip, first so the ammo and item HUDs draw over it
     if (g->state == GS_EXPLORE) boss_draw_hud(g);
     if (g->state == GS_EXPLORE) items_draw_hud(g);
     if (g->state == GS_EXPLORE) weapons_draw_hud(g);   // --- weapons --- ammo, wind, DOWN, the prompt
     if (g->hint_t > 0 && g->state == GS_EXPLORE) {
         float a = fminf(1, g->hint_t);
-        text_center(x, W * 0.5f, 30, 1.0f, v4(0.85f, 0.85f, 0.8f, a), "WASD move   Shift sprint   E interact   walk the path");
-        text_center(x, W * 0.5f, 44, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "F2 environment editor   F3 character builder   F4 debugger   Esc menu");
+        // --- map --- the compass strip owns the top of the frame now; the opening hint drops
+        // below it rather than printing through it for its first few seconds
+        text_center(x, W * 0.5f, 42, 1.0f, v4(0.85f, 0.85f, 0.8f, a), "WASD move   Shift sprint   E interact   M map");
+        text_center(x, W * 0.5f, 54, 1.0f, v4(0.6f, 0.6f, 0.55f, a), "F2 environment editor   F3 character builder   F4 debugger   Esc menu");
     }
     if (g->state == GS_FIGHT && g->cam.locked && g->boss.state != BS_DEAD) {
         // lock-on marker: a small diamond over the boss, projected
@@ -2219,6 +2278,10 @@ void game_render_at(Game *g, Platform *pf, float alpha) {
     // field of view) and a slice of the depth buffer of its own (so a barrel pressed into a wall
     // stays a barrel), and neither of those is safe unless nothing is drawn over the top of it.
     // See weapons.h and docs/weapons_feel.md.
+    // --- map --- The card goes in first, but the order is not what decides which is in front:
+    // both are in the viewmodel's depth slice, so the depth test does, and the card is nearer to
+    // the eye than the grip is. The weapon is already on its way out of frame by then anyway.
+    map_draw_viewmodel(g);
     weapons_draw_viewmodel(g);
 
     if (pf->debug) {

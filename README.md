@@ -69,8 +69,9 @@ and what is verified versus untested.
 | Draw / holster the weapon | Q or scroll wheel | Y            |
 | Put the weapon down | G                   |                  |
 | Push to talk  | V (hold)                  | LB (hold)        |
+| Raise the map | M                         | Back / Select    |
 | Skip cutscene | Enter                     | Start            |
-| Debug overlay | F1                        | Back / Select    |
+| Debug overlay | F1                        | --               |
 | World editor  | F2                        |                  |
 | Character builder | F3                    |                  |
 | Debugger      | F4                        |                  |
@@ -627,6 +628,131 @@ sprinting 78 without waiting for the bot to happen to be at the right speed. `HO
 pitch roll scale"` (and `HOLLOW_GRIP_PISTOL`, `HOLLOW_GRIP_RIFLE`, `HOLLOW_GRIP_BAT`,
 `HOLLOW_GRIP_WRENCH`) retunes how a weapon sits in the hand without a rebuild.
 
+## The map
+
+The goons could not find the cave. The Culvert's only door was three hundred metres away at the far
+end of the island behind a building, the walk to it went over a saddle and up a flank, and a player
+who stepped off the boat and set off in a straight line arrived on a roof. Two things came out of
+that: the cave now opens in the bluff behind the pier (see [The cave](#the-cave)), and the game
+finally tells you where things are. This section is the second one. It is
+`src/map.c`, `src/map.h`, the compass strip in the same file, `game_objective` in `src/game.c`, and
+`tools/island_terrain.py --map`.
+
+### Press M
+
+M raises a paper map, or the pad's Back button does. It is **not a screen**: there is no pause, no
+zoom, no fullscreen overlay and nothing is dimmed behind it. The goon lifts a folded card in front
+of his face, the weapon drops out of the picture and cannot fire while it is up, and you keep
+walking. Press M again and it goes down. A level with no map of it says `no map of this place` and
+nothing is raised.
+
+It is drawn exactly the way the gun is, through the viewmodel's own lens
+(`camera_view_proj_lens` at 58 degrees) and into the viewmodel's own slice of the depth buffer, in
+`game_render_at`, immediately before `weapons_draw_viewmodel`. That is what makes it an object
+rather than a HUD: it sways behind the mouse, bobs with your stride, tilts back the way paper does
+when you hold it, unfolds into frame instead of sliding in, and is never clipped by the wall you
+are standing against. See "A lens for the gun" in `docs/weapons_feel.md`; the map is the second
+thing to use it and needed no changes to it.
+
+### What is printed on it, and what is drawn on it
+
+Two layers, and the line between them is the point.
+
+**The print** is `assets/textures/map_island.png`, 2048 x 1280, written by
+`python3 tools/island_terrain.py --map` from the same heightmap the terrain is built from. It is
+hand-drawn rather than rendered: the game's own paper texture for a background, an inked coastline
+traced along the `h = 0` contour with a pixel of wobble in it so it is not machine-straight, two
+lighter echo lines in the sea at two and a half and five and a half metres of depth the way a chart
+has them, hill hatching whose spacing tightens with height and cross-hatches above twenty-six
+metres, the golf-cart roads as dashed lines, the place names in VT323, a wobbled double border and
+two vertical fold creases. Nothing about the player is on it. It is a picture of the ground and it
+never changes.
+
+**The overlay** is redrawn every frame on the card: you, as an arrow pointing where you are facing;
+the other goons as dots in their own slot colours; the boat; the objective as a pulsing ring; a
+dotted line along the route with the dashes crawling toward it; and a compass rose with a needle
+that turns with your head. Every one of those is a small unlit quad lying in the card's plane, a
+millimetre or two proud of the paper, drawn in the same viewmodel pass. Nothing is composited into
+a texture and no texture is uploaded per frame -- the world pass has no alpha blending anyway
+(`pipe_world` is opaque and `lit.frag` discards below half alpha), so the marks are opaque colours
+and the layering is done with the depth test that was going to run regardless.
+
+The dotted line is **the level's own `route`**, not a path-finder. `route door:cave` in
+`island.txt` is the walk somebody wrote down (see `assets/levels/README.md`), `game_objective`
+hands the map the route's name, and the map draws a dash every 8 mm of card along it with the
+phase crawling at 28 mm a second so the dashes travel toward the objective. Where a level has
+written down no route there are no dashes, only the marker: the map never invents a way round.
+
+### North is up, and how the C and the Python agree about it
+
+The island's axes put island north at world -X and island east at world +Z, so the card runs
+screen-right along +Z and screen-down along +X, and north is up on the card and on the compass
+strip alike. The print covers world x -110..110 by z -176..176, and that rectangle is written once,
+by the generator, into `assets/textures/map_island.txt`:
+
+    region -110 110 -176 176
+    size 2048 1280
+
+`src/map.c` reads it. Four numbers living in two languages is how a map ends up putting you in the
+sea, and a three-line sidecar is cheaper than that argument.
+
+### The card does not show the whole island
+
+It shows a window of it, wide enough to hold you and whatever you are walking to with a margin,
+never tighter than 120 m and never wider than the print, centred between the two and clamped to the
+paper's edges. That window is a sub-rectangle of the print selected with `uv_xform`, which is the
+same scale-then-offset `world.vert` already applies to every other textured draw. The reason is
+arithmetic: the Culvert mouth is thirteen metres from the boat, and thirteen metres of dotted line
+drawn across three hundred and fifty metres of island is four pixels, which is no line at all. Walk
+to the far end of the island and the map pulls back to cover the walk.
+
+### A level with no printed map
+
+The rule is one line: a level has a printed map if `assets/textures/map_<level>.png` exists beside
+a `map_<level>.txt`. If it does not, and the level has **no terrain**, then it is hand-built out of
+blocks and the blocks are the map -- the cave draws itself from above out of its own `block` lines,
+walls solid black, platforms and pillars lighter, the `arena` rectangle outlined, and a red ring on
+every `door:` trigger, which in the cave is the way back up the tunnel. If it does not and the level
+*does* have terrain (the lantern test level), there is no map of it at all and pressing M says so.
+No table anywhere lists which levels have maps.
+
+### The compass strip
+
+The map is optional, and this is what makes it optional: a bearing tape across the top of the HUD,
+always on, with the objective's name and its distance in metres under it. Eight points of the
+island's compass scroll past as you turn, the objective sits at its own bearing, and when it is
+behind you the mark clamps to the end of the tape and grows an arrow -- a compass that quietly
+stops pointing the moment you turn round is worse than no compass. A player who never presses M is
+still never lost.
+
+### Objectives
+
+Three states and a position. `game_objective` in `src/game.c` is the whole system, and it is that
+small on purpose: anything more is a quest log, and a quest log is not what "I cannot find the
+cave" needed.
+
+| Where | When | It says | It points at |
+|---|---|---|---|
+| the island | the boss has never been beaten | FIND THE CULVERT | the nearest `door:` trigger, and its route |
+| the cave | the boss is alive | BEAT THE THING IN THE CULVERT | the boss, wherever it is standing |
+| the cave | the boss is dead | GET OUT | `door:island` |
+| the island | the boss has been beaten | BACK TO THE BOAT | the prop named `boat` |
+
+`Game.boss_beaten` is set the moment the cave boss goes over and is deliberately **not** cleared by
+a level change: walking back up the tunnel with the relic is the run's last leg and the compass has
+to turn round for it. "The nearest `door:`" matters because the island has two ways into the same
+tunnel now and the compass should point at the one you can walk to.
+
+### Capturing it
+
+`HOLLOW_MAP=1` holds the map up for a whole run, for the same reason `HOLLOW_GRIP` and
+`HOLLOW_VM_REST` exist: a capture harness has no hand to press M with, and a frame nobody can
+photograph is a frame nobody reviews.
+
+    HOLLOW_SILENT=1 HOLLOW_NOPRESENT=1 HOLLOW_FIXED_DT=1 HOLLOW_MAP=1 \
+      ./build/bin/goonstein --level island --volume 0 --no-scenes --first \
+      --frames 90 --screenshot map.png
+
 ## The cave
 
 Everything in this section is `assets/levels/cave.txt`, `assets/enemies/cave_boss.txt` and
@@ -651,32 +777,55 @@ Culvert, is told the host's level name in its `NRM_ACCEPT`, and if that does not
 loaded on its own it follows the host there instead of carrying on alone.
 
 The cave's own `door:island` is the other half of the trip: it takes you back to the island's
-`spawn`, which sits inside the Pelican Pier zone the boat is moored in. Coming back out of the cave
-puts you standing at the extraction point with whatever you are carrying, the relic included.
+`spawn`, which is the boat at Pelican Pier -- and the pier mouth of the Culvert is thirteen metres
+from it, so coming back out puts you at the extraction point, with the door you came out of in
+sight, carrying whatever you are carrying, the relic included.
 
-    trigger door:cave 10.4 16.9 88.3 13.2 21.5 90.7        # island.txt: the last 2.5 m of the cutting
+### Where the door is, and why it moved
+
+There are now TWO doors into the cave, both `door:cave`, both the same tunnel:
+
+    trigger door:cave -53.0 4.1 -109.7 -50.9 8.0 -107.3    # island.txt: the pier mouth, 13 m off the boat
+    trigger door:cave 10.4 16.9 88.3 13.2 21.5 90.7        # island.txt: the Utility Two cutting, the back way
     trigger door:island -3.4 0 -31.4 3.4 3.4 -30.6         # cave.txt: hard against the tunnel's back wall
 
-Getting to that trigger from the boat is its own problem, and it is the reason the level format
-grew a `route` line. The Culvert is cut into the north-east hill, so walking at the door from the
-pier climbs the hill and arrives ON TOP of the cutting's roof slab -- two metres above the doorway,
-outside the trigger, with nowhere to go. The service shed at the mouth of the cutting is walled on
-three sides and its one gap faces east, so even the last twenty metres have to be taken in the right
-order. `route door:cave` in `island.txt` is that walk written down, named after the trigger it leads
-to: off Pelican Pier, west of the villa, north past the Bunkhouse and over the saddle, up the east
-flank to Windward Point, across to Utility Two's yard, round to x 38 and in through the shed. 269 m,
-nothing solid in the way, and no mantle needed anywhere on it -- terrain in this engine has no step
-limit at all (`game_ground_character` plants the feet on the heightfield), so every rise on it is
-simply walked. It was solved rather than guessed: an A* over the heightmap with every block,
-collider and prop collider in the level treated as a wall and the golf-cart roads as cheap ground,
-then thinned to the points where the straight line between them stops being clear.
+It used to be only the second one, and that was the bug. Utility Two is three hundred metres up the
+island; the walk to it crosses the compound, the saddle and the east flank; and the straight line
+from the boat climbs the hill the cutting is dug into and arrives ON TOP of its roof slab, two
+metres above the doorway and outside the trigger, which is where the headless bot used to stand at
+a dead halt for the rest of the run. A player did the same thing, slower, and gave up. A cave you
+cannot find is not a cave.
 
-The island's trigger sits in FRONT of the doorway rather than beyond it. The hill the cutting is dug
-into climbs twelve metres in four, so there is nowhere behind that door to build: you walk up to it,
-the screen goes, and what is on the other side is the cave. The cave's own exit is pushed right up
-against its back wall for a different reason -- the spawn is only seven metres from it and a charge
-can shove a goon a long way, and leaving the fight by accident because something hit you is not a
-thing that should be possible.
+So the tunnel grew a seaward end. **The Culvert mouth** is a stone-lined cutting driven into the
+bluff behind the mole, a little over ten metres from where the boat ties up and very nearly straight
+ahead of where you are looking when you step off it: a dark opening in a rock face, a coral-rock
+arch built out of `block` lines over it, quay stone lining the cutting, a slab roof over the inner
+four metres, two lanterns, something warm and orange deeper in, and a hand-painted board reading
+CULVERT / OUTFALL NO ENTRY (`tools/make_sign.py` writes the texture; the board is a 1 m square
+`block` on integer world coordinates at one repeat per metre, which is what lands exactly one copy
+of the image on its face with nothing wrapped and nothing cut off).
+
+The ground under it is not hand-placed. `tools/island_terrain.py` cuts a 6 x 6.6 m notch out of the
+bluff down to y = 4.05 -- see `CUTS`, which is applied AFTER the pads and AFTER the roads, for the
+reason a real cutting is: the only two flat strips near Pelican Pier are the quay and the dock road,
+and a trench the road then grades back over is not a trench. The hill closes back over the door in
+the two and a half metres behind it, which is why, here as at the other end, nothing is built
+BEYOND the door: you walk up to it, the screen goes, and what is on the other side is the cave.
+
+The Utility Two cutting is untouched and still works. It is the back way now, and the objective and
+the compass (see [The map](#the-map)) point at whichever of the two `door:` triggers is nearer to
+the goon asking.
+
+`route door:cave` shrank with the door: four points and about fourteen metres, off the quay, up the
+lip of the cut and in between the stone lining. `HOLLOW_BOT=boss` from the boat spawn now walks
+through the door in **1.7 seconds**, where the 269 m version took the better part of two minutes
+when it worked at all. The old walk is no longer written down as a route, because a route leads to
+the door you are meant to find and there is only one route per door name.
+
+The island's triggers sit in FRONT of their doorways rather than beyond them. The cave's own exit
+is pushed right up against its back wall for a different reason -- the spawn is only seven metres
+from it and a charge can shove a goon a long way, and leaving the fight by accident because
+something hit you is not a thing that should be possible.
 
 ### The arena
 

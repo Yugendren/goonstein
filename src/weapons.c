@@ -553,6 +553,7 @@ static bool can_fire(const Game *g, int slot, float tolerance) {
     const ItemDef *d = wdef(g, w->item);
     if (!d || d->weapon == 0) return false;
     if (!w->drawn || weapons_frozen(g, slot)) return false;
+    if (map_raised(g) > 0.05f) return false;   // --- map --- the off hand is on the paper, not the trigger
     if (w->cool > tolerance || w->reload > tolerance) return false;
     if (d->weapon == 2 && w->ammo <= 0) return false;
     if (d->weapon == 1 && w->swing > tolerance) return false;

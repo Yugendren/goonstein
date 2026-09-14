@@ -566,6 +566,15 @@ void weapons_draw_viewmodel(Game *g) {
         extra_roll += k * 55.0f;
     }
 
+    // --- map --- The map is a two-handed job: reading it means the gun hand is holding paper, not
+    // a grip, so the weapon drops the same way a holster does while the card is up.
+    float mk = map_raised(g);
+    if (mk > 0) {
+        extra_pos = v3_add(extra_pos, v3_scale(up, -0.42f * mk));
+        extra_pos = v3_add(extra_pos, v3_scale(fwd, -0.10f * mk));
+        extra_roll += 48.0f * mk;
+    }
+
     Mat4 frame = basis_matrix(v3_add(pos, extra_pos), right, up, fwd, v3(1, 1, 1));
     frame = m4_mul(frame, m4_mul(m4_rotate_y(extra_yaw * DEG2RAD),
                     m4_mul(m4_rotate_x(extra_pitch * DEG2RAD), m4_rotate_z(extra_roll * DEG2RAD))));
@@ -974,8 +983,9 @@ void weapons_draw_hud(Game *g) {
     }
 
     // Crosshair: a four-tick reticle that opens up with recoil, only while a weapon is drawn in
-    // first person.
-    if (g->cam.mode == CAM_FIRST && weapons_drawn(g, slot)) {
+    // first person -- and not while the map is up, because the gun cannot fire through paper and a
+    // reticle sitting in the middle of a map is the HUD telling a lie about what the hands are doing.
+    if (g->cam.mode == CAM_FIRST && weapons_drawn(g, slot) && map_raised(g) < 0.05f) {
         float cx = W * 0.5f, cy = H * 0.5f;
         // The reticle opens with the recoil and with the run, and closes again as both settle. It
         // is the only honest thing a crosshair can say about a gun whose next shot will not go

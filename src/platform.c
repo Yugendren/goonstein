@@ -108,6 +108,7 @@ void platform_clear_edges(Platform *pf) {
     in->attack = in->parry = in->dodge = in->interact = in->debug_toggle = false;
     in->pause_toggle = in->step = in->reload = in->skip = in->lockon = false;
     in->jump = false;
+    in->map_toggle = false;
     in->click = in->rclick = false; in->wheel = 0;
     memset(in->key_down, 0, sizeof in->key_down);
     memset(in->tool_key_down, 0, sizeof in->tool_key_down);
@@ -202,6 +203,7 @@ bool platform_poll(Platform *pf) {
             case SDL_SCANCODE_Q: case SDL_SCANCODE_TAB: in->lockon = true; break;
             case SDL_SCANCODE_J: in->attack = true; break;   // keyboard-only fallbacks
             case SDL_SCANCODE_K: in->parry = true; pf->parry_ns = e.key.timestamp; break;
+            case SDL_SCANCODE_M: in->map_toggle = true; break;   // --- map --- raise/lower the paper map
             default: break;
             }
             break;
@@ -268,7 +270,7 @@ bool platform_poll(Platform *pf) {
             case SDL_GAMEPAD_BUTTON_SOUTH: in->interact = true; break;
             case SDL_GAMEPAD_BUTTON_START: in->skip = true; break;
             case SDL_GAMEPAD_BUTTON_RIGHT_STICK: in->lockon = true; break;
-            case SDL_GAMEPAD_BUTTON_BACK:  in->debug_toggle = true; pf->debug = !pf->debug; break;
+            case SDL_GAMEPAD_BUTTON_BACK:  in->map_toggle = true; break;   // --- map --- the pad's debug toggle moved to F1/Ctrl+D
             default: break;
             }
             break;

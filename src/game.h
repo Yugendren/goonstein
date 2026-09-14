@@ -22,6 +22,7 @@
 #include "weapons.h"
 #include "projectile.h"   // --- projectiles --- nails, grenades and the things that carry them
 #include "boss.h"         // --- boss --- the cave fight
+#include "map.h"          // --- map --- the paper map and the objective it points at
 
 #define INTERNAL_W 1280
 #define INTERNAL_H 800
@@ -52,6 +53,9 @@ typedef struct Game {
     // --- boss --- The cave fight: the boss itself, what being hit looks like, and the fade that
     // carries everyone from one level to another. See src/boss.h.
     CaveBoss cave;
+    bool boss_beaten;   // --- map --- the cave boss has gone over at least once this run: the
+                        // objective turns round and points at the boat. Not reset by a level
+                        // change, which is the point.
     float hurt_flash;              // 0..1 red vignette, decays; how hard the last hit was
     Vec3  hurt_dir;                // that hit's direction in the eye's own frame (x right, z forward)
     // A level change in progress. `to` is the level name; the fade runs out, the level loads, the

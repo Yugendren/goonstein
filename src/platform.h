@@ -19,6 +19,7 @@ typedef struct Input {
     float look_stick_x, look_stick_y;
     // Actions, edge-triggered this frame
     bool attack, parry, dodge, interact, lockon;
+    bool map_toggle;   // edge: M, or the pad's Back. Raises and lowers the paper map.
     bool jump;     // edge: Space. The dodge stayed on Shift; a co-op game needs the jump more.
     bool jump_held;// held: the same key. A wall run lasts as long as you keep asking for it.
     bool sprint;   // held
